@@ -1,0 +1,126 @@
+<?php
+
+namespace App\Models;
+
+use Database\Factories\DomainFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Domain extends Model
+{
+    /** @use HasFactory<DomainFactory> */
+    use HasFactory;
+
+    protected $fillable = [
+        'organization_id',
+        'name',
+        'status',
+        'provider',
+        'provider_domain_id',
+        'dns_records',
+        'verified_at',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'dns_records' => 'array',
+            'verified_at' => 'datetime',
+        ];
+    }
+
+    public function organization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class);
+    }
+
+    /**
+     * @return array{records: list<array<string, mixed>>, checks: array{spf: bool, dkim: bool, dmarc: bool}}
+     */
+    public static function defaultDnsRecords(string $name): array
+    {
+        return [
+            'checks' => [
+                'spf' => false,
+                'dkim' => false,
+                'dmarc' => false,
+            ],
+            'records' => [
+                [
+                    'type' => 'TXT',
+                    'name' => "resend._domainkey.{$name}",
+                    'value' => 'p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQMockDkimKey…',
+                    'label' => 'DKIM',
+                    'key' => 'dkim',
+                ],
+                [
+                    'type' => 'TXT',
+                    'name' => $name,
+                    'value' => 'v=spf1 include:amazonses.com ~all',
+                    'label' => 'SPF',
+                    'key' => 'spf',
+                ],
+                [
+                    'type' => 'TXT',
+                    'name' => "_dmarc.{$name}",
+                    'value' => 'v=DMARC1; p=none;',
+                    'label' => 'DMARC',
+                    'key' => 'dmarc',
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toWorkspaceArray(?string $region = null): array
+    {
+        $dns = $this->normalizedDnsRecords();
+
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            'status' => $this->status,
+            'region' => $region ?? $this->organization?->region ?? 'us-east-1',
+            'created' => $this->created_at?->timezone(config('app.timezone'))->format('M j, Y') ?? '',
+            'records' => $dns['checks'],
+            'dns_rows' => $dns['records'],
+            'provider' => $this->provider,
+            'verified_at' => $this->verified_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array{records: list<array<string, mixed>>, checks: array{spf: bool, dkim: bool, dmarc: bool}}
+     */
+    public function normalizedDnsRecords(): array
+    {
+        $raw = $this->dns_records;
+
+        if (is_array($raw) && isset($raw['records'], $raw['checks'])) {
+            return [
+                'records' => array_values($raw['records']),
+                'checks' => [
+                    'spf' => (bool) ($raw['checks']['spf'] ?? false),
+                    'dkim' => (bool) ($raw['checks']['dkim'] ?? false),
+                    'dmarc' => (bool) ($raw['checks']['dmarc'] ?? false),
+                ],
+            ];
+        }
+
+        if (is_array($raw) && array_is_list($raw)) {
+            return [
+                'records' => $raw,
+                'checks' => [
+                    'spf' => $this->status === 'verified',
+                    'dkim' => $this->status === 'verified',
+                    'dmarc' => $this->status === 'verified',
+                ],
+            ];
+        }
+
+        return self::defaultDnsRecords($this->name);
+    }
+}

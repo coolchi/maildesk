@@ -1,0 +1,633 @@
+<script setup>
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { router, usePage } from '@inertiajs/vue3';
+import WysiwygEditor from '@/Components/WysiwygEditor.vue';
+import { useComposeModal } from '@/composables/useComposeModal';
+import { useTenant } from '@/composables/useTenant';
+import { useToast } from '@/composables/useToast';
+import {
+    Calendar,
+    File,
+    FileImage,
+    FileText,
+    Paperclip,
+    Plus,
+    Send,
+    Tag,
+    X,
+} from '@lucide/vue';
+
+const { state, close } = useComposeModal();
+const { canSend, activeWorkspace, activeProviderHealth, sendingFrom } =
+    useTenant();
+const page = usePage();
+const toast = useToast();
+const editorRef = ref(null);
+const fileInput = ref(null);
+const sending = ref(false);
+
+const fromOptions = computed(() => {
+    if (sendingFrom.value.length) {
+        return sendingFrom.value;
+    }
+    const host = activeWorkspace.value?.host || 'workspace.local';
+    const domain = host.includes('.')
+        ? host.split('.').slice(-2).join('.')
+        : host;
+    return [`hello@${domain}`, `noreply@${domain}`];
+});
+
+const blankForm = () => ({
+    from: fromOptions.value[0] || 'hello@example.com',
+    to: '',
+    cc: '',
+    replyTo: '',
+    subject: '',
+    html: '<p>Hi there,</p><p>Write your message here…</p>',
+    schedule: false,
+    scheduleAt: '',
+    tags: [],
+});
+
+const form = ref(blankForm());
+const tagInput = ref('');
+/** @type {import('vue').Ref<Array<{id:number,name:string,size:number,type:string,url:string|null,isImage:boolean}>>} */
+const attachments = ref([]);
+
+const clearAttachments = () => {
+    for (const a of attachments.value) {
+        if (a.url) URL.revokeObjectURL(a.url);
+    }
+    attachments.value = [];
+};
+
+const reset = () => {
+    form.value = {
+        ...blankForm(),
+        ...(state.defaults || {}),
+    };
+    if (
+        state.defaults?.from &&
+        !fromOptions.value.includes(state.defaults.from) &&
+        fromOptions.value.length
+    ) {
+        // Keep explicit from override (e.g. domain page) even if not in list.
+        form.value.from = state.defaults.from;
+    } else if (!fromOptions.value.includes(form.value.from)) {
+        form.value.from = fromOptions.value[0] || form.value.from;
+    }
+    tagInput.value = '';
+    clearAttachments();
+};
+
+watch(
+    () => state.open,
+    (open) => {
+        if (open) {
+            reset();
+            document.body.style.overflow = 'hidden';
+        } else {
+            clearAttachments();
+            document.body.style.overflow = '';
+        }
+    },
+    { immediate: true },
+);
+
+watch(
+    () => page.props.flash?.error,
+    (message) => {
+        if (message && state.open) {
+            toast.error(message);
+        }
+    },
+);
+
+const onKey = (e) => {
+    if (e.key === 'Escape' && state.open) close();
+};
+
+onMounted(() => window.addEventListener('keydown', onKey));
+onUnmounted(() => {
+    window.removeEventListener('keydown', onKey);
+    clearAttachments();
+    document.body.style.overflow = '';
+});
+
+const addTag = () => {
+    const t = tagInput.value.trim().toLowerCase();
+    if (!t || form.value.tags.includes(t)) return;
+    form.value.tags.push(t);
+    tagInput.value = '';
+};
+
+const removeTag = (t) => {
+    form.value.tags = form.value.tags.filter((x) => x !== t);
+};
+
+const formatSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const onAttach = (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+
+    for (const file of files) {
+        const isImage = file.type.startsWith('image/');
+        const url = URL.createObjectURL(file);
+        attachments.value.push({
+            id: Date.now() + Math.random(),
+            name: file.name,
+            size: file.size,
+            type: file.type || 'application/octet-stream',
+            url,
+            isImage,
+            file,
+        });
+    }
+    toast.success(
+        files.length === 1
+            ? 'Attachment added.'
+            : `${files.length} attachments added.`,
+    );
+};
+
+const removeAttachment = (id) => {
+    const item = attachments.value.find((a) => a.id === id);
+    if (item?.url) URL.revokeObjectURL(item.url);
+    attachments.value = attachments.value.filter((a) => a.id !== id);
+};
+
+const insertIntoBody = (att) => {
+    if (!att.isImage || !att.url) {
+        toast.info('Only images can be inserted into the body.');
+        return;
+    }
+    editorRef.value?.insertImage(att.url, att.name);
+    toast.success('Image inserted into body.');
+};
+
+const fileIcon = (att) => {
+    if (att.isImage) return FileImage;
+    if (att.type.includes('pdf') || att.type.includes('text')) return FileText;
+    return File;
+};
+
+const submit = () => {
+    if (!canSend.value) {
+        toast.error(
+            'Cannot send — this workspace has no active mail provider.',
+        );
+        return;
+    }
+    if (!form.value.to.trim() || !form.value.subject.trim()) {
+        toast.error('To and subject are required.');
+        return;
+    }
+    if (form.value.schedule && !form.value.scheduleAt) {
+        toast.error('Choose a date and time to schedule this send.');
+        return;
+    }
+
+    sending.value = true;
+    const via = activeProviderHealth.value.provider?.name || 'provider';
+
+    const data = {
+        from: form.value.from,
+        to: form.value.to.trim(),
+        cc: form.value.cc.trim() || null,
+        reply_to: form.value.replyTo.trim() || null,
+        subject: form.value.subject.trim(),
+        html: form.value.html,
+        text: form.value.html
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim(),
+        tags: form.value.tags,
+        schedule: form.value.schedule,
+        schedule_at: form.value.schedule ? form.value.scheduleAt : null,
+    };
+
+    const fileList = attachments.value.map((a) => a.file).filter(Boolean);
+    if (fileList.length) {
+        data.attachments = fileList;
+    }
+
+    router.post(route('emails.store'), data, {
+        forceFormData: true,
+        preserveScroll: true,
+        onFinish: () => {
+            sending.value = false;
+        },
+        onSuccess: () => {
+            toast.success(
+                form.value.schedule
+                    ? `Email scheduled via ${via}.`
+                    : `Email sent via ${via}.`,
+            );
+            close();
+        },
+        onError: (errors) => {
+            const first =
+                errors.from ||
+                errors.to ||
+                errors.subject ||
+                errors.schedule_at ||
+                errors.html ||
+                Object.values(errors)[0];
+            toast.error(
+                typeof first === 'string' ? first : 'Could not send email.',
+            );
+        },
+    });
+};
+</script>
+
+<template>
+    <Teleport to="body">
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div
+                v-if="state.open"
+                class="fixed inset-0 z-[90] flex items-end justify-center bg-black/60 p-3 backdrop-blur-md sm:items-center sm:p-6"
+                @click.self="close"
+            >
+                <Transition
+                    enter-active-class="transition duration-200 ease-out"
+                    enter-from-class="translate-y-4 opacity-0 sm:scale-95"
+                    enter-to-class="translate-y-0 opacity-100 sm:scale-100"
+                    leave-active-class="transition duration-150 ease-in"
+                    leave-from-class="translate-y-0 opacity-100 sm:scale-100"
+                    leave-to-class="translate-y-4 opacity-0 sm:scale-95"
+                    appear
+                >
+                    <div
+                        v-if="state.open"
+                        class="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="compose-title"
+                    >
+                        <div
+                            class="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4"
+                        >
+                            <div>
+                                <h2
+                                    id="compose-title"
+                                    class="text-base font-semibold text-white"
+                                >
+                                    Compose
+                                </h2>
+                                <p class="mt-0.5 text-sm text-zinc-500">
+                                    Via
+                                    {{
+                                        activeProviderHealth.provider?.name ||
+                                        'no provider'
+                                    }}
+                                    · {{ activeWorkspace?.host || 'workspace' }}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                class="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-white"
+                                @click="close"
+                            >
+                                <X :size="18" />
+                            </button>
+                        </div>
+
+                        <form
+                            class="flex min-h-0 flex-1 flex-col"
+                            @submit.prevent="submit"
+                        >
+                            <div class="space-y-4 overflow-y-auto px-5 py-4">
+                                <div class="grid gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <label
+                                            class="mb-1.5 block text-xs text-zinc-500"
+                                            >From</label
+                                        >
+                                        <select
+                                            v-model="form.from"
+                                            class="md-input"
+                                        >
+                                            <option
+                                                v-for="addr in fromOptions"
+                                                :key="addr"
+                                                :value="addr"
+                                            >
+                                                {{ addr }}
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label
+                                            class="mb-1.5 block text-xs text-zinc-500"
+                                            >To</label
+                                        >
+                                        <input
+                                            v-model="form.to"
+                                            class="md-input"
+                                            placeholder="user@example.com"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                                <div class="grid gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <label
+                                            class="mb-1.5 block text-xs text-zinc-500"
+                                            >Cc</label
+                                        >
+                                        <input
+                                            v-model="form.cc"
+                                            class="md-input"
+                                            placeholder="optional"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label
+                                            class="mb-1.5 block text-xs text-zinc-500"
+                                            >Reply-to</label
+                                        >
+                                        <input
+                                            v-model="form.replyTo"
+                                            class="md-input"
+                                            placeholder="support@acme.com"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label
+                                        class="mb-1.5 block text-xs text-zinc-500"
+                                        >Subject</label
+                                    >
+                                    <input
+                                        v-model="form.subject"
+                                        class="md-input"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label
+                                        class="mb-1.5 block text-xs text-zinc-500"
+                                        >Body</label
+                                    >
+                                    <WysiwygEditor
+                                        ref="editorRef"
+                                        v-model="form.html"
+                                        variant="email"
+                                        min-height="220px"
+                                    />
+                                </div>
+
+                                <!-- Attachments -->
+                                <div>
+                                    <div
+                                        class="mb-2 flex items-center justify-between"
+                                    >
+                                        <label
+                                            class="flex items-center gap-1.5 text-xs text-zinc-500"
+                                        >
+                                            <Paperclip :size="12" />
+                                            Attachments
+                                            <span
+                                                v-if="attachments.length"
+                                                class="text-zinc-600"
+                                                >({{ attachments.length }})</span
+                                            >
+                                        </label>
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center gap-1 text-xs text-cyan-300 hover:text-cyan-200"
+                                            @click="fileInput?.click()"
+                                        >
+                                            <Plus :size="12" />
+                                            Add files
+                                        </button>
+                                    </div>
+
+                                    <div
+                                        v-if="!attachments.length"
+                                        class="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-700 bg-black/20 px-4 py-6 text-center transition hover:border-cyan-400/40 hover:bg-cyan-400/5"
+                                        @click="fileInput?.click()"
+                                        @dragover.prevent
+                                        @drop.prevent="
+                                            onAttach({
+                                                target: { files: $event.dataTransfer.files, value: '' },
+                                            })
+                                        "
+                                    >
+                                        <Paperclip
+                                            :size="20"
+                                            class="text-zinc-500"
+                                        />
+                                        <p class="text-sm text-zinc-400">
+                                            Drop files here or click to attach
+                                        </p>
+                                        <p class="text-[11px] text-zinc-600">
+                                            Images can be inserted into the body
+                                        </p>
+                                    </div>
+
+                                    <ul v-else class="grid gap-2 sm:grid-cols-2">
+                                        <li
+                                            v-for="att in attachments"
+                                            :key="att.id"
+                                            class="group relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60"
+                                        >
+                                            <div
+                                                v-if="att.isImage"
+                                                class="relative aspect-[16/10] bg-zinc-950"
+                                            >
+                                                <img
+                                                    :src="att.url"
+                                                    :alt="att.name"
+                                                    class="h-full w-full object-cover"
+                                                />
+                                                <div
+                                                    class="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition group-hover:opacity-100"
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        class="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-900"
+                                                        @click="
+                                                            insertIntoBody(att)
+                                                        "
+                                                    >
+                                                        Insert into body
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div
+                                                class="flex items-start gap-2.5 p-3"
+                                            >
+                                                <span
+                                                    v-if="!att.isImage"
+                                                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-zinc-400"
+                                                >
+                                                    <component
+                                                        :is="fileIcon(att)"
+                                                        :size="16"
+                                                    />
+                                                </span>
+                                                <div class="min-w-0 flex-1">
+                                                    <div
+                                                        class="truncate text-sm text-zinc-200"
+                                                    >
+                                                        {{ att.name }}
+                                                    </div>
+                                                    <div
+                                                        class="mt-0.5 text-[11px] text-zinc-500"
+                                                    >
+                                                        {{
+                                                            formatSize(att.size)
+                                                        }}
+                                                        <button
+                                                            v-if="att.isImage"
+                                                            type="button"
+                                                            class="ml-2 text-cyan-300 hover:text-cyan-200"
+                                                            @click="
+                                                                insertIntoBody(
+                                                                    att,
+                                                                )
+                                                            "
+                                                        >
+                                                            Insert
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    class="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-rose-400"
+                                                    title="Remove"
+                                                    @click="
+                                                        removeAttachment(att.id)
+                                                    "
+                                                >
+                                                    <X :size="14" />
+                                                </button>
+                                            </div>
+                                        </li>
+                                    </ul>
+
+                                    <input
+                                        ref="fileInput"
+                                        type="file"
+                                        class="hidden"
+                                        multiple
+                                        @change="onAttach"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label
+                                        class="mb-1.5 flex items-center gap-1.5 text-xs text-zinc-500"
+                                    >
+                                        <Tag :size="12" />
+                                        Tags
+                                    </label>
+                                    <div
+                                        class="flex flex-wrap items-center gap-2"
+                                    >
+                                        <span
+                                            v-for="t in form.tags"
+                                            :key="t"
+                                            class="inline-flex items-center gap-1 rounded-full bg-cyan-400/10 px-2.5 py-1 text-xs text-cyan-300"
+                                        >
+                                            {{ t }}
+                                            <button
+                                                type="button"
+                                                class="text-cyan-400/70 hover:text-white"
+                                                @click="removeTag(t)"
+                                            >
+                                                <X :size="12" />
+                                            </button>
+                                        </span>
+                                        <input
+                                            v-model="tagInput"
+                                            class="md-input max-w-[160px] py-1.5 text-xs"
+                                            placeholder="Add tag…"
+                                            @keydown.enter.prevent="addTag"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div
+                                    class="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-black/30 p-3 sm:flex-row sm:items-center sm:justify-between"
+                                >
+                                    <label
+                                        class="flex items-center gap-2 text-sm text-zinc-300"
+                                    >
+                                        <input
+                                            v-model="form.schedule"
+                                            type="checkbox"
+                                            class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                                        />
+                                        <Calendar
+                                            :size="14"
+                                            class="text-cyan-300"
+                                        />
+                                        Schedule send
+                                    </label>
+                                    <input
+                                        v-if="form.schedule"
+                                        v-model="form.scheduleAt"
+                                        type="datetime-local"
+                                        class="md-input max-w-xs"
+                                    />
+                                </div>
+                            </div>
+
+                            <div
+                                class="flex shrink-0 items-center justify-between gap-3 border-t border-zinc-800 px-5 py-3"
+                            >
+                                <button
+                                    type="button"
+                                    class="md-btn-ghost"
+                                    @click="fileInput?.click()"
+                                >
+                                    <Paperclip :size="16" />
+                                    Attach
+                                </button>
+                                <div class="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        class="md-btn-ghost"
+                                        @click="close"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        class="md-btn-primary"
+                                        :disabled="sending || !canSend"
+                                    >
+                                        <Send :size="16" />
+                                        {{
+                                            sending
+                                                ? 'Sending…'
+                                                : form.schedule
+                                                  ? 'Schedule'
+                                                  : 'Send email'
+                                        }}
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </Transition>
+            </div>
+        </Transition>
+    </Teleport>
+</template>

@@ -1,0 +1,483 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        color-scheme: light;
+        --md-bg: 244 244 245;
+        --md-panel: 255 255 255;
+        --md-elevated: 255 255 255;
+        --md-border: 228 228 231;
+        --md-muted: 113 113 122;
+        --md-text: 24 24 27;
+        --md-text-secondary: 82 82 91;
+        --md-accent: 8 145 178;
+        --md-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 3px rgb(0 0 0 / 0.04);
+    }
+
+    html.dark {
+        color-scheme: dark;
+        --md-bg: 0 0 0;
+        --md-panel: 9 9 11;
+        --md-elevated: 10 10 10;
+        --md-border: 39 39 42;
+        --md-muted: 161 161 170;
+        --md-text: 244 244 245;
+        --md-text-secondary: 161 161 170;
+        --md-accent: 34 211 238;
+        --md-shadow: 0 0 0 1px rgb(255 255 255 / 0.04);
+    }
+
+    html.light {
+        color-scheme: light;
+        --md-bg: 244 244 245;
+        --md-panel: 255 255 255;
+        --md-elevated: 255 255 255;
+        --md-border: 228 228 231;
+        --md-muted: 113 113 122;
+        --md-text: 24 24 27;
+        --md-text-secondary: 82 82 91;
+        --md-accent: 8 145 178;
+        --md-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 3px rgb(0 0 0 / 0.04);
+    }
+
+    html {
+        @apply antialiased;
+    }
+
+    body {
+        background-color: rgb(var(--md-bg));
+        color: rgb(var(--md-text));
+        transition:
+            background-color 0.2s ease,
+            color 0.2s ease;
+    }
+
+    ::selection {
+        background: rgb(34 211 238 / 0.35);
+    }
+
+    html.light ::selection {
+        background: rgb(8 145 178 / 0.2);
+    }
+}
+
+@layer components {
+    .md-btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition;
+    }
+
+    .md-btn-primary {
+        @apply md-btn bg-cyan-400 text-zinc-950 hover:bg-cyan-300;
+    }
+
+    .md-btn-ghost {
+        @apply md-btn border border-zinc-800 bg-transparent text-zinc-300 hover:bg-zinc-900 hover:text-white;
+    }
+
+    .md-btn-solid {
+        @apply md-btn bg-white text-zinc-950 hover:bg-zinc-200;
+    }
+
+    .md-card {
+        @apply rounded-xl border border-zinc-800/80 bg-zinc-950;
+    }
+
+    .md-table-wrap {
+        @apply overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950;
+    }
+
+    .md-input {
+        @apply w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 shadow-sm focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40;
+    }
+
+    .md-toast {
+        @apply border border-cyan-400/30 bg-cyan-400/10 text-cyan-100;
+    }
+
+    .md-toast[data-type='success'] {
+        @apply border-emerald-500/30 bg-emerald-500/10 text-emerald-100;
+    }
+
+    .md-toast[data-type='error'] {
+        @apply border-rose-500/30 bg-rose-500/10 text-rose-100;
+    }
+}
+
+/* ─── Light components ─── */
+html.light .md-btn-primary {
+    background-color: #0891b2;
+    color: #fff;
+    box-shadow: 0 1px 2px rgb(8 145 178 / 0.2);
+}
+html.light .md-btn-primary:hover {
+    background-color: #0e7490;
+}
+html.light .md-btn-ghost {
+    border-color: #e4e4e7;
+    background-color: #fff;
+    color: #3f3f46;
+}
+html.light .md-btn-ghost:hover {
+    background-color: #f4f4f5;
+    border-color: #d4d4d8;
+    color: #18181b;
+}
+html.light .md-btn-solid {
+    background-color: #18181b;
+    color: #fff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+}
+html.light .md-btn-solid:hover {
+    background-color: #27272a;
+}
+html.light .md-card,
+html.light .md-table-wrap {
+    background-color: #fff;
+    border-color: #e4e4e7;
+    box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.03),
+        0 0 0 1px rgb(0 0 0 / 0.02);
+}
+html.light .md-input {
+    background-color: #fff;
+    border-color: #e4e4e7;
+    color: #18181b;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
+}
+html.light .md-input::placeholder {
+    color: #a1a1aa;
+}
+html.light .md-input:focus {
+    border-color: rgb(8 145 178 / 0.55);
+    box-shadow: 0 0 0 3px rgb(8 145 178 / 0.1);
+}
+html.light .md-toast {
+    background-color: #ecfeff;
+    border-color: #a5f3fc;
+    color: #164e63;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.08);
+}
+html.light .md-toast[data-type='success'] {
+    background-color: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #064e3b;
+}
+html.light .md-toast[data-type='error'] {
+    background-color: #fff1f2;
+    border-color: #fecdd3;
+    color: #881337;
+}
+html.light .md-tabs {
+    background-color: #ececef !important;
+    border-color: transparent !important;
+    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.03);
+}
+html.light .md-tabs button.bg-zinc-800,
+html.light .md-tabs .bg-zinc-800 {
+    background-color: #fff !important;
+    color: #18181b !important;
+    box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.06),
+        0 0 0 1px rgb(0 0 0 / 0.04) !important;
+}
+html.light .md-ring-hole {
+    background-color: #fff !important;
+}
+
+/* ─── Light utility remaps ─── */
+html.light .bg-black {
+    background-color: #f4f4f5 !important;
+}
+html.light .bg-black\/20,
+html.light .bg-black\/30 {
+    background-color: rgb(255 255 255 / 0.8) !important;
+}
+html.light .bg-black\/40 {
+    background-color: #f4f4f5 !important;
+}
+html.light .bg-black\/50 {
+    background-color: rgb(24 24 27 / 0.18) !important;
+}
+html.light .bg-black\/60 {
+    background-color: rgb(255 255 255 / 0.75) !important;
+}
+html.light .bg-black\/70,
+html.light .bg-black\/80 {
+    background-color: rgb(255 255 255 / 0.88) !important;
+}
+html.light .bg-zinc-950,
+html.light .bg-zinc-950\/80 {
+    background-color: #fff !important;
+}
+html.light .bg-zinc-950\/60,
+html.light .bg-zinc-950\/50 {
+    background-color: rgb(255 255 255 / 0.96) !important;
+}
+html.light .bg-zinc-900,
+html.light .bg-zinc-900\/80,
+html.light .bg-zinc-900\/60,
+html.light .bg-zinc-900\/50,
+html.light .bg-zinc-900\/40 {
+    background-color: #f4f4f5 !important;
+}
+html.light .bg-zinc-800,
+html.light .bg-zinc-800\/90,
+html.light .bg-zinc-800\/80,
+html.light .bg-zinc-800\/60,
+html.light .bg-zinc-800\/40 {
+    background-color: #e4e4e7 !important;
+}
+html.light .hover\:bg-white\/\[0\.03\]:hover,
+html.light .bg-white\/\[0\.03\]:hover {
+    background-color: #f4f4f5 !important;
+}
+html.light .hover\:bg-zinc-900:hover,
+html.light .hover\:bg-zinc-900\/50:hover,
+html.light .hover\:bg-zinc-900\/40:hover {
+    background-color: #f4f4f5 !important;
+}
+html.light .hover\:bg-zinc-800:hover {
+    background-color: #e4e4e7 !important;
+}
+html.light .border-zinc-800,
+html.light .border-zinc-800\/80,
+html.light .border-zinc-900,
+html.light .border-zinc-900\/80,
+html.light .border-md-border {
+    border-color: #e4e4e7 !important;
+}
+html.light .divide-zinc-800 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-zinc-900 > :not([hidden]) ~ :not([hidden]) {
+    border-color: #e4e4e7 !important;
+}
+html.light .border-dashed.border-zinc-700 {
+    border-color: #d4d4d8 !important;
+}
+html.light .text-white,
+html.light .text-zinc-100 {
+    color: #18181b !important;
+}
+html.light .text-zinc-200 {
+    color: #27272a !important;
+}
+html.light .text-zinc-300 {
+    color: #3f3f46 !important;
+}
+html.light .text-zinc-400 {
+    color: #52525b !important;
+}
+html.light .text-zinc-500 {
+    color: #71717a !important;
+}
+html.light .text-zinc-600 {
+    color: #a1a1aa !important;
+}
+html.light .text-zinc-700 {
+    color: #d4d4d8 !important;
+}
+html.light .hover\:text-white:hover,
+html.light .hover\:text-zinc-100:hover,
+html.light .hover\:text-zinc-200:hover,
+html.light .hover\:text-zinc-300:hover {
+    color: #18181b !important;
+}
+html.light .text-cyan-300,
+html.light .text-cyan-400 {
+    color: #0e7490 !important;
+}
+html.light .hover\:text-cyan-200:hover,
+html.light .hover\:text-cyan-300:hover {
+    color: #155e75 !important;
+}
+html.light .text-emerald-300,
+html.light .text-emerald-400,
+html.light .text-emerald-200 {
+    color: #047857 !important;
+}
+html.light .text-rose-300,
+html.light .text-rose-400 {
+    color: #e11d48 !important;
+}
+html.light .text-amber-300,
+html.light .text-amber-200,
+html.light .text-amber-50 {
+    color: #b45309 !important;
+}
+html.light .text-sky-300,
+html.light .text-sky-400 {
+    color: #0284c7 !important;
+}
+html.light .text-violet-300,
+html.light .text-violet-400 {
+    color: #7c3aed !important;
+}
+html.light .bg-cyan-400\/10,
+html.light .bg-cyan-400\/15,
+html.light .bg-cyan-400\/20 {
+    background-color: rgb(8 145 178 / 0.1) !important;
+}
+html.light .border-cyan-400\/40,
+html.light .border-cyan-400\/50 {
+    border-color: rgb(8 145 178 / 0.35) !important;
+}
+html.light .bg-violet-400\/10,
+html.light .bg-violet-500\/15 {
+    background-color: rgb(139 92 246 / 0.1) !important;
+}
+html.light .bg-emerald-500\/10,
+html.light .bg-emerald-500\/15 {
+    background-color: rgb(16 185 129 / 0.12) !important;
+}
+html.light .bg-amber-500\/15 {
+    background-color: rgb(245 158 11 / 0.12) !important;
+}
+html.light .bg-rose-500\/10,
+html.light .bg-rose-500\/15 {
+    background-color: rgb(244 63 94 / 0.1) !important;
+}
+html.light .bg-sky-500\/15 {
+    background-color: rgb(14 165 233 / 0.12) !important;
+}
+html.light .bg-zinc-500\/20 {
+    background-color: rgb(113 113 122 / 0.12) !important;
+}
+html.light .ring-emerald-500\/20 {
+    --tw-ring-color: rgb(16 185 129 / 0.25) !important;
+}
+html.light .ring-cyan-400\/20 {
+    --tw-ring-color: rgb(8 145 178 / 0.25) !important;
+}
+html.light .ring-rose-500\/20 {
+    --tw-ring-color: rgb(244 63 94 / 0.25) !important;
+}
+html.light .ring-zinc-500\/20 {
+    --tw-ring-color: rgb(113 113 122 / 0.2) !important;
+}
+html.light .ring-sky-500\/20 {
+    --tw-ring-color: rgb(14 165 233 / 0.25) !important;
+}
+html.light .ring-amber-500\/20 {
+    --tw-ring-color: rgb(245 158 11 / 0.25) !important;
+}
+html.light .ring-violet-500\/20 {
+    --tw-ring-color: rgb(139 92 246 / 0.25) !important;
+}
+html.light .shadow-2xl {
+    box-shadow:
+        0 12px 40px -12px rgb(0 0 0 / 0.14),
+        0 0 0 1px rgb(0 0 0 / 0.04) !important;
+}
+html.light .shadow-black\/50 {
+    --tw-shadow-color: rgb(0 0 0 / 0.08) !important;
+}
+html.light .from-zinc-900 {
+    --tw-gradient-from: #e0f2fe var(--tw-gradient-from-position) !important;
+}
+html.light .to-black {
+    --tw-gradient-to: #e4e4e7 var(--tw-gradient-to-position) !important;
+}
+html.light .from-zinc-950 {
+    --tw-gradient-from: #fff var(--tw-gradient-from-position) !important;
+}
+html.light .from-cyan-400\/40 {
+    --tw-gradient-from: #67e8f9 var(--tw-gradient-from-position) !important;
+}
+html.light .to-zinc-700 {
+    --tw-gradient-to: #a1a1aa var(--tw-gradient-to-position) !important;
+}
+html.light .fixed.inset-0.bg-black\/60,
+html.light .fixed.inset-0.bg-black\/70 {
+    background-color: rgb(24 24 27 / 0.32) !important;
+    backdrop-filter: blur(8px);
+}
+html.light .bg-white {
+    background-color: #fff !important;
+}
+html.light .prose-invert {
+    --tw-prose-body: #3f3f46;
+    --tw-prose-headings: #18181b;
+    --tw-prose-links: #0891b2;
+    --tw-prose-bold: #18181b;
+    color: #3f3f46;
+}
+
+/* ─── Light layout surfaces ─── */
+html.light body {
+    background-color: #f4f4f5;
+}
+html.light aside {
+    background-color: #fff !important;
+    border-color: #e4e4e7 !important;
+    box-shadow: 1px 0 0 rgb(0 0 0 / 0.03);
+}
+html.light aside .border-t {
+    border-color: #ececef !important;
+    background-color: #fff !important;
+}
+html.light header.sticky {
+    background-color: rgb(244 244 245 / 0.9) !important;
+    border-color: #e4e4e7 !important;
+    backdrop-filter: blur(12px);
+}
+html.light .ring-white\/10 {
+    --tw-ring-color: rgb(0 0 0 / 0.06) !important;
+}
+
+/* Sidebar nav active / hover clarity */
+html.light aside a.bg-zinc-800\/90,
+html.light aside .bg-zinc-800\/90 {
+    background-color: #f4f4f5 !important;
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.04);
+}
+html.light aside .text-\[10px\].uppercase {
+    color: #a1a1aa !important;
+    letter-spacing: 0.12em;
+}
+
+/* Table header polish */
+html.light thead,
+html.light .bg-zinc-900\/50 {
+    background-color: #fafafa !important;
+}
+
+@layer utilities {
+    .animate-fade-in {
+        animation: md-fade-in 0.35s ease-out both;
+    }
+    .animate-slide-up {
+        animation: md-slide-up 0.4s ease-out both;
+    }
+    .animate-soft-pulse {
+        animation: md-soft-pulse 2.4s ease-in-out infinite;
+    }
+}
+
+@keyframes md-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+@keyframes md-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+@keyframes md-soft-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.65;
+    }
+}
