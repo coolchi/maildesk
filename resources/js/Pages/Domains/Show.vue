@@ -1,18 +1,22 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
-import AppLayout from '@/Layouts/AppLayout.vue';
-import PageHeader from '@/Components/PageHeader.vue';
-import StatusBadge from '@/Components/StatusBadge.vue';
-import { useToast } from '@/composables/useToast';
-import { useComposeModal } from '@/composables/useComposeModal';
+import { computed, ref, watch } from "vue";
+import { Head, Link, router } from "@inertiajs/vue3";
+import AppLayout from "@/Layouts/AppLayout.vue";
+import PageHeader from "@/Components/PageHeader.vue";
+import StatusBadge from "@/Components/StatusBadge.vue";
+import { useToast } from "@/composables/useToast";
+import { useComposeModal } from "@/composables/useComposeModal";
 import {
+    AlertTriangle,
     ArrowLeft,
     CheckCircle2,
+    CircleDashed,
     Copy,
+    Info,
     LoaderCircle,
     RefreshCw,
-} from '@lucide/vue';
+    XCircle,
+} from "@lucide/vue";
 
 const props = defineProps({
     domain: { type: Object, required: true },
@@ -30,15 +34,19 @@ watch(
     },
 );
 
-const statusLabel = computed(() =>
-    localStatus.value.spf && localStatus.value.dkim && localStatus.value.dmarc
-        ? 'verified'
-        : props.domain.status === 'verified'
-          ? 'verified'
-          : 'pending',
+const statusLabel = computed(() => props.domain.status || "pending");
+
+const checkedAt = computed(() =>
+    props.domain.checked_at
+        ? new Date(props.domain.checked_at).toLocaleString()
+        : null,
 );
 
-const step = ref(statusLabel.value === 'verified' ? 3 : 2);
+const warnings = computed(() => props.domain.warnings || []);
+
+const foundFor = (key) => props.domain.results?.[key]?.found || [];
+
+const step = ref(statusLabel.value === "verified" ? 3 : 2);
 
 const dnsRows = computed(() => {
     if (props.domain.dns_rows?.length) {
@@ -47,52 +55,149 @@ const dnsRows = computed(() => {
 
     return [
         {
-            key: 'dkim',
-            type: 'TXT',
+            key: "dkim",
+            type: "TXT",
             name: `resend._domainkey.${props.domain.name}`,
-            value: 'p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQMockDkimKey…',
-            label: 'DKIM',
+            value: "p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQMockDkimKey…",
+            label: "DKIM",
         },
         {
-            key: 'spf',
-            type: 'TXT',
+            key: "spf",
+            type: "TXT",
             name: props.domain.name,
-            value: 'v=spf1 include:amazonses.com ~all',
-            label: 'SPF',
+            value: "v=spf1 include:amazonses.com ~all",
+            label: "SPF",
         },
         {
-            key: 'dmarc',
-            type: 'TXT',
+            key: "dmarc",
+            type: "TXT",
             name: `_dmarc.${props.domain.name}`,
-            value: 'v=DMARC1; p=none;',
-            label: 'DMARC',
+            value: "v=DMARC1; p=none;",
+            label: "DMARC",
         },
     ];
 });
+
+const purposes = {
+    dkim: "Proves mail really comes from your domain",
+    spf: "Allows Resend to send for this domain",
+    mx: "Receives bounce notices (return path)",
+    inbound_mx: "Routes incoming mail to MailDesk",
+    dmarc: "Tells inboxes how to treat mail that fails checks",
+};
+
+const titles = {
+    dkim: "DKIM",
+    spf: "SPF",
+    mx: "Return path (MX)",
+    inbound_mx: "Receiving (MX)",
+    dmarc: "DMARC",
+};
+
+const statusMeta = {
+    pass: {
+        label: "Verified",
+        icon: CheckCircle2,
+        class: "bg-emerald-500/10 text-emerald-400",
+    },
+    mismatch: {
+        label: "Wrong value",
+        icon: AlertTriangle,
+        class: "bg-amber-500/10 text-amber-400",
+    },
+    missing: {
+        label: "Not found",
+        icon: XCircle,
+        class: "bg-rose-500/10 text-rose-400",
+    },
+    optional: {
+        label: "Recommended",
+        icon: CircleDashed,
+        class: "bg-zinc-800 text-zinc-400",
+    },
+};
+
+const expanded = ref({});
+
+const recordStatus = (row) => {
+    if (localStatus.value[row.key]) return "pass";
+    if (foundFor(row.key).length) return "mismatch";
+    return row.key === "dmarc" ? "optional" : "missing";
+};
+
+const rows = computed(() =>
+    dnsRows.value.map((row, i) => {
+        const status = recordStatus(row);
+        const value = String(row.value ?? "");
+
+        return {
+            ...row,
+            id: `${row.key || row.type}-${i}`,
+            title: titles[row.key] || row.label || row.type,
+            purpose: purposes[row.key] || "",
+            status,
+            value,
+            long: value.length > 80,
+            found: status === "mismatch" ? foundFor(row.key)[0] : null,
+        };
+    }),
+);
+
+const passingCount = computed(
+    () => rows.value.filter((r) => r.status === "pass").length,
+);
+
+const groups = computed(() =>
+    [
+        {
+            id: "passing",
+            title: "Verified",
+            icon: CheckCircle2,
+            iconClass: "text-emerald-400",
+            rows: rows.value.filter((r) => r.status === "pass"),
+        },
+        {
+            id: "attention",
+            title: "Needs attention",
+            icon: AlertTriangle,
+            iconClass: "text-amber-400",
+            rows: rows.value.filter((r) =>
+                ["mismatch", "missing"].includes(r.status),
+            ),
+        },
+        {
+            id: "optional",
+            title: "Recommended",
+            icon: Info,
+            iconClass: "text-zinc-400",
+            rows: rows.value.filter((r) => r.status === "optional"),
+        },
+    ].filter((g) => g.rows.length),
+);
 
 const copy = async (text, label) => {
     try {
         await navigator.clipboard.writeText(text);
         toast.success(`Copied ${label}.`);
     } catch {
-        toast.error('Copy failed.');
+        toast.error("Copy failed.");
     }
 };
 
 const verify = () => {
     verifying.value = true;
-    toast.info('Checking DNS…');
+    toast.info("Checking DNS…");
     router.post(
-        route('domains.verify', props.domain.id),
+        route("domains.verify", props.domain.id),
         {},
         {
             preserveScroll: true,
             onFinish: () => {
                 verifying.value = false;
             },
-            onSuccess: () => {
-                localStatus.value = { spf: true, dkim: true, dmarc: true };
-                step.value = 3;
+            onSuccess: (page) => {
+                // Trust the server's DNS result; never assume success.
+                step.value = page.props.domain?.status === "verified" ? 3 : 2;
             },
         },
     );
@@ -119,6 +224,13 @@ const verify = () => {
             </template>
         </PageHeader>
 
+        <div
+            v-if="warnings.length"
+            class="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300"
+        >
+            <p v-for="w in warnings" :key="w">{{ w }}</p>
+        </div>
+
         <div class="mb-8 flex flex-wrap gap-2">
             <button
                 v-for="s in [
@@ -136,7 +248,9 @@ const verify = () => {
                           ? 'bg-emerald-500/10 text-emerald-300'
                           : 'bg-zinc-900 text-zinc-500'
                 "
-                @click="step = Math.min(s.n, statusLabel === 'verified' ? 3 : 2)"
+                @click="
+                    step = Math.min(s.n, statusLabel === 'verified' ? 3 : 2)
+                "
             >
                 {{ s.n }}. {{ s.label }}
             </button>
@@ -147,7 +261,8 @@ const verify = () => {
             <p class="text-sm text-zinc-400">
                 Next, add the DNS records at your registrar so MailDesk can
                 authenticate mail from
-                <span class="text-zinc-200">{{ domain.name }}</span>.
+                <span class="text-zinc-200">{{ domain.name }}</span
+                >.
             </p>
             <button type="button" class="md-btn-primary" @click="step = 2">
                 Show DNS records
@@ -155,79 +270,36 @@ const verify = () => {
         </div>
 
         <div v-else-if="step === 2" class="space-y-4">
-            <div class="md-card p-5">
-                <h3 class="font-medium text-white">Publish these records</h3>
-                <p class="mt-1 text-sm text-zinc-400">
-                    Propagation can take a few minutes. Click verify when ready.
-                </p>
-            </div>
-
             <div
-                v-for="row in dnsRows"
-                :key="row.key || row.name"
-                class="md-card space-y-3 p-5"
+                class="md-card flex flex-wrap items-center justify-between gap-4 p-5"
             >
-                <div class="flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-medium text-white">{{
-                            row.label || row.type
-                        }}</span>
-                        <span
-                            v-if="localStatus[row.key]"
-                            class="inline-flex items-center gap-1 text-xs text-emerald-400"
+                <div class="min-w-0">
+                    <h3 class="font-medium text-white">
+                        Add these DNS records
+                    </h3>
+                    <p class="mt-1 text-sm text-zinc-400">
+                        Add each record at your DNS provider, then click Verify.
+                        Changes can take a few minutes to show up.
+                    </p>
+                    <p class="mt-2 text-xs text-zinc-500">
+                        <span class="font-medium text-zinc-300"
+                            >{{ passingCount }} of {{ rows.length }}</span
                         >
-                            <CheckCircle2 :size="12" /> Detected
-                        </span>
-                        <span v-else class="text-xs text-zinc-500"
-                            >Not detected</span
+                        records verified<template v-if="checkedAt">
+                            · Last checked {{ checkedAt }} · Re-checked
+                            automatically every hour</template
                         >
-                    </div>
-                    <code class="text-xs text-cyan-300">{{ row.type }}</code>
-                </div>
-                <div>
-                    <div class="mb-1 text-[11px] uppercase text-zinc-500">
-                        Name / Host
-                    </div>
-                    <div
-                        class="flex items-center gap-2 rounded-lg border border-zinc-800 bg-black px-3 py-2"
+                    </p>
+                    <p
+                        v-if="domain.provider_error"
+                        class="mt-2 text-xs text-rose-400"
                     >
-                        <code class="flex-1 truncate text-xs text-zinc-300">{{
-                            row.name
-                        }}</code>
-                        <button
-                            type="button"
-                            class="text-zinc-500 hover:text-cyan-300"
-                            @click="copy(row.name, 'name')"
-                        >
-                            <Copy :size="14" />
-                        </button>
-                    </div>
+                        {{ domain.provider_error }}
+                    </p>
                 </div>
-                <div>
-                    <div class="mb-1 text-[11px] uppercase text-zinc-500">
-                        Value
-                    </div>
-                    <div
-                        class="flex items-center gap-2 rounded-lg border border-zinc-800 bg-black px-3 py-2"
-                    >
-                        <code class="flex-1 truncate text-xs text-zinc-300">{{
-                            row.value
-                        }}</code>
-                        <button
-                            type="button"
-                            class="text-zinc-500 hover:text-cyan-300"
-                            @click="copy(row.value, 'value')"
-                        >
-                            <Copy :size="14" />
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex flex-wrap gap-2">
                 <button
                     type="button"
-                    class="md-btn-primary"
+                    class="md-btn-primary shrink-0"
                     :disabled="verifying"
                     @click="verify"
                 >
@@ -237,8 +309,165 @@ const verify = () => {
                         class="animate-spin"
                     />
                     <RefreshCw v-else :size="16" />
-                    {{ verifying ? 'Verifying…' : 'Verify DNS' }}
+                    {{ verifying ? "Verifying…" : "Verify DNS" }}
                 </button>
+            </div>
+
+            <section
+                v-for="group in groups"
+                :key="group.id"
+                class="md-card overflow-hidden"
+                :data-testid="`dns-group-${group.id}`"
+            >
+                <header
+                    class="flex items-center gap-2 border-b border-zinc-800 px-5 py-3"
+                >
+                    <component
+                        :is="group.icon"
+                        :size="15"
+                        :class="group.iconClass"
+                    />
+                    <h4 class="text-sm font-medium text-white">
+                        {{ group.title }}
+                    </h4>
+                    <span class="text-xs text-zinc-500"
+                        >({{ group.rows.length }})</span
+                    >
+                </header>
+
+                <div
+                    class="hidden grid-cols-[9rem_4.5rem_minmax(0,1fr)_minmax(0,2fr)] gap-4 border-b border-zinc-800 px-5 py-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500 md:grid"
+                >
+                    <span>Record</span>
+                    <span>Type</span>
+                    <span>Name (host)</span>
+                    <span>Value</span>
+                </div>
+
+                <div
+                    v-for="row in group.rows"
+                    :key="row.id"
+                    class="grid grid-cols-1 gap-3 border-b border-zinc-800 px-5 py-4 last:border-b-0 md:grid-cols-[9rem_4.5rem_minmax(0,1fr)_minmax(0,2fr)] md:items-start md:gap-4"
+                    data-testid="dns-record-row"
+                >
+                    <div class="min-w-0">
+                        <div class="text-sm font-medium text-white">
+                            {{ row.title }}
+                        </div>
+                        <div class="mt-0.5 text-xs text-zinc-500">
+                            {{ row.purpose }}
+                        </div>
+                        <span
+                            class="mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            :class="statusMeta[row.status].class"
+                        >
+                            <component
+                                :is="statusMeta[row.status].icon"
+                                :size="11"
+                            />
+                            {{ statusMeta[row.status].label }}
+                        </span>
+                    </div>
+
+                    <div class="flex items-center gap-2 md:block">
+                        <span
+                            class="text-[11px] uppercase text-zinc-500 md:hidden"
+                            >Type</span
+                        >
+                        <code class="text-xs text-cyan-300">{{
+                            row.type
+                        }}</code>
+                        <div
+                            v-if="row.priority != null"
+                            class="text-[11px] text-zinc-500 md:mt-1"
+                        >
+                            Priority {{ row.priority }}
+                        </div>
+                    </div>
+
+                    <div class="min-w-0">
+                        <div
+                            class="mb-1 text-[11px] uppercase text-zinc-500 md:hidden"
+                        >
+                            Name (host)
+                        </div>
+                        <div
+                            class="flex items-start gap-2 rounded-lg border border-zinc-800 bg-black px-3 py-2"
+                        >
+                            <code
+                                class="min-w-0 flex-1 break-all text-xs text-zinc-300"
+                                >{{ row.name }}</code
+                            >
+                            <button
+                                type="button"
+                                class="shrink-0 text-zinc-500 hover:text-cyan-300"
+                                :aria-label="`Copy ${row.title} name`"
+                                @click="copy(row.name, `${row.title} name`)"
+                            >
+                                <Copy :size="14" />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="min-w-0">
+                        <div
+                            class="mb-1 text-[11px] uppercase text-zinc-500 md:hidden"
+                        >
+                            Value
+                        </div>
+                        <div
+                            class="flex items-start gap-2 rounded-lg border border-zinc-800 bg-black px-3 py-2"
+                        >
+                            <code
+                                class="min-w-0 flex-1 break-all text-xs leading-5 text-zinc-300"
+                                :class="
+                                    row.long && !expanded[row.id]
+                                        ? 'line-clamp-2'
+                                        : ''
+                                "
+                                :title="row.value"
+                                data-testid="dns-record-value"
+                                >{{ row.value }}</code
+                            >
+                            <button
+                                type="button"
+                                class="shrink-0 text-zinc-500 hover:text-cyan-300"
+                                :aria-label="`Copy ${row.title} value`"
+                                @click="copy(row.value, `${row.title} value`)"
+                            >
+                                <Copy :size="14" />
+                            </button>
+                        </div>
+                        <button
+                            v-if="row.long"
+                            type="button"
+                            class="mt-1 text-[11px] text-cyan-300 hover:underline"
+                            @click="expanded[row.id] = !expanded[row.id]"
+                        >
+                            {{
+                                expanded[row.id]
+                                    ? "Show less"
+                                    : "Show full value"
+                            }}
+                        </button>
+                        <div
+                            v-if="row.found"
+                            class="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"
+                        >
+                            <div class="mb-0.5 font-medium">
+                                Currently published (doesn't match):
+                            </div>
+                            <code
+                                class="line-clamp-2 break-all"
+                                :title="row.found"
+                                >{{ row.found }}</code
+                            >
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div class="flex flex-wrap gap-2">
                 <button type="button" class="md-btn-ghost" @click="step = 1">
                     Back
                 </button>
@@ -254,7 +483,8 @@ const verify = () => {
             <h3 class="text-lg font-medium text-white">Domain verified</h3>
             <p class="text-sm text-zinc-400">
                 You can now send from addresses on
-                <span class="text-zinc-200">{{ domain.name }}</span>.
+                <span class="text-zinc-200">{{ domain.name }}</span
+                >.
             </p>
             <div class="flex gap-2">
                 <button
@@ -264,10 +494,27 @@ const verify = () => {
                 >
                     Compose email
                 </button>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    :disabled="verifying"
+                    @click="verify"
+                >
+                    <LoaderCircle
+                        v-if="verifying"
+                        :size="16"
+                        class="animate-spin"
+                    />
+                    <RefreshCw v-else :size="16" />
+                    {{ verifying ? "Checking…" : "Re-check DNS" }}
+                </button>
                 <Link :href="route('domains')" class="md-btn-ghost"
                     >All domains</Link
                 >
             </div>
+            <p v-if="checkedAt" class="text-xs text-zinc-500">
+                Last checked {{ checkedAt }}.
+            </p>
         </div>
     </AppLayout>
 </template>
