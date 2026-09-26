@@ -10,3 +10,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::job(new SendScheduledMessage)->everyMinute();
+
+// Real DNS verification: retry unverified domains hourly, confirm verified ones daily.
+Schedule::command('domains:recheck')->hourly()->withoutOverlapping();
+Schedule::command('domains:recheck --all')->dailyAt('03:17')->withoutOverlapping();

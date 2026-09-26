@@ -22,7 +22,8 @@ class DomainFactory extends Factory
             'name' => $name,
             'status' => 'pending',
             'provider' => 'resend',
-            'dns_records' => Domain::defaultDnsRecords($name),
+            // Derive from the final name so overriding 'name' keeps records consistent.
+            'dns_records' => fn (array $attributes) => Domain::defaultDnsRecords($attributes['name']),
             'verified_at' => null,
         ];
     }

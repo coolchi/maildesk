@@ -2,12 +2,18 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
-import { useComposeModal } from '@/composables/useComposeModal';
+import {
+    composeDraft,
+    useComposeModal,
+} from '@/composables/useComposeModal';
 import { useTenant } from '@/composables/useTenant';
 import { useToast } from '@/composables/useToast';
 import {
     Calendar,
     File,
+    Maximize2,
+    Minimize2,
+    Minus,
     FileImage,
     FileText,
     Paperclip,
@@ -17,7 +23,7 @@ import {
     X,
 } from '@lucide/vue';
 
-const { state, close } = useComposeModal();
+const { state, close, toggleMinimized, toggleExpanded } = useComposeModal();
 const { canSend, activeWorkspace, activeProviderHealth, sendingFrom } =
     useTenant();
 const page = usePage();
@@ -41,6 +47,7 @@ const blankForm = () => ({
     from: fromOptions.value[0] || 'hello@example.com',
     to: '',
     cc: '',
+    bcc: '',
     replyTo: '',
     subject: '',
     html: '<p>Hi there,</p><p>Write your message here…</p>',
@@ -49,10 +56,16 @@ const blankForm = () => ({
     tags: [],
 });
 
-const form = ref(blankForm());
+const form = composeDraft.form;
+if (!form.value) form.value = blankForm();
 const tagInput = ref('');
 /** @type {import('vue').Ref<Array<{id:number,name:string,size:number,type:string,url:string|null,isImage:boolean}>>} */
-const attachments = ref([]);
+const attachments = composeDraft.attachments;
+
+const snapshot = () =>
+    JSON.stringify({ ...form.value, files: attachments.value.length });
+const pristine = composeDraft.pristine;
+const dirty = computed(() => state.open && snapshot() !== pristine.value);
 
 const clearAttachments = () => {
     for (const a of attachments.value) {
@@ -81,18 +94,36 @@ const reset = () => {
 };
 
 watch(
+    () => state.session,
+    () => {
+        reset();
+        pristine.value = snapshot();
+    },
+);
+
+watch(
     () => state.open,
     (open) => {
-        if (open) {
-            reset();
-            document.body.style.overflow = 'hidden';
-        } else {
+        if (!open) {
             clearAttachments();
             document.body.style.overflow = '';
         }
     },
-    { immediate: true },
 );
+
+watch(
+    () => state.open && state.expanded,
+    (locked) => {
+        document.body.style.overflow = locked ? 'hidden' : '';
+    },
+);
+
+const discard = () => {
+    if (dirty.value && !window.confirm('Discard this draft?')) return;
+    close();
+};
+
+const title = computed(() => form.value.subject.trim() || 'New message');
 
 watch(
     () => page.props.flash?.error,
@@ -104,13 +135,18 @@ watch(
 );
 
 const onKey = (e) => {
-    if (e.key === 'Escape' && state.open) close();
+    if (e.key !== 'Escape' || !state.open) return;
+    // Escape shrinks the panel back down rather than throwing the draft away.
+    if (state.expanded) toggleExpanded();
+    else if (!state.minimized) toggleMinimized();
 };
 
 onMounted(() => window.addEventListener('keydown', onKey));
 onUnmounted(() => {
     window.removeEventListener('keydown', onKey);
-    clearAttachments();
+    // Keep the draft (and its attachment previews) while the panel stays open
+    // across page visits; only tidy up once it is closed.
+    if (!state.open) clearAttachments();
     document.body.style.overflow = '';
 });
 
@@ -200,6 +236,7 @@ const submit = () => {
         from: form.value.from,
         to: form.value.to.trim(),
         cc: form.value.cc.trim() || null,
+        bcc: (form.value.bcc || '').trim() || null,
         reply_to: form.value.replyTo.trim() || null,
         subject: form.value.subject.trim(),
         html: form.value.html,
@@ -217,13 +254,21 @@ const submit = () => {
         data.attachments = fileList;
     }
 
+    data.stay = 1;
+
     router.post(route('emails.store'), data, {
         forceFormData: true,
         preserveScroll: true,
+        preserveState: true,
         onFinish: () => {
             sending.value = false;
         },
-        onSuccess: () => {
+        onSuccess: (response) => {
+            if (response.props.flash?.error) {
+                // Provider rejected it: keep the draft open so it can be fixed.
+                state.minimized = false;
+                return;
+            }
             toast.success(
                 form.value.schedule
                     ? `Email scheduled via ${via}.`
@@ -259,8 +304,13 @@ const submit = () => {
         >
             <div
                 v-if="state.open"
-                class="fixed inset-0 z-[90] flex items-end justify-center bg-black/60 p-3 backdrop-blur-md sm:items-center sm:p-6"
-                @click.self="close"
+                class="fixed inset-0 z-[90] flex"
+                :class="
+                    state.expanded
+                        ? 'items-end justify-center bg-black/60 p-3 backdrop-blur-md sm:items-center sm:p-6'
+                        : 'pointer-events-none items-end justify-end sm:px-6'
+                "
+                @click.self="state.expanded && toggleExpanded()"
             >
                 <Transition
                     enter-active-class="transition duration-200 ease-out"
@@ -273,22 +323,34 @@ const submit = () => {
                 >
                     <div
                         v-if="state.open"
-                        class="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+                        class="pointer-events-auto flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/60"
+                        :class="
+                            state.expanded
+                                ? 'max-h-[92vh] max-w-3xl rounded-2xl'
+                                : state.minimized
+                                  ? 'rounded-t-xl sm:w-80'
+                                  : 'max-h-[88vh] rounded-t-2xl sm:max-h-[80vh] sm:w-[560px]'
+                        "
                         role="dialog"
-                        aria-modal="true"
+                        :aria-modal="state.expanded ? 'true' : 'false'"
                         aria-labelledby="compose-title"
+                        data-testid="compose-panel"
                     >
                         <div
-                            class="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4"
+                            class="flex shrink-0 cursor-pointer select-none items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-900/80 py-2.5 pl-4 pr-2"
+                            @click="!state.expanded && toggleMinimized()"
                         >
-                            <div>
+                            <div class="min-w-0">
                                 <h2
                                     id="compose-title"
-                                    class="text-base font-semibold text-white"
+                                    class="truncate text-sm font-semibold text-white"
                                 >
-                                    Compose
+                                    {{ title }}
                                 </h2>
-                                <p class="mt-0.5 text-sm text-zinc-500">
+                                <p
+                                    v-if="!state.minimized"
+                                    class="truncate text-xs text-zinc-500"
+                                >
                                     Via
                                     {{
                                         activeProviderHealth.provider?.name ||
@@ -297,16 +359,37 @@ const submit = () => {
                                     · {{ activeWorkspace?.host || 'workspace' }}
                                 </p>
                             </div>
-                            <button
-                                type="button"
-                                class="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-white"
-                                @click="close"
-                            >
-                                <X :size="18" />
-                            </button>
+                            <div class="flex shrink-0 items-center" @click.stop>
+                                <button
+                                    type="button"
+                                    class="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-white"
+                                    :title="state.minimized ? 'Restore' : 'Minimize'"
+                                    @click="toggleMinimized"
+                                >
+                                    <Minus :size="16" />
+                                </button>
+                                <button
+                                    type="button"
+                                    class="hidden rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-white sm:inline-flex"
+                                    :title="state.expanded ? 'Exit full screen' : 'Full screen'"
+                                    @click="toggleExpanded"
+                                >
+                                    <Minimize2 v-if="state.expanded" :size="15" />
+                                    <Maximize2 v-else :size="15" />
+                                </button>
+                                <button
+                                    type="button"
+                                    class="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-white"
+                                    title="Discard draft"
+                                    @click="discard"
+                                >
+                                    <X :size="16" />
+                                </button>
+                            </div>
                         </div>
 
                         <form
+                            v-show="!state.minimized"
                             class="flex min-h-0 flex-1 flex-col"
                             @submit.prevent="submit"
                         >
@@ -343,7 +426,7 @@ const submit = () => {
                                         />
                                     </div>
                                 </div>
-                                <div class="grid gap-3 sm:grid-cols-2">
+                                <div class="grid gap-3 sm:grid-cols-3">
                                     <div>
                                         <label
                                             class="mb-1.5 block text-xs text-zinc-500"
@@ -353,6 +436,18 @@ const submit = () => {
                                             v-model="form.cc"
                                             class="md-input"
                                             placeholder="optional"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label
+                                            class="mb-1.5 block text-xs text-zinc-500"
+                                            >Bcc</label
+                                        >
+                                        <input
+                                            v-model="form.bcc"
+                                            class="md-input"
+                                            placeholder="optional"
+                                            data-testid="compose-bcc"
                                         />
                                     </div>
                                     <div>
@@ -604,9 +699,9 @@ const submit = () => {
                                     <button
                                         type="button"
                                         class="md-btn-ghost"
-                                        @click="close"
+                                        @click="discard"
                                     >
-                                        Cancel
+                                        Discard
                                     </button>
                                     <button
                                         type="submit"

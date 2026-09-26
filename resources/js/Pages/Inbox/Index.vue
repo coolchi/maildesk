@@ -1,11 +1,13 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
-import { Head } from '@inertiajs/vue3';
+import EmailFrame from '@/Components/EmailFrame.vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import { Head, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
 import RowActions from '@/Components/RowActions.vue';
-import { useComposeModal } from '@/composables/useComposeModal';
+import AttachmentList from '@/Components/AttachmentList.vue';
+import StatusBadge from '@/Components/StatusBadge.vue';
 import { useNotifications } from '@/composables/useNotifications';
 import { useToast } from '@/composables/useToast';
 import {
@@ -13,8 +15,11 @@ import {
     CheckCheck,
     Mail,
     MailOpen,
-    PenSquare,
+    AlertCircle,
+    Paperclip,
+    RotateCw,
     Search,
+    X,
     Send,
     Star,
     Trash2,
@@ -24,7 +29,6 @@ const props = defineProps({
     threads: { type: Array, default: () => [] },
 });
 
-const { open: openCompose } = useComposeModal();
 const { markThreadRead, setInboxUnread } = useNotifications();
 const toast = useToast();
 const search = ref('');
@@ -43,6 +47,12 @@ watch(
     },
 );
 
+const persistRead = (thread, read) => {
+    window.axios
+        .patch(`/inbox/${thread.id}/read`, { read })
+        .catch(() => toast.error('Could not update read state.'));
+};
+
 const syncInboxBadge = () => {
     setInboxUnread(threads.value.filter((t) => t.unread).length);
 };
@@ -56,6 +66,7 @@ const filtered = computed(() =>
             !q ||
             t.subject.toLowerCase().includes(q) ||
             t.from.toLowerCase().includes(q) ||
+            (t.to || '').toLowerCase().includes(q) ||
             t.snippet.toLowerCase().includes(q)
         );
     }),
@@ -70,6 +81,7 @@ const selectThread = (thread) => {
     if (thread.unread) {
         thread.unread = false;
         markThreadRead(thread.id);
+        persistRead(thread, true);
         syncInboxBadge();
     }
 };
@@ -89,6 +101,7 @@ const onThreadAction = (thread, item) => {
     if (item.id === 'read') {
         thread.unread = !thread.unread;
         if (!thread.unread) markThreadRead(thread.id);
+        persistRead(thread, !thread.unread);
         syncInboxBadge();
         toast.success(thread.unread ? 'Marked unread.' : 'Marked read.');
     } else if (item.id === 'star') {
@@ -125,45 +138,152 @@ const onHeaderAction = (item) => {
     onThreadAction(active.value, item);
 };
 
-const sendReply = () => {
-    toast.info('Reply sending will use your workspace provider next.');
-    replyHtml.value = '<p></p>';
+const sendingReply = ref(false);
+const replyCc = ref('');
+const replyBcc = ref('');
+const showCc = ref(false);
+const showBcc = ref(false);
+const replyFiles = ref([]);
+const fileInput = ref(null);
+const messagesEl = ref(null);
+const MAX_FILE = 10 * 1024 * 1024;
+
+const formatSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
-watch(
-    () => active.value,
-    (thread) => {
-        if (thread?.unread) {
-            thread.unread = false;
-            markThreadRead(thread.id);
-            syncInboxBadge();
+const onPickFiles = (event) => {
+    for (const file of Array.from(event.target.files || [])) {
+        if (file.size > MAX_FILE) {
+            toast.error(`${file.name} is larger than 10 MB.`);
+            continue;
         }
-    },
+        if (replyFiles.value.length >= 10) {
+            toast.error('You can attach up to 10 files.');
+            break;
+        }
+        replyFiles.value.push(file);
+    }
+    event.target.value = '';
+};
+
+const removeFile = (index) => replyFiles.value.splice(index, 1);
+
+const resetReply = () => {
+    replyHtml.value = '<p></p>';
+    replyCc.value = '';
+    replyBcc.value = '';
+    showCc.value = false;
+    showBcc.value = false;
+    replyFiles.value = [];
+};
+
+// Keep the newest message in view: jump to the bottom when a thread opens or grows.
+const scrollToLatest = () =>
+    nextTick(() => {
+        if (messagesEl.value) {
+            messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
+        }
+    });
+
+watch(
+    () => [activeId.value, active.value?.messages?.length],
+    scrollToLatest,
     { immediate: true },
 );
+
+watch(activeId, (next, prev) => {
+    if (prev !== undefined && next !== prev) resetReply();
+});
+
+const retrying = ref(null);
+
+const retryMessage = (message) => {
+    if (retrying.value) return;
+    retrying.value = message.id;
+    router.post(
+        route('emails.retry', message.id),
+        {},
+        {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: (page) => {
+                if (page.props.flash?.error) {
+                    toast.error(page.props.flash.error);
+                    return;
+                }
+                toast.success('Reply resent.');
+            },
+            onError: () => toast.error('Could not retry this email.'),
+            onFinish: () => {
+                retrying.value = null;
+            },
+        },
+    );
+};
+
+const sendReply = () => {
+    if (!active.value || sendingReply.value) return;
+    const plain = replyHtml.value.replace(/<[^>]*>/g, '').trim();
+    if (!plain) {
+        toast.error('Write a reply before sending.');
+        return;
+    }
+
+    sendingReply.value = true;
+    router.post(
+        `/inbox/${active.value.id}/reply`,
+        {
+            html: replyHtml.value,
+            cc: replyCc.value.trim() || null,
+            bcc: replyBcc.value.trim() || null,
+            attachments: replyFiles.value,
+        },
+        {
+            forceFormData: true,
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: (page) => {
+                if (page.props.flash?.error) {
+                    toast.error(page.props.flash.error);
+                    return;
+                }
+                resetReply();
+                toast.success('Reply sent.');
+            },
+            onError: (errors) =>
+                toast.error(
+                    errors.html ??
+                        errors.cc ??
+                        errors.bcc ??
+                        Object.values(errors)[0] ??
+                        'Could not send reply.',
+                ),
+            onFinish: () => {
+                sendingReply.value = false;
+            },
+        },
+    );
+};
+
+// Threads are marked read only when the user opens one (selectThread), not on page load.
 </script>
 
 <template>
     <Head title="Inbox" />
 
     <AppLayout>
-        <PageHeader title="Inbox">
-            <template #actions>
-                <button
-                    type="button"
-                    class="md-btn-primary"
-                    @click="openCompose()"
-                >
-                    <PenSquare :size="16" />
-                    Compose
-                </button>
-            </template>
-        </PageHeader>
+        <PageHeader title="Inbox" />
 
         <div
-            class="md-card grid min-h-[70vh] overflow-hidden lg:grid-cols-[340px_1fr]"
+            class="md-card grid overflow-hidden lg:h-[calc(100vh-15rem)] lg:min-h-[540px] lg:grid-cols-[340px_1fr]"
+            data-testid="inbox-card"
         >
-            <div class="border-b border-zinc-800 lg:border-b-0 lg:border-r">
+            <div
+                class="flex min-h-0 flex-col border-b border-zinc-800 lg:border-b-0 lg:border-r"
+            >
                 <div class="relative border-b border-zinc-800 p-3">
                     <Search
                         :size="14"
@@ -176,9 +296,7 @@ watch(
                         class="md-input pl-9"
                     />
                 </div>
-                <ul
-                    class="max-h-[60vh] overflow-y-auto lg:max-h-[calc(70vh-57px)]"
-                >
+                <ul class="max-h-[50vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1">
                     <li v-for="thread in filtered" :key="thread.id">
                         <div
                             class="group flex items-start border-b border-zinc-900 transition hover:bg-white/[0.03]"
@@ -219,6 +337,14 @@ watch(
                                     </span>
                                 </div>
                                 <div
+                                    v-if="thread.to"
+                                    class="mt-0.5 truncate text-[11px] text-zinc-500"
+                                    :title="`To ${thread.to}`"
+                                >
+                                    <span class="text-zinc-600">To</span>
+                                    {{ thread.to }}
+                                </div>
+                                <div
                                     class="mt-1 truncate text-sm"
                                     :class="
                                         thread.unread
@@ -253,7 +379,7 @@ watch(
                 </ul>
             </div>
 
-            <div v-if="active" class="flex flex-col">
+            <div v-if="active" class="flex min-h-0 min-w-0 flex-col">
                 <div
                     class="flex items-start justify-between gap-3 border-b border-zinc-800 px-6 py-4"
                 >
@@ -262,7 +388,12 @@ watch(
                             {{ active.subject }}
                         </h2>
                         <p class="mt-1 text-sm text-zinc-400">
-                            {{ active.from }} · {{ active.updated }}
+                            {{ active.from }}
+                            <template v-if="active.to">
+                                <span class="text-zinc-600">to</span>
+                                {{ active.to }}
+                            </template>
+                            · {{ active.updated }}
                         </p>
                     </div>
                     <RowActions
@@ -270,22 +401,54 @@ watch(
                         @select="onHeaderAction"
                     />
                 </div>
-                <div class="flex-1 space-y-4 overflow-y-auto p-6">
+                <div
+                    ref="messagesEl"
+                    class="space-y-4 p-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
+                    data-testid="thread-messages"
+                >
                     <article
                         v-for="message in active.messages"
                         :key="message.id || message"
-                        class="rounded-xl border border-zinc-800 bg-zinc-950 p-4"
+                        class="rounded-xl border bg-zinc-950 p-4"
+                        :class="
+                            message.can_retry || message.status === 'suppressed'
+                                ? 'border-rose-500/30'
+                                : 'border-zinc-800'
+                        "
                     >
+                        <!-- Per-message sender line only matters when a thread has
+                             several messages; for one message it repeats the pane header. -->
                         <div
+                            v-if="active.messages.length > 1"
                             class="mb-3 flex items-center justify-between text-xs text-zinc-500"
+                            data-testid="message-header"
                         >
-                            <span>{{ message.from || active.from }}</span>
+                            <span class="truncate">
+                                {{ message.from || active.from }}
+                                <template v-if="message.to">
+                                    <span class="text-zinc-600">to</span>
+                                    {{ message.to }}
+                                </template>
+                            </span>
                             <span>{{ message.sent || '—' }}</span>
                         </div>
                         <div
+                            v-if="message.cc || message.bcc"
+                            class="-mt-2 mb-3 truncate text-xs text-zinc-500"
+                        >
+                            <template v-if="message.cc">
+                                <span class="text-zinc-600">cc</span>
+                                {{ message.cc }}
+                            </template>
+                            <template v-if="message.bcc">
+                                <span class="ml-2 text-zinc-600">bcc</span>
+                                {{ message.bcc }}
+                            </template>
+                        </div>
+                        <EmailFrame
                             v-if="message.html"
-                            class="prose prose-invert max-w-none text-sm leading-relaxed text-zinc-300"
-                            v-html="message.html"
+                            :html="message.html"
+                            :title="`Message from ${message.from || active.from}`"
                         />
                         <p
                             v-else
@@ -293,23 +456,153 @@ watch(
                         >
                             {{ message.text || active.snippet }}
                         </p>
+                        <AttachmentList
+                            v-if="message.attachments?.length"
+                            class="mt-4 border-t border-zinc-800/80 pt-3"
+                            :attachments="message.attachments"
+                        />
+                        <div
+                            v-if="
+                                message.direction === 'outbound' &&
+                                ['failed', 'suppressed', 'bounced', 'queued', 'scheduled'].includes(message.status)
+                            "
+                            class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs"
+                            :class="
+                                message.can_retry || message.status !== 'queued'
+                                    ? 'bg-rose-500/10 text-rose-300'
+                                    : 'bg-amber-500/10 text-amber-300'
+                            "
+                            data-testid="delivery-state"
+                        >
+                            <span class="flex min-w-0 items-center gap-2">
+                                <StatusBadge :status="message.status" />
+                                <AlertCircle
+                                    v-if="message.error"
+                                    :size="13"
+                                    class="shrink-0"
+                                />
+                                <span class="truncate" :title="message.error">
+                                    {{ message.error || 'Not delivered yet.' }}
+                                </span>
+                            </span>
+                            <button
+                                v-if="message.can_retry"
+                                type="button"
+                                class="md-btn-ghost !px-2.5 !py-1 text-xs"
+                                :disabled="retrying === message.id"
+                                data-testid="retry-button"
+                                @click="retryMessage(message)"
+                            >
+                                <RotateCw
+                                    :size="13"
+                                    :class="{ 'animate-spin': retrying === message.id }"
+                                />
+                                {{ retrying === message.id ? 'Retrying…' : 'Retry' }}
+                            </button>
+                        </div>
                     </article>
                 </div>
-                <div class="border-t border-zinc-800 p-4">
-                    <WysiwygEditor
-                        v-model="replyHtml"
-                        placeholder="Write a reply…"
-                        min-height="140px"
-                    />
-                    <div class="mt-3 flex justify-end">
+                <div
+                    class="shrink-0 border-t border-zinc-800 bg-zinc-950 p-4"
+                    data-testid="reply-box"
+                >
+                    <div class="mb-2 flex items-center justify-between gap-3 text-xs">
+                        <span class="truncate text-zinc-500">
+                            Reply to
+                            <span class="text-zinc-300">{{ active.from }}</span>
+                        </span>
+                        <span class="flex shrink-0 items-center gap-1">
+                            <button
+                                v-if="!showCc"
+                                type="button"
+                                class="rounded px-1.5 py-0.5 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
+                                @click="showCc = true"
+                            >
+                                Cc
+                            </button>
+                            <button
+                                v-if="!showBcc"
+                                type="button"
+                                class="rounded px-1.5 py-0.5 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
+                                @click="showBcc = true"
+                            >
+                                Bcc
+                            </button>
+                        </span>
+                    </div>
+                    <div v-if="showCc || showBcc" class="mb-2 grid gap-2 sm:grid-cols-2">
+                        <label v-if="showCc" class="relative block">
+                            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">Cc</span>
+                            <input
+                                v-model="replyCc"
+                                class="md-input !py-1.5 pl-10"
+                                placeholder="name@example.com, …"
+                                data-testid="reply-cc"
+                            />
+                        </label>
+                        <label v-if="showBcc" class="relative block">
+                            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">Bcc</span>
+                            <input
+                                v-model="replyBcc"
+                                class="md-input !py-1.5 pl-10"
+                                placeholder="name@example.com, …"
+                                data-testid="reply-bcc"
+                            />
+                        </label>
+                    </div>
+                    <div class="max-h-[26vh] overflow-y-auto rounded-lg">
+                        <WysiwygEditor
+                            v-model="replyHtml"
+                            placeholder="Write a reply…"
+                            min-height="84px"
+                        />
+                    </div>
+                    <div v-if="replyFiles.length" class="mt-2 flex flex-wrap gap-2">
+                        <span
+                            v-for="(file, index) in replyFiles"
+                            :key="`${file.name}-${index}`"
+                            class="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 py-1 pl-2 pr-1 text-xs text-zinc-300"
+                        >
+                            <Paperclip :size="12" class="shrink-0 text-zinc-500" />
+                            <span class="max-w-[12rem] truncate">{{ file.name }}</span>
+                            <span class="text-zinc-500">{{ formatSize(file.size) }}</span>
+                            <button
+                                type="button"
+                                class="rounded p-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                                :title="`Remove ${file.name}`"
+                                @click="removeFile(index)"
+                            >
+                                <X :size="12" />
+                            </button>
+                        </span>
+                    </div>
+                    <div class="mt-3 flex items-center gap-2">
                         <button
                             type="button"
                             class="md-btn-primary"
+                            :disabled="sendingReply"
                             @click="sendReply"
                         >
                             <Send :size="16" />
-                            Send reply
+                            {{ sendingReply ? 'Sending…' : 'Send reply' }}
                         </button>
+                        <button
+                            type="button"
+                            class="md-btn-ghost"
+                            title="Attach files (max 10 MB each)"
+                            @click="fileInput?.click()"
+                        >
+                            <Paperclip :size="16" />
+                            Attach
+                        </button>
+                        <input
+                            ref="fileInput"
+                            type="file"
+                            multiple
+                            class="hidden"
+                            data-testid="reply-file-input"
+                            @change="onPickFiles"
+                        />
                     </div>
                 </div>
             </div>

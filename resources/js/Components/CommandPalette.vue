@@ -19,6 +19,8 @@ import {
     Users,
     Webhook,
     Workflow,
+    Send,
+    MailX,
 } from '@lucide/vue';
 
 const page = usePage();
@@ -31,6 +33,8 @@ const baseCommands = [
     { name: 'Emails', route: 'emails', icon: Mail, group: 'Mail' },
     { name: 'Inbox', route: 'inbox', icon: Inbox, group: 'Mail' },
     { name: 'Compose', action: 'compose', icon: PenSquare, group: 'Mail' },
+    { name: 'Sent', route: 'sent', icon: Send, group: 'Mail' },
+    { name: 'Bounced', route: 'bounced', icon: MailX, group: 'Mail' },
     { name: 'Users', route: 'users', icon: Users, group: 'Mail' },
     { name: 'Broadcasts', route: 'broadcasts', icon: Megaphone, group: 'Engage' },
     { name: 'Automations', route: 'automations', icon: Workflow, group: 'Engage' },

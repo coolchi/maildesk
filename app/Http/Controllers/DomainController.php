@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Domain;
 use App\Models\Organization;
+use App\Services\Dns\DnsProviderException;
+use App\Services\Dns\DnsRecordManager;
+use App\Services\Domains\DomainVerifier;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,14 +32,40 @@ class DomainController extends Controller
         ]);
     }
 
-    public function show(Request $request, Domain $domain): Response
+    public function show(Request $request, Domain $domain, DnsRecordManager $dns): Response
     {
         $organization = CurrentOrganization::from($request);
         $this->ensureDomainBelongsToOrganization($domain, $organization);
 
         return Inertia::render('Domains/Show', [
             'domain' => $domain->toWorkspaceArray($organization->region),
+            'dns' => $this->dnsState($domain, $dns),
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function dnsState(Domain $domain, DnsRecordManager $dns): array
+    {
+        $connection = $domain->dnsConnection;
+
+        if ($connection === null) {
+            return ['connection' => null, 'records' => [], 'live' => [], 'error' => null];
+        }
+
+        try {
+            $plan = $dns->plan($domain, $connection);
+
+            return [
+                'connection' => $connection->toWorkspaceArray(),
+                ...$plan,
+                'error' => null,
+                'auto_publish' => $domain->dns_records['auto_publish'] ?? null,
+            ];
+        } catch (DnsProviderException $e) {
+            return ['connection' => $connection->toWorkspaceArray(), 'records' => [], 'live' => [], 'error' => $e->getMessage()];
+        }
     }
 
     public function store(Request $request): RedirectResponse
@@ -82,25 +111,31 @@ class DomainController extends Controller
             ->with('success', 'Domain deleted.');
     }
 
-    public function verify(Request $request, Domain $domain): RedirectResponse
+    public function verify(Request $request, Domain $domain, DomainVerifier $verifier): RedirectResponse
     {
         $organization = CurrentOrganization::from($request);
         $this->ensureDomainBelongsToOrganization($domain, $organization);
 
-        $dns = $domain->normalizedDnsRecords();
-        $dns['checks'] = [
-            'spf' => true,
-            'dkim' => true,
-            'dmarc' => true,
-        ];
+        $result = $verifier->verify($domain);
 
-        $domain->update([
-            'status' => 'verified',
-            'verified_at' => now(),
-            'dns_records' => $dns,
-        ]);
+        if ($result['verified']) {
+            $message = "{$domain->name} verified.";
 
-        return back()->with('success', "{$domain->name} verified.");
+            if ($result['warnings'] !== []) {
+                $message .= ' Warning: '.implode(' ', $result['warnings']);
+            }
+
+            return back()->with('success', $message);
+        }
+
+        $failing = strtoupper(implode(', ', $result['failing']));
+        $message = "{$domain->name} is not verified yet. Not detected in DNS: {$failing}. DNS can take a while to propagate; re-check later.";
+
+        if ($result['provider_error']) {
+            $message .= ' Resend registration failed: '.$result['provider_error'];
+        }
+
+        return back()->with('error', $message);
     }
 
     private function ensureDomainBelongsToOrganization(Domain $domain, Organization $organization): void

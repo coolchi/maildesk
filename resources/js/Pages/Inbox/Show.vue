@@ -1,4 +1,5 @@
 <script setup>
+import EmailFrame from '@/Components/EmailFrame.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
 
@@ -35,25 +36,25 @@ defineProps({
                     <div class="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm">
                         <div>
                             <span class="font-medium text-gray-900">{{
-                                message.from_name || message.from_email
+                                message.from_name || message.from
                             }}</span>
                             <span class="text-gray-500">
-                                &lt;{{ message.from_email }}&gt;
+                                &lt;{{ message.from }}&gt;
                             </span>
                         </div>
                         <div class="text-gray-400">
-                            {{ message.direction }} · {{ message.status }}
+                            {{ message.direction }} · {{ message.sent }}
                         </div>
                     </div>
-                    <div
-                        v-if="message.html_body"
-                        class="prose max-w-none text-sm text-gray-800"
-                        v-html="message.html_body"
+                    <EmailFrame
+                        v-if="message.html"
+                        :html="message.html"
+                        :title="`Message from ${message.from}`"
                     />
                     <pre
                         v-else
                         class="whitespace-pre-wrap text-sm text-gray-800"
-                    >{{ message.text_body }}</pre>
+                    >{{ message.text }}</pre>
                 </article>
             </div>
         </div>

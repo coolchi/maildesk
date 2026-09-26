@@ -25,3 +25,7 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Local env backups/variants (keep secrets out of git)
+.env.*
+!.env.example

@@ -7,7 +7,7 @@ const { open } = useComposeModal();
 
 onMounted(() => {
     open();
-    router.visit(route('emails'), { replace: true });
+    router.visit(route('sent'), { replace: true });
 });
 </script>
 

@@ -62,4 +62,54 @@ return [
         )),
     ))),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Inbound email
+    |--------------------------------------------------------------------------
+    |
+    | Providers POST received mail to /api/v1/inbound/{driver}. The resend
+    | driver verifies Svix signatures with RESEND_WEBHOOK_SECRET (whsec_...).
+    | The generic driver requires the X-MailDesk-Inbound-Secret header.
+    | Leave a secret empty to skip verification (local development only).
+    |
+    */
+    'inbound' => [
+        'resend_webhook_secret' => env('RESEND_WEBHOOK_SECRET'),
+        'generic_secret' => env('MAILDESK_INBOUND_SECRET'),
+        'signature_tolerance' => (int) env('MAILDESK_INBOUND_TOLERANCE', 300),
+        'resend_api_url' => env('RESEND_API_URL', 'https://api.resend.com'),
+        'attachments_disk' => env('MAILDESK_INBOUND_DISK', 'local'),
+        // Log channel for inbound events (null = the default stack).
+        'log_channel' => env('MAILDESK_INBOUND_LOG_CHANNEL'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Sending domains
+    |--------------------------------------------------------------------------
+    |
+    | Verification looks up SPF, DKIM, DMARC and MX in real DNS. SPF and
+    | DKIM are required; a missing DMARC record is only a warning. Resend
+    | domains are also registered with Resend (needs RESEND_API_KEY) so the
+    | DNS records shown to users are Resend's real ones. The scheduler
+    | re-checks unverified domains hourly and verified ones daily.
+    |
+    */
+    'domains' => [
+        'register_with_provider' => (bool) env('MAILDESK_DOMAINS_REGISTER', true),
+
+        // How verification looks records up. "doh" asks a public resolver
+        // (Cloudflare 1.1.1.1 over HTTPS) so a stale cache on the local
+        // network can't report fresh records as missing. "system" uses the
+        // machine's own resolver. DoH falls back to system if unreachable.
+        'resolver' => env('MAILDESK_DNS_RESOLVER', 'doh'),
+        'doh_url' => env('MAILDESK_DNS_DOH_URL', 'https://1.1.1.1/dns-query'),
+
+        // When a domain has a connected DNS host (Cloudflare), every
+        // verification pass publishes missing mail records and fixes drifted
+        // ones automatically, including new records the provider starts
+        // requiring later. Set false to only publish on the user's click.
+        'auto_publish_dns' => (bool) env('MAILDESK_DNS_AUTO_PUBLISH', true),
+    ],
+
 ];

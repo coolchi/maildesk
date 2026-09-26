@@ -6,6 +6,7 @@ use Database\Factories\DomainFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Domain extends Model
 {
@@ -28,6 +29,11 @@ class Domain extends Model
             'dns_records' => 'array',
             'verified_at' => 'datetime',
         ];
+    }
+
+    public function dnsConnection(): HasOne
+    {
+        return $this->hasOne(DnsConnection::class);
     }
 
     public function organization(): BelongsTo
@@ -89,24 +95,34 @@ class Domain extends Model
             'dns_rows' => $dns['records'],
             'provider' => $this->provider,
             'verified_at' => $this->verified_at?->toIso8601String(),
+            'checked_at' => $dns['checked_at'] ?? null,
+            'results' => $dns['results'] ?? (object) [],
+            'required' => $dns['required'] ?? ['spf', 'dkim'],
+            'warnings' => $dns['warnings'] ?? [],
+            'provider_domain_id' => $this->provider_domain_id,
+            'provider_status' => $dns['provider']['status'] ?? null,
+            'provider_error' => $dns['provider_error'] ?? null,
         ];
     }
 
     /**
-     * @return array{records: list<array<string, mixed>>, checks: array{spf: bool, dkim: bool, dmarc: bool}}
+     * @return array{records: list<array<string, mixed>>, checks: array<string, bool>}&array<string, mixed>
      */
     public function normalizedDnsRecords(): array
     {
         $raw = $this->dns_records;
 
         if (is_array($raw) && isset($raw['records'], $raw['checks'])) {
+            $checks = array_map(fn ($value) => (bool) $value, (array) $raw['checks']);
+
+            foreach (['spf', 'dkim', 'dmarc'] as $key) {
+                $checks[$key] ??= false;
+            }
+
             return [
+                ...$raw,
                 'records' => array_values($raw['records']),
-                'checks' => [
-                    'spf' => (bool) ($raw['checks']['spf'] ?? false),
-                    'dkim' => (bool) ($raw['checks']['dkim'] ?? false),
-                    'dmarc' => (bool) ($raw['checks']['dmarc'] ?? false),
-                ],
+                'checks' => $checks,
             ];
         }
 

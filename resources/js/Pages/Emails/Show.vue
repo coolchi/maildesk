@@ -1,4 +1,6 @@
 <script setup>
+import AttachmentList from '@/Components/AttachmentList.vue';
+import EmailFrame from '@/Components/EmailFrame.vue';
 import { computed, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -11,7 +13,6 @@ import {
     FileText,
     Mail,
     MoreHorizontal,
-    Paperclip,
     Send,
 } from '@lucide/vue';
 
@@ -129,19 +130,12 @@ const copyId = async () => {
                 <div class="text-[11px] uppercase tracking-wide text-zinc-500">
                     Attachments
                 </div>
-                <div
+                <AttachmentList
                     v-if="email.attachments?.length"
-                    class="mt-2 flex flex-wrap gap-2"
-                >
-                    <span
-                        v-for="file in email.attachments"
-                        :key="file"
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-300"
-                    >
-                        <Paperclip :size="12" />
-                        {{ file }}
-                    </span>
-                </div>
+                    class="mt-2"
+                    :attachments="email.attachments"
+                    compact
+                />
                 <div v-else class="mt-1 text-sm text-zinc-500">None</div>
             </div>
         </div>
@@ -206,10 +200,9 @@ const copyId = async () => {
             </div>
 
             <div v-if="tab === 'preview'" class="bg-zinc-900/40 p-4 sm:p-6">
-                <div
-                    class="mx-auto max-w-xl overflow-hidden rounded-xl bg-white text-zinc-900 shadow-lg"
-                    v-html="email.html"
-                />
+                <div class="mx-auto max-w-xl overflow-hidden rounded-xl bg-white shadow-lg">
+                    <EmailFrame :html="email.html" title="Email preview" />
+                </div>
             </div>
             <pre
                 v-else-if="tab === 'plain'"
@@ -218,7 +211,7 @@ const copyId = async () => {
             <pre
                 v-else-if="tab === 'html'"
                 class="overflow-x-auto p-5 text-xs text-zinc-400"
-            >{{ email.html }}</pre>
+            >{{ email.html_source ?? email.html }}</pre>
             <pre
                 v-else-if="tab === 'raw'"
                 class="overflow-x-auto p-5 text-xs text-zinc-400"

@@ -5,6 +5,7 @@ import SidebarLink from '@/Components/SidebarLink.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
 import PlansModal from '@/Components/PlansModal.vue';
 import ComposeModal from '@/Components/ComposeModal.vue';
+import FloatingComposeButton from '@/Components/FloatingComposeButton.vue';
 import CommandPalette from '@/Components/CommandPalette.vue';
 import OnboardingModal from '@/Components/OnboardingModal.vue';
 import NotificationsMenu from '@/Components/NotificationsMenu.vue';
@@ -20,7 +21,6 @@ import { useToast } from '@/composables/useToast';
 import {
     Mail,
     Inbox,
-    PenSquare,
     Megaphone,
     Workflow,
     LayoutTemplate,
@@ -48,6 +48,8 @@ import {
     Search,
     LogOut,
     Shield,
+    Send,
+    MailX,
 } from '@lucide/vue';
 
 const page = usePage();
@@ -87,7 +89,8 @@ const navGroups = [
         items: [
             { name: 'Emails', route: 'emails', icon: Mail },
             { name: 'Inbox', route: 'inbox', icon: Inbox },
-            { name: 'Compose', action: 'compose', icon: PenSquare },
+            { name: 'Sent', route: 'sent', icon: Send },
+            { name: 'Bounced', route: 'bounced', icon: MailX },
             { name: 'Users', route: 'users', icon: UserCog },
         ],
     },
@@ -615,7 +618,7 @@ const createTeam = () => {
                 </header>
 
                 <main class="flex-1">
-                    <div class="mx-auto max-w-7xl animate-fade-in px-4 py-6 sm:px-6 lg:px-8">
+                    <div class="mx-auto max-w-7xl animate-fade-in px-4 pb-24 pt-6 sm:px-6 lg:px-8">
                         <slot />
                     </div>
                 </main>
@@ -652,6 +655,7 @@ const createTeam = () => {
         <ToastContainer />
         <PlansModal />
         <ComposeModal />
+        <FloatingComposeButton />
         <CommandPalette />
         <OnboardingModal />
     </div>

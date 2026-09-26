@@ -6,10 +6,12 @@ use App\Jobs\DispatchWebhook;
 use App\Mail\DTO\OutboundEmail;
 use App\Mail\MailManager;
 use App\Models\Attachment;
+use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Organization;
 use App\Models\Suppression;
 use App\Models\Thread;
+use App\Support\AddressList;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 
@@ -22,13 +24,16 @@ class EmailService
     /**
      * @param  array<string, mixed>  $payload
      * @param  array<int, UploadedFile>  $files
+     * @param  Thread|null  $thread  Continue an existing conversation instead of starting a new thread.
      */
-    public function send(Organization $organization, array $payload, array $files = []): Message
+    public function send(Organization $organization, array $payload, array $files = [], ?Thread $thread = null): Message
     {
         $from = $this->parseAddress($payload['from']);
         $to = $this->normalizeList($payload['to'] ?? []);
+        $cc = ! empty($payload['cc']) ? $this->normalizeList($payload['cc']) : [];
+        $bcc = ! empty($payload['bcc']) ? $this->normalizeList($payload['bcc']) : [];
 
-        $suppressed = $this->firstSuppressedAddress($organization, $to);
+        $suppressed = $this->firstSuppressedAddress($organization, [...$to, ...$cc, ...$bcc]);
         if ($suppressed !== null) {
             return $this->createSuppressedMessage($organization, $payload, $from, $to, $suppressed, $files);
         }
@@ -36,18 +41,44 @@ class EmailService
         $scheduledAt = $payload['scheduled_at'] ?? null;
         $isScheduled = $scheduledAt !== null;
 
-        $thread = Thread::query()->create([
-            'organization_id' => $organization->id,
-            'subject' => $payload['subject'],
-            'snippet' => Str::limit(strip_tags($payload['text'] ?? $payload['html'] ?? ''), 180),
-            'last_message_at' => now(),
-            'message_count' => 1,
-            'is_read' => true,
-        ]);
+        $mailbox = Mailbox::query()
+            ->where('organization_id', $organization->id)
+            ->whereRaw('lower(email) = ?', [Str::lower($from['email'])])
+            ->first();
+
+        // Our own Message-ID lets customer replies thread back onto this conversation.
+        $messageIdHeader = '<'.Str::uuid().'@'.(Str::after($from['email'], '@') ?: 'maildesk.local').'>';
+        $headers = array_merge(['Message-ID' => $messageIdHeader], $payload['headers'] ?? []);
+
+        $snippet = Str::limit(trim(preg_replace('/\s+/', ' ', strip_tags($payload['text'] ?? $payload['html'] ?? ''))), 180);
+
+        if ($thread !== null) {
+            $thread->forceFill([
+                'mailbox_id' => $thread->mailbox_id ?? $mailbox?->id,
+                'snippet' => $snippet,
+                'last_message_at' => now(),
+                'message_count' => $thread->messages()->count() + 1,
+                'is_read' => true,
+            ])->save();
+        } else {
+            $thread = Thread::query()->create([
+                'organization_id' => $organization->id,
+                'mailbox_id' => $mailbox?->id,
+                'subject' => $payload['subject'],
+                'snippet' => $snippet,
+                'last_message_at' => now(),
+                'message_count' => 1,
+                'is_read' => true,
+            ]);
+        }
 
         $message = Message::query()->create([
             'organization_id' => $organization->id,
             'thread_id' => $thread->id,
+            'mailbox_id' => $mailbox?->id,
+            'message_id_header' => $headers['Message-ID'],
+            'in_reply_to' => $payload['in_reply_to'] ?? null,
+            'references' => $payload['references'] ?? null,
             'direction' => 'outbound',
             'status' => $isScheduled ? 'scheduled' : 'queued',
             'provider' => $organization->mailProvider?->driver
@@ -55,14 +86,14 @@ class EmailService
             'from_email' => $from['email'],
             'from_name' => $from['name'],
             'to' => $to,
-            'cc' => isset($payload['cc']) ? $this->normalizeList($payload['cc']) : null,
-            'bcc' => isset($payload['bcc']) ? $this->normalizeList($payload['bcc']) : null,
+            'cc' => $cc ?: null,
+            'bcc' => $bcc ?: null,
             'reply_to' => isset($payload['reply_to']) ? $this->normalizeList($payload['reply_to']) : null,
             'subject' => $payload['subject'],
             'text_body' => $payload['text'] ?? null,
             'html_body' => $payload['html'] ?? null,
             'tags' => $payload['tags'] ?? null,
-            'headers' => $payload['headers'] ?? null,
+            'headers' => $headers,
             'scheduled_at' => $isScheduled ? $scheduledAt : null,
         ]);
 
@@ -107,10 +138,11 @@ class EmailService
             'provider_message_id' => $result->providerMessageId,
             'sent_at' => $result->success ? now() : null,
             'scheduled_at' => null,
-            'meta' => [
-                'error' => $result->error,
+            // Merge so a retry keeps earlier history (events, previous attempts).
+            'meta' => array_merge((array) ($message->meta ?? []), [
+                'error' => $result->success ? null : $result->error,
                 'provider_raw' => $result->raw,
-            ],
+            ]),
         ]);
 
         $message = $message->fresh(['attachments']);
@@ -126,6 +158,40 @@ class EmailService
         }
 
         return $message;
+    }
+
+    /**
+     * Resend a failed outbound message as-is (same body, recipients and
+     * attachments), keeping it on its thread. Returns the updated message.
+     */
+    public function retry(Organization $organization, Message $message): Message
+    {
+        $recipients = [
+            ...$this->normalizeList($message->to ?? []),
+            ...$this->normalizeList($message->cc ?? []),
+            ...$this->normalizeList($message->bcc ?? []),
+        ];
+
+        $suppressed = $this->firstSuppressedAddress($organization, $recipients);
+        if ($suppressed !== null) {
+            $message->update([
+                'status' => 'suppressed',
+                'meta' => array_merge((array) ($message->meta ?? []), [
+                    'error' => "Recipient {$suppressed} is on the suppression list.",
+                ]),
+            ]);
+
+            return $message->fresh(['attachments']);
+        }
+
+        $meta = (array) ($message->meta ?? []);
+        $attempts = (array) ($meta['attempts'] ?? []);
+        $attempts[] = ['at' => now()->toIso8601String(), 'error' => $meta['error'] ?? null];
+        $meta['attempts'] = array_slice($attempts, -20);
+
+        $message->forceFill(['status' => 'queued', 'meta' => $meta])->save();
+
+        return $this->deliver($organization, $message);
     }
 
     /**
@@ -240,7 +306,7 @@ class EmailService
      */
     protected function normalizeList(string|array $value): array
     {
-        $items = is_array($value) ? $value : [$value];
+        $items = is_array($value) ? $value : AddressList::parse($value);
 
         return array_values(array_map(function ($item) {
             if (is_array($item)) {

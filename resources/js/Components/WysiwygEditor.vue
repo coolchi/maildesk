@@ -53,8 +53,10 @@ const editor = useEditor({
     editorProps: {
         attributes: {
             class: isEmail.value
-                ? 'prose prose-sm max-w-none focus:outline-none min-h-[200px] px-4 py-3 text-zinc-900 prose-headings:text-zinc-900 prose-a:text-cyan-700'
-                : 'prose prose-invert prose-sm max-w-none focus:outline-none min-h-[200px] px-4 py-3',
+                ? 'prose prose-sm max-w-none focus:outline-none px-4 py-3 text-zinc-900 prose-headings:text-zinc-900 prose-a:text-cyan-700'
+                : 'prose prose-invert prose-sm max-w-none focus:outline-none px-4 py-3',
+            // Fill the editor box so the whole area is clickable; height comes from the minHeight prop.
+            style: `min-height: ${props.minHeight}`,
         },
     },
     onUpdate: ({ editor: ed }) => {

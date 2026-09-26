@@ -4,6 +4,7 @@ import { Head, Link, router } from "@inertiajs/vue3";
 import AppLayout from "@/Layouts/AppLayout.vue";
 import PageHeader from "@/Components/PageHeader.vue";
 import StatusBadge from "@/Components/StatusBadge.vue";
+import DnsManager from "@/Components/DnsManager.vue";
 import { useToast } from "@/composables/useToast";
 import { useComposeModal } from "@/composables/useComposeModal";
 import {
@@ -20,6 +21,7 @@ import {
 
 const props = defineProps({
     domain: { type: Object, required: true },
+    dns: { type: Object, default: null },
 });
 
 const toast = useToast();
@@ -42,7 +44,10 @@ const checkedAt = computed(() =>
         : null,
 );
 
-const warnings = computed(() => props.domain.warnings || []);
+// DMARC is listed as a record below, so skip its reminder banner.
+const warnings = computed(() =>
+    (props.domain.warnings || []).filter((w) => !/dmarc/i.test(w)),
+);
 
 const foundFor = (key) => props.domain.results?.[key]?.found || [];
 
@@ -83,6 +88,7 @@ const purposes = {
     spf: "Allows Resend to send for this domain",
     mx: "Receives bounce notices (return path)",
     inbound_mx: "Routes incoming mail to MailDesk",
+    return_path: "Handles bounces for Resend's return path",
     dmarc: "Tells inboxes how to treat mail that fails checks",
 };
 
@@ -91,6 +97,7 @@ const titles = {
     spf: "SPF",
     mx: "Return path (MX)",
     inbound_mx: "Receiving (MX)",
+    return_path: "Return path (CNAME)",
     dmarc: "DMARC",
 };
 
@@ -144,7 +151,7 @@ const rows = computed(() =>
 );
 
 const passingCount = computed(
-    () => rows.value.filter((r) => r.status === "pass").length,
+    () => listedRows.value.filter((r) => r.status === "pass").length,
 );
 
 const groups = computed(() =>
@@ -175,12 +182,52 @@ const groups = computed(() =>
     ].filter((g) => g.rows.length),
 );
 
+// Fallback for when the Clipboard API is missing or rejected (plain-http
+// local domains aren't a secure context, or the tab isn't focused).
+const legacyCopy = (text) => {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.setAttribute("readonly", "");
+    el.style.position = "fixed";
+    el.style.top = "0";
+    el.style.left = "0";
+    el.style.opacity = "0";
+    document.body.appendChild(el);
+    const selection = document.getSelection();
+    const previous = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+    el.select();
+    el.setSelectionRange(0, text.length);
+    let ok = false;
+    try {
+        ok = document.execCommand("copy");
+    } catch {
+        ok = false;
+    }
+    document.body.removeChild(el);
+    if (previous && selection) {
+        selection.removeAllRanges();
+        selection.addRange(previous);
+    }
+    return ok;
+};
+
+// Only the records actually shown in the groups count toward the summary.
+const listedRows = computed(() => groups.value.flatMap((g) => g.rows));
+
 const copy = async (text, label) => {
     try {
+        if (!navigator.clipboard?.writeText) throw new Error("no clipboard api");
         await navigator.clipboard.writeText(text);
         toast.success(`Copied ${label}.`);
+        return;
     } catch {
-        toast.error("Copy failed.");
+        // fall through to the legacy path
+    }
+
+    if (legacyCopy(text)) {
+        toast.success(`Copied ${label}.`);
+    } else {
+        toast.error("Copy failed. Select the value and copy it manually.");
     }
 };
 
@@ -283,7 +330,7 @@ const verify = () => {
                     </p>
                     <p class="mt-2 text-xs text-zinc-500">
                         <span class="font-medium text-zinc-300"
-                            >{{ passingCount }} of {{ rows.length }}</span
+                            >{{ passingCount }} of {{ listedRows.length }}</span
                         >
                         records verified<template v-if="checkedAt">
                             · Last checked {{ checkedAt }} · Re-checked
@@ -312,6 +359,8 @@ const verify = () => {
                     {{ verifying ? "Verifying…" : "Verify DNS" }}
                 </button>
             </div>
+
+            <DnsManager :domain="domain" :dns="dns" />
 
             <section
                 v-for="group in groups"

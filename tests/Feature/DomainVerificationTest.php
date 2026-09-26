@@ -1,0 +1,404 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Domain;
+use App\Models\Organization;
+use App\Models\User;
+use App\Services\Domains\DnsResolver;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as HttpRequest;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
+
+class DomainVerificationTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private FakeDnsResolver $dns;
+
+    private const DKIM = 'p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDrealKey123';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->dns = new FakeDnsResolver;
+        $this->app->instance(DnsResolver::class, $this->dns);
+
+        // No Resend key by default: DNS-only verification.
+        config(['maildesk.providers.resend.api_key' => null]);
+        Http::preventStrayRequests();
+    }
+
+    /**
+     * @return array{0: User, 1: Organization}
+     */
+    private function member(): array
+    {
+        $user = User::factory()->create();
+        $org = Organization::factory()->create(['region' => 'eu-west-1']);
+        $org->users()->attach($user->id, ['role' => 'owner']);
+
+        return [$user, $org];
+    }
+
+    private function verify(User $user, Organization $org, Domain $domain)
+    {
+        return $this->actingAs($user)
+            ->withSession(['current_organization_id' => $org->id])
+            ->from(route('domains.show', $domain))
+            ->post(route('domains.verify', $domain));
+    }
+
+    private function publishDefaultRecords(string $name): void
+    {
+        $this->dns->txt[$name] = ['v=spf1 include:amazonses.com ~all'];
+        $this->dns->txt["resend._domainkey.{$name}"] = [self::DKIM];
+        $this->dns->txt["_dmarc.{$name}"] = ['v=DMARC1; p=none;'];
+    }
+
+    public function test_domain_with_no_dns_records_fails(): void
+    {
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'nodns.test']);
+
+        $this->verify($user, $org, $domain)
+            ->assertRedirect(route('domains.show', $domain))
+            ->assertSessionHas('error', fn (string $m) => str_contains($m, 'Not detected in DNS: SPF, DKIM.'));
+
+        $domain->refresh();
+        $this->assertSame('failed', $domain->status);
+        $this->assertNull($domain->verified_at);
+        $checks = $domain->dns_records['checks'];
+        $this->assertFalse($checks['spf']);
+        $this->assertFalse($checks['dkim']);
+        $this->assertFalse($checks['dmarc']);
+        $this->assertFalse($checks['mx']);
+        $this->assertNotNull($domain->dns_records['checked_at']);
+        $this->assertSame(['spf', 'dkim'], $domain->dns_records['required']);
+    }
+
+    public function test_domain_with_correct_records_passes(): void
+    {
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'good.test']);
+        $this->publishDefaultRecords('good.test');
+        $this->dns->mx['good.test'] = [['host' => 'mx.good.test', 'priority' => 10]];
+
+        $this->verify($user, $org, $domain)->assertSessionHas('success', 'good.test verified.');
+
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $this->assertNotNull($domain->verified_at);
+        $this->assertEquals(
+            ['spf' => true, 'dkim' => true, 'dmarc' => true, 'mx' => true],
+            array_intersect_key($domain->dns_records['checks'], array_flip(['spf', 'dkim', 'dmarc', 'mx'])),
+        );
+        $this->assertSame([self::DKIM], $domain->dns_records['results']['dkim']['found']);
+        $this->assertSame([], $domain->dns_records['warnings']);
+    }
+
+    public function test_missing_dmarc_is_a_warning_but_domain_still_passes(): void
+    {
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'nodmarc.test']);
+        $this->publishDefaultRecords('nodmarc.test');
+        unset($this->dns->txt['_dmarc.nodmarc.test']);
+
+        $this->verify($user, $org, $domain)
+            ->assertSessionHas('success', fn (string $m) => str_starts_with($m, 'nodmarc.test verified.') && str_contains($m, 'Warning: DMARC'));
+
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $this->assertNotNull($domain->verified_at);
+        $this->assertFalse($domain->dns_records['checks']['dmarc']);
+        $this->assertCount(1, $domain->dns_records['warnings']);
+        $this->assertStringContainsString('_dmarc.nodmarc.test', $domain->dns_records['warnings'][0]);
+
+        // An invalid DMARC record is treated the same way.
+        $this->dns->txt['_dmarc.nodmarc.test'] = ['p=none; not-a-dmarc-record'];
+        $this->artisan('domains:recheck --all')->assertSuccessful();
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $this->assertNotEmpty($domain->dns_records['warnings']);
+
+        // Publishing a correct DMARC record clears the warning.
+        $this->dns->txt['_dmarc.nodmarc.test'] = ['v=DMARC1; p=quarantine;'];
+        $this->artisan('domains:recheck --all')->assertSuccessful();
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $this->assertTrue($domain->dns_records['checks']['dmarc']);
+        $this->assertSame([], $domain->dns_records['warnings']);
+    }
+
+    public function test_partial_or_wrong_records_fail_with_the_failing_checks_named(): void
+    {
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'partial.test']);
+        $this->publishDefaultRecords('partial.test');
+        // SPF without the required include, and no DMARC.
+        $this->dns->txt['partial.test'] = ['v=spf1 include:_spf.google.com ~all'];
+        unset($this->dns->txt['_dmarc.partial.test']);
+
+        $this->verify($user, $org, $domain)
+            ->assertSessionHas('error', fn (string $m) => str_contains($m, 'Not detected in DNS: SPF.'));
+
+        $domain->refresh();
+        $this->assertSame('failed', $domain->status);
+        $this->assertTrue($domain->dns_records['checks']['dkim']);
+        $this->assertFalse($domain->dns_records['checks']['spf']);
+        $this->assertSame(['v=spf1 include:_spf.google.com ~all'], $domain->dns_records['results']['spf']['found']);
+        $this->assertFalse($domain->dns_records['checks']['dmarc']);
+        $this->assertNotEmpty($domain->dns_records['warnings']);
+    }
+
+    public function test_verify_registers_domain_with_resend_and_checks_resend_records(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        // Subdomain on purpose: Resend returns names relative to the apex.
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'in.acme.test']);
+
+        $records = [
+            ['record' => 'SPF', 'name' => 'send.in', 'type' => 'MX', 'value' => 'feedback-smtp.eu-west-1.amazonses.com', 'priority' => 10],
+            ['record' => 'SPF', 'name' => 'send.in', 'type' => 'TXT', 'value' => '"v=spf1 include:amazonses.com ~all"'],
+            ['record' => 'DKIM', 'name' => 'resend._domainkey.in', 'type' => 'TXT', 'value' => self::DKIM],
+        ];
+
+        Http::fake([
+            'api.resend.com/domains/dom_123/verify' => Http::response(['object' => 'domain', 'id' => 'dom_123']),
+            'api.resend.com/domains/dom_123' => Http::response(['id' => 'dom_123', 'name' => 'in.acme.test', 'status' => 'pending', 'region' => 'eu-west-1', 'records' => $records]),
+            'api.resend.com/domains' => Http::response(['id' => 'dom_123', 'name' => 'in.acme.test', 'status' => 'not_started', 'records' => $records], 201),
+        ]);
+
+        $this->dns->mx['send.in.acme.test'] = [['host' => 'feedback-smtp.eu-west-1.amazonses.com', 'priority' => 10]];
+        $this->dns->txt['send.in.acme.test'] = ['v=spf1 include:amazonses.com ~all'];
+        $this->dns->txt['resend._domainkey.in.acme.test'] = [self::DKIM];
+        $this->dns->txt['_dmarc.in.acme.test'] = ['v=DMARC1; p=none;'];
+
+        $this->verify($user, $org, $domain)->assertSessionHas('success');
+
+        Http::assertSent(fn (HttpRequest $r) => $r->method() === 'POST'
+            && $r->url() === 'https://api.resend.com/domains'
+            && $r['name'] === 'in.acme.test'
+            && $r['region'] === 'eu-west-1'
+            && $r->hasHeader('Authorization', 'Bearer re_test_key'));
+        Http::assertSent(fn (HttpRequest $r) => $r->method() === 'POST' && str_ends_with($r->url(), '/domains/dom_123/verify'));
+
+        $domain->refresh();
+        $this->assertSame('dom_123', $domain->provider_domain_id);
+        $this->assertSame('verified', $domain->status);
+        $this->assertSame('pending', $domain->dns_records['provider']['status']);
+        $this->assertSame(['spf', 'dkim', 'mx'], $domain->dns_records['required']);
+        $this->assertSame([], $domain->dns_records['warnings']);
+        $this->assertTrue($domain->dns_records['checks']['mx']);
+        // The fake placeholder records are replaced by Resend's real ones (plus DMARC).
+        $keys = array_column($domain->dns_records['records'], 'key');
+        $this->assertSame(['mx', 'spf', 'dkim', 'dmarc'], $keys);
+        $dkimRow = collect($domain->dns_records['records'])->firstWhere('key', 'dkim');
+        $this->assertSame(self::DKIM, $dkimRow['value']);
+        $this->assertContains('resend._domainkey.in.acme.test', $dkimRow['hosts']);
+    }
+
+    public function test_resend_return_path_cname_is_listed_required_and_checked(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'in.acme.test', 'provider_domain_id' => 'dom_c']);
+
+        $records = [
+            ['record' => 'DKIM', 'name' => 'resend._domainkey.in', 'type' => 'TXT', 'value' => self::DKIM],
+            ['record' => 'SPF', 'name' => 'send.in', 'type' => 'MX', 'value' => 'feedback-smtp.eu-west-1.amazonses.com', 'priority' => 10],
+            ['record' => 'SPF', 'name' => 'send.in', 'type' => 'TXT', 'value' => '"v=spf1 include:amazonses.com ~all"'],
+            ['record' => 'SPF', 'name' => 'rsend.in', 'type' => 'CNAME', 'value' => 'send.forge.rmta.net'],
+        ];
+        Http::fake([
+            'api.resend.com/domains/dom_c/verify' => Http::response(['id' => 'dom_c']),
+            'api.resend.com/domains/dom_c' => Http::response(['id' => 'dom_c', 'status' => 'partially_verified', 'records' => $records]),
+        ]);
+
+        $this->dns->mx['send.in.acme.test'] = [['host' => 'feedback-smtp.eu-west-1.amazonses.com', 'priority' => 10]];
+        $this->dns->txt['send.in.acme.test'] = ['v=spf1 include:amazonses.com ~all'];
+        $this->dns->txt['resend._domainkey.in.acme.test'] = [self::DKIM];
+
+        // Without the CNAME the domain is not verified, and the failing check is named.
+        $this->verify($user, $org, $domain);
+        $domain->refresh();
+        $this->assertSame('failed', $domain->status);
+        $this->assertContains('return_path', $domain->dns_records['required']);
+        $this->assertFalse($domain->dns_records['checks']['return_path']);
+        $row = collect($domain->dns_records['records'])->firstWhere('key', 'return_path');
+        $this->assertSame('CNAME', $row['type']);
+        $this->assertSame('send.forge.rmta.net', $row['value']);
+        $this->assertContains('rsend.in.acme.test', $row['hosts']);
+
+        $this->dns->cname['rsend.in.acme.test'] = ['send.forge.rmta.net'];
+        $this->verify($user, $org, $domain);
+        $this->assertSame('verified', $domain->fresh()->status);
+    }
+
+    public function test_unknown_provider_records_are_kept_instead_of_dropped(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'in.acme.test', 'provider_domain_id' => 'dom_n']);
+
+        Http::fake([
+            'api.resend.com/domains/dom_n/verify' => Http::response(['id' => 'dom_n']),
+            'api.resend.com/domains/dom_n' => Http::response(['id' => 'dom_n', 'status' => 'pending', 'records' => [
+                ['record' => 'DKIM', 'name' => 'resend._domainkey.in', 'type' => 'TXT', 'value' => self::DKIM],
+                ['record' => 'Tracking', 'name' => 'links.in', 'type' => 'CNAME', 'value' => 'track.example.net'],
+            ]]),
+        ]);
+
+        $this->verify($user, $org, $domain);
+
+        $keys = array_column($domain->fresh()->dns_records['records'], 'key');
+        $this->assertContains('cname_links_in', $keys);
+    }
+
+    public function test_domain_already_on_resend_account_is_adopted(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'taken.test']);
+
+        Http::fake(function (HttpRequest $r) {
+            return match (true) {
+                $r->method() === 'POST' && $r->url() === 'https://api.resend.com/domains' => Http::response(['message' => 'Domain already exists'], 403),
+                $r->method() === 'GET' && $r->url() === 'https://api.resend.com/domains' => Http::response(['data' => [['id' => 'dom_old', 'name' => 'taken.test']]]),
+                str_ends_with($r->url(), '/verify') => Http::response(['id' => 'dom_old']),
+                default => Http::response(['id' => 'dom_old', 'name' => 'taken.test', 'status' => 'verified', 'records' => []]),
+            };
+        });
+
+        $this->verify($user, $org, $domain);
+
+        $this->assertSame('dom_old', $domain->refresh()->provider_domain_id);
+    }
+
+    public function test_already_registered_domain_is_not_registered_twice(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'known.test',
+            'provider_domain_id' => 'dom_known',
+        ]);
+
+        Http::fake([
+            'api.resend.com/domains/dom_known/verify' => Http::response(['id' => 'dom_known']),
+            'api.resend.com/domains/dom_known' => Http::response(['id' => 'dom_known', 'status' => 'pending', 'records' => []]),
+        ]);
+
+        $this->verify($user, $org, $domain);
+
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r->url() === 'https://api.resend.com/domains');
+        Http::assertSent(fn (HttpRequest $r) => str_ends_with($r->url(), '/domains/dom_known/verify'));
+    }
+
+    public function test_resend_outage_does_not_block_dns_check_and_is_reported(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'outage.test']);
+        $this->publishDefaultRecords('outage.test');
+
+        Http::fake(['api.resend.com/*' => Http::response(['message' => 'boom'], 500)]);
+
+        $this->verify($user, $org, $domain)->assertSessionHas('success');
+
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $this->assertNull($domain->provider_domain_id);
+        $this->assertStringContainsString('HTTP 500', $domain->dns_records['provider_error']);
+    }
+
+    public function test_status_persists_and_recheck_command_updates_it(): void
+    {
+        [, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'flip.test']);
+
+        // Nothing published yet: the hourly re-check marks it failed.
+        $this->artisan('domains:recheck')->assertSuccessful();
+        $this->assertSame('failed', $domain->refresh()->status);
+
+        // Records get published: the next re-check verifies it.
+        $this->publishDefaultRecords('flip.test');
+        $this->artisan('domains:recheck')->assertSuccessful();
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $verifiedAt = $domain->verified_at;
+        $this->assertNotNull($verifiedAt);
+
+        // Verified domains are skipped by the hourly run...
+        unset($this->dns->txt['resend._domainkey.flip.test']);
+        $this->artisan('domains:recheck')->assertSuccessful();
+        $this->assertSame('verified', $domain->refresh()->status);
+
+        // ...but the daily --all run catches a removed DKIM record.
+        $this->artisan('domains:recheck --all')->assertSuccessful();
+        $domain->refresh();
+        $this->assertSame('failed', $domain->status);
+        $this->assertNull($domain->verified_at);
+        $this->assertFalse($domain->dns_records['checks']['dkim']);
+        $this->assertTrue($domain->dns_records['checks']['spf']);
+    }
+
+    public function test_show_page_exposes_real_check_results(): void
+    {
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create(['organization_id' => $org->id, 'name' => 'show.test']);
+        $this->dns->txt['show.test'] = ['v=spf1 include:amazonses.com ~all'];
+        $this->verify($user, $org, $domain);
+
+        $this->actingAs($user)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('domains.show', $domain))
+            ->assertInertia(fn ($page) => $page
+                ->component('Domains/Show')
+                ->where('domain.status', 'failed')
+                ->where('domain.records.spf', true)
+                ->where('domain.records.dkim', false)
+                ->has('domain.checked_at')
+                ->where('domain.results.spf.found.0', 'v=spf1 include:amazonses.com ~all'));
+    }
+
+    public function test_cannot_verify_another_organizations_domain(): void
+    {
+        [$user, $org] = $this->member();
+        $foreign = Domain::factory()->create(['name' => 'foreign.test']);
+
+        $this->verify($user, $org, $foreign)->assertNotFound();
+        $this->assertSame('pending', $foreign->refresh()->status);
+    }
+}
+
+class FakeDnsResolver extends DnsResolver
+{
+    /** @var array<string, list<string>> */
+    public array $txt = [];
+
+    /** @var array<string, list<array{host: string, priority: int}>> */
+    public array $mx = [];
+
+    public function txt(string $host): array
+    {
+        return $this->txt[strtolower($host)] ?? [];
+    }
+
+    /** @var array<string, list<string>> */
+    public array $cname = [];
+
+    public function mx(string $host): array
+    {
+        return $this->mx[strtolower($host)] ?? [];
+    }
+
+    public function cname(string $host): array
+    {
+        return $this->cname[strtolower($host)] ?? [];
+    }
+}
