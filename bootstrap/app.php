@@ -4,6 +4,7 @@ use App\Http\Middleware\ClearStaleSessionCookies;
 use App\Http\Middleware\EnsureAccountActive;
 use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\EnsureWorkspaceAbility;
+use App\Http\Middleware\EnsureWorkspaceEntitled;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\IdentifyTenant;
 use App\Http\Middleware\ImpersonationGuard;
@@ -33,6 +34,8 @@ return Application::configure(basePath: dirname(__DIR__))
             IdentifyTenant::class,
             // Suspended / closed accounts: log out, block, refuse impersonation.
             EnsureAccountActive::class,
+            // Expired trial / past_due: Settings + Billing only until payment.
+            EnsureWorkspaceEntitled::class,
             EnsureWorkspaceAbility::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,

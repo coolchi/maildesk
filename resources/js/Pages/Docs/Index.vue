@@ -619,6 +619,12 @@ const blocksFor = computed(() => {
                                     <tr><td class="px-4 py-2 font-mono text-xs">GET /inbox/threads/{thread}</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Retrieve a thread with its messages</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">GET /domains</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List domains</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">POST /domains</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Add a sending domain</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">GET /contacts</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List contacts</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">POST /contacts</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Create or update a contact</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">GET /segments</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List segments</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">GET /suppressions</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List suppressions</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">GET /templates</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List templates</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">POST /events</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Fire an automation event</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">POST /events/{driver}</td><td class="px-4 py-2 text-xs">None (signed)</td><td class="px-4 py-2 text-zinc-400">Provider delivery events</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">POST /inbound/{driver}</td><td class="px-4 py-2 text-xs">None (signed)</td><td class="px-4 py-2 text-zinc-400">Provider inbound mail</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">POST /payments/monipay/webhook</td><td class="px-4 py-2 text-xs">None (signed)</td><td class="px-4 py-2 text-zinc-400">Internal billing callback, not for API clients</td></tr>
@@ -626,9 +632,10 @@ const blocksFor = computed(() => {
                             </table>
                         </div>
                         <p>
-                            Webhook endpoints, API keys, templates, audiences
-                            and broadcasts are managed in the dashboard; they
-                            have no API endpoints. Start with
+                            Webhooks and API keys are managed in the dashboard.
+                            Contacts, segments, suppressions, templates, and
+                            automation events are available under
+                            <code class="text-zinc-300">/api/v1</code>. Start with
                             <button type="button" class="text-cyan-300 hover:underline" @click="select('quickstart')">Quickstart</button>
                             or create a key under
                             <Link :href="route('api-keys')" class="text-cyan-300 hover:underline">API keys</Link>.

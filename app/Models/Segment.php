@@ -17,7 +17,15 @@ class Segment extends Model
         'organization_id',
         'name',
         'description',
+        'rules',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'rules' => 'array',
+        ];
+    }
 
     public function organization(): BelongsTo
     {
@@ -32,18 +40,27 @@ class Segment extends Model
     /**
      * @return array<string, mixed>
      */
-    public function toWorkspaceArray(): array
+    public function toWorkspaceArray(?int $memberCount = null, ?string $ruleSummary = null): array
     {
-        $count = $this->relationLoaded('contacts')
-            ? $this->contacts->count()
-            : $this->contacts()->count();
+        $count = $memberCount;
+        if ($count === null) {
+            $count = array_key_exists('members_count', $this->attributes)
+                ? (int) $this->attributes['members_count']
+                : ($this->relationLoaded('contacts')
+                    ? $this->contacts->count()
+                    : $this->contacts()->count());
+        }
 
         return [
             'id' => $this->id,
             'name' => $this->name,
             'description' => $this->description,
+            'rules' => $this->rules ?? [],
+            'rule' => $ruleSummary ?? '',
             'contacts' => $count,
+            'count' => $count,
             'created' => $this->created_at?->diffForHumans() ?? '',
+            'updated' => $this->updated_at?->diffForHumans() ?? '',
         ];
     }
 }

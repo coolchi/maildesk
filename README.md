@@ -4,7 +4,7 @@ MailDesk is a multi-tenant business email platform. Each customer organisation g
 
 Outbound mail goes through a pluggable provider layer: **Resend** by default, **SMTP** as an alternative, and a fake in-memory provider for local development and tests.
 
-> Status: early / pilot. The core send path, tenancy, API keys, suppressions, scheduled sends, webhooks, queued broadcasts with unsubscribe handling, real domain verification (Resend registration + DNS lookups, optional Cloudflare auto-publish), delivery events with auto-suppression, signatures, and group addresses are implemented and tested. Inbound mail is received via provider webhooks and threaded into the shared inbox, where you can reply and forward. Some screens still use mock data, and automations, recurring billing, and several audience features are not implemented yet — see [Known gaps](#known-gaps--roadmap).
+> Status: early / pilot. The core send path, tenancy, API keys, suppressions, scheduled sends, webhooks, queued broadcasts with unsubscribe handling, real domain verification (Resend registration + DNS lookups, optional Cloudflare auto-publish), delivery events with auto-suppression, signatures, and group addresses are implemented and tested. Inbound mail is received via provider webhooks and threaded into the shared inbox, where you can reply and forward. Workspaces start on a Platform Admin–configured free trial (no free tier); expired trials lock to Settings/Billing until Monipay payment. See [Known gaps](#known-gaps--roadmap) for remaining polish.
 
 ## Features
 
@@ -15,27 +15,27 @@ Legend: ✅ working · 🟡 partial / uses mock data · ⛔ not implemented
 | Multi-tenant workspaces | ✅ | Tenant resolved from subdomain (`IdentifyTenant`, `TenantResolver`); workspace create + switch |
 | Compose & send | ✅ | Floating compose button (`c`) opens a docked panel (minimise / full-screen / discard) whose draft survives navigation; Tiptap editor, Cc/Bcc, attachments, provider selection, suppression check, signature appended |
 | Scheduled sends | ✅ | `SendScheduledMessage` job runs every minute via the scheduler |
-| Sent page | ✅ | `GET /sent` with status tabs, search and paging; email detail page's "Insights" panel is still mock |
+| Sent page | ✅ | `GET /sent` with status tabs, search and paging; email detail Insights shows real open/click counts and event timeline |
 | Bounced page | ✅ | `GET /bounced` lists bounced / suppressed sends; failed replies can be retried (`POST /emails/{id}/retry`) |
 | Suppression list | ✅ | Enforced on compose, API, and broadcast sends; bounces and complaints are added automatically |
-| Delivery events | 🟡 | `POST /api/v1/events/{driver}` handles delivered, bounced, complained, opened, clicked; bounces/complaints auto-suppress and fire `email.<type>` webhooks. The live Resend webhook still only subscribes to `email.received`; delivery-delayed events and an event timeline UI are not built |
+| Delivery events | 🟡 | `POST /api/v1/events/{driver}` handles delivered, bounced, complained, opened, clicked; bounces/complaints auto-suppress and fire `email.<type>` webhooks. Email detail Insights shows open/click counts and an event timeline from message meta. Subscribe the Resend webhook to `email.opened` / `email.clicked` (and enable tracking) for opens/clicks; delivery-delayed events are not handled yet |
 | API keys | ✅ | `md_…` Bearer keys with enforced permissions (Sending access = `POST /emails` only, else 403), single-domain scope, verified-sender check, per-key rate limit (`MAILDESK_API_RATE_LIMIT`/min, 429 + `Retry-After`/`X-RateLimit-*`), optional expiry and one-click rotation; "Export" button not implemented |
-| Public REST API | ✅ | `/api/v1` — emails, inbox threads, domains |
+| Public REST API | ✅ | `/api/v1` — emails, inbox, domains, contacts, segments, suppressions, templates, automation events |
 | Webhooks | ✅ | Queued per endpoint with retries (5 attempts, 30 s → 30 min backoff) and per-attempt delivery history; SSRF-protected (https only outside local, private/internal addresses blocked on save and at delivery after DNS resolution, no redirects, 5 s timeout); HMAC-SHA256 signed (`X-MailDesk-Signature`, plus timestamped `X-MailDesk-Signature-V2`); test event button and owner/admin secret rotation |
 | Mailbox users | ✅ | Create / update / delete mailboxes per workspace; optional per-mailbox signature override |
 | Signatures | ✅ | Workspace signature (Settings → Signature) applied to compose, replies, forwards, API sends and broadcasts, each toggleable; per-mailbox override (`SignatureService`) |
 | Group addresses | ✅ | Groups page (CRUD + members); mail to a group address fans out to members (`FanOutGroupMessage`, `GroupAddressService`); groups usable as broadcast audiences |
-| Templates | 🟡 | CRUD works; "Send test" and "Publish" are front-end only |
-| Audience (contacts, segments) | 🟡 | Add / delete / suppress contacts; editing contacts, properties, segments, topics not implemented |
-| Broadcasts | 🟡 | Queued, throttled sending (`SendBroadcast` / `SendBroadcastRecipient`, `MAILDESK_BROADCAST_PER_SECOND`) to all contacts, a segment or a group; per-recipient rows with skipped (suppressed / unsubscribed) recipients and stats; signed unsubscribe links, branded unsubscribe page and `List-Unsubscribe` / one-click headers. No click tracking, scheduling, or draft edit screen |
+| Templates | ✅ | CRUD, send test to current user, publish/draft status |
+| Audience (contacts, segments) | ✅ | Contact CRUD + suppress; segment CRUD with rules/membership; subscribe toggle; broadcasts resolve segments server-side. Properties/Topics later |
+| Broadcasts | ✅ | Queued sends to all / segment / group; schedule + cancel; per-recipient stats and unsubscribe |
 | Inbound email | ✅ | `POST /api/v1/inbound/{resend,generic}` — signature-verified, routed to the right tenant/mailbox, threaded, deduped, fires `email.received`; attachments shown in the thread with download links |
-| Shared inbox | 🟡 | Threads received mail with replies; read state persisted; reply (hidden by default, opens with the Reply button or `r`, with Cc/Bcc, attachments, retry) and forward (`f`) are real. Bodies render in a sandboxed iframe after HTMLPurifier cleaning. Star, archive and delete are still UI-only |
+| Shared inbox | ✅ | Threads, reply/forward, archive, trash (`inbox:purge-trash`), sandboxed HTML bodies |
 | Domains | 🟡 | Registered with Resend for real DKIM/records; verified via DNS-over-HTTPS (1.1.1.1) with system-resolver fallback; hourly/daily recheck (`domains:recheck`); optional Cloudflare connect + auto-publish of records. Shows "verified" even while Resend reports `partially_verified` |
 | Onboarding | ✅ | Get Started modal whose steps (domain, API key, first send, webhook) are driven by real server state |
-| Automations | ⛔ | List / view / edit / delete only; create page has no store route, steps are not saved, nothing executes steps |
+| Automations | ✅ | Create/update with steps; `POST /api/v1/events` starts runs; delay + email jobs |
 | Metrics & logs | ✅ | Built from real message data and provider events: date-range/domain/tag filters, delivered (delivery events only), bounce and complaint rates, opens/clicks (shown as "Not tracked" until the provider sends such events) and per-broadcast numbers. App log rotates daily (`LOG_DAILY_DAYS`, default 14); failed sends and webhook deliveries are logged |
-| Settings (usage, billing, SMTP, signature, unsubscribe page, documents) | 🟡 | Signature, unsubscribe page and per-workspace SMTP server (owners/admins; password stored encrypted and write-only) are saved; usage falls back to mock numbers; plan upgrades are paid through Monipay (NGN hosted checkout, verified server-side — see [Payments](#payments-monipay)); card form, invoices and cancel are still mock |
-| Notifications bell | 🟡 | Mock data (`useNotifications.js`) |
+| Settings (usage, billing, SMTP, signature, unsubscribe page, documents) | ✅ | Free trial from Platform Admin (`trial_days`); expired trial locks to Settings/Billing; Monipay restores access; plan email quotas; SMTP `can_send`; team email invites |
+| Notifications bell | ✅ | Empty feed (no mocks); inbox unread badge is real |
 | Platform admin | 🟡 | Accounts, subscriptions, providers, subdomains, plans; plan list, provider presets and health read from `adminMock.js` |
 
 ## Tech stack
@@ -111,6 +111,12 @@ All endpoints live under `/api/v1` and require `Authorization: Bearer md_…` (c
 | POST | `/api/v1/events/{driver}` | Provider webhook for delivery events (delivered, bounced, complained, opened, clicked); no API key, signature-verified |
 | GET | `/api/v1/domains` | List domains |
 | POST | `/api/v1/domains` | Add a domain |
+| GET | `/api/v1/contacts` | List contacts |
+| POST | `/api/v1/contacts` | Create/update a contact |
+| GET | `/api/v1/segments` | List segments |
+| GET | `/api/v1/suppressions` | List suppressions |
+| GET | `/api/v1/templates` | List templates |
+| POST | `/api/v1/events` | Fire an automation event `{ name, payload: { email } }` |
 
 ```bash
 curl -X POST http://maildesk.test/api/v1/emails \
@@ -206,17 +212,14 @@ npm run build        # production frontend build
 
 ## Known gaps / roadmap
 
-1. **Inbox actions** — persist star/archive/delete (currently UI-only); raw MIME parsing for SMTP relays. Confirm the Resend receiving API response shape against a live account.
-2. **Domain status accuracy** — reflect Resend's `partially_verified` state instead of showing "verified".
-3. **Delivery events follow-ups** — subscribe the live Resend webhook to delivery events (and enable open/click tracking), handle delivery-delayed events, and add an event timeline in the UI.
-4. **Broadcasts** — scheduling and a draft edit screen (opens/clicks come from provider events once tracking is enabled).
-5. **Email rendering** — `<style>` blocks are stripped and remote images auto-load; template and broadcast previews still use `v-html`.
-6. **Automations** — save the create wizard and its steps, add a job that executes steps, and an events API to trigger them.
-7. **SMTP** — workspaces can send through their own SMTP server (Settings → SMTP) with headers, Message-ID and provider id preserved; SMTP has no delivery/bounce event feed, so SMTP-sent mail stays at `sent` unless something posts events for it. There is no inbound SMTP relay server, and the compose/reply send buttons still require an active platform provider even when workspace SMTP is on.
-8. **Remove mock data** — replace `resources/js/data/mock.js` / `adminMock.js` usage (notifications, plans, admin plans / provider presets / health, usage fallback, email insights) with real backend data.
-9. **Webhook follow-ups** — auto-disable endpoints after repeated failures, prune old delivery rows, manual "redeliver" button.
-10. **Billing** — one-off Monipay plan payments work (Settings → Billing); still missing: automatic renewals (Monipay documents no recurring API, so customers renew with a new checkout each period), expiry/downgrade when `current_period_ends_at` passes, plan-limit enforcement, admin editing of `plans.price_kobo`, refunds, real payment-method and invoice screens.
-11. **Unfinished UI actions** — template test send and publish, edit contact/property/segment/topic, API key export, support chat.
+1. **Domain status accuracy** — reflect Resend's `partially_verified` state instead of showing "verified".
+2. **Delivery events** — subscribe the live Resend webhook to `email.opened` / `email.clicked` (with tracking enabled); handle delivery-delayed events.
+3. **Email rendering** — `<style>` blocks are stripped and remote images auto-load; template/broadcast previews still use `v-html` in places.
+4. **SMTP** — no delivery/bounce event feed for SMTP-sent mail; no inbound SMTP relay.
+5. **Admin mock leftovers** — `adminMock.js` still used for some platform-admin presets/health.
+6. **Webhook follow-ups** — auto-disable after repeated failures, prune old delivery rows, manual redeliver.
+7. **Billing** — Monipay is prepaid (no auto-renew card vault); renewals are a new checkout each period.
+8. **CRM fields** — Properties/Topics audience tabs remain deferred; API key export and in-app support chat are unfinished.
 12. **Production readiness** — Postgres/MySQL config, queue worker + scheduler process setup, deployment docs.
 
 ## License

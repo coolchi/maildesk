@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Ai\Exceptions\AiException;
 use App\Models\Message;
 use App\Models\Thread;
 use App\Services\EmailService;
 use App\Services\Impersonation\ImpersonationService;
+use App\Services\ReplyDraftService;
 use App\Services\SignatureService;
 use App\Services\ThreadTrashService;
 use App\Services\WorkspaceAccess;
@@ -64,6 +66,7 @@ class InboxController extends Controller
             'trashRetentionDays' => (int) config('maildesk.trash.retention_days', 30),
             'signatureEnabled' => app(SignatureService::class)->settings($organization)['enabled']
                 || filled($this->access->mailboxFor($user, $organization)?->signature),
+            'replyDraftEnabled' => app(ReplyDraftService::class)->enabled(),
         ]);
     }
 
@@ -210,6 +213,36 @@ class InboxController extends Controller
             'id' => $model->id,
             'unread' => ! $model->is_read,
             'inbox_unread' => InboxSyncState::for($organization, $mailboxId)['unread'],
+        ]);
+    }
+
+    /**
+     * Suggest an AI reply draft for a conversation. Never sends mail.
+     */
+    public function suggestReply(Request $request, int $thread, ReplyDraftService $drafts): JsonResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        /** @var Thread $model */
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
+            ->findOrFail($thread);
+
+        if (! $drafts->enabled()) {
+            return response()->json(['message' => 'Reply draft is not enabled.'], 403);
+        }
+
+        $validated = $request->validate([
+            'tone' => ['nullable', 'string', 'in:friendly,formal,concise'],
+        ]);
+
+        try {
+            $html = $drafts->draft($model, $validated['tone'] ?? null);
+        } catch (AiException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'html' => $html,
         ]);
     }
 

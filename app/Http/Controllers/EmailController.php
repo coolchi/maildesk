@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\MailManager;
 use App\Models\MailDraft;
 use App\Models\Message;
 use App\Services\EmailService;
@@ -125,8 +126,8 @@ class EmailController extends Controller
             return back()->with('error', 'Only failed emails can be retried.');
         }
 
-        if (! $organization->mailProvider || $organization->mailProvider->status !== 'active') {
-            return back()->with('error', 'Cannot send — this workspace has no active mail provider.');
+        if (! app(MailManager::class)->canSendFor($organization)) {
+            return back()->with('error', 'Cannot send — this workspace has no active mail provider or SMTP settings.');
         }
 
         $message = $emails->retry($organization, $message);
@@ -159,8 +160,8 @@ class EmailController extends Controller
         $organization->loadMissing('mailProvider');
         $user = $request->user();
 
-        if (! $organization->mailProvider || $organization->mailProvider->status !== 'active') {
-            return back()->with('error', 'Cannot send — this workspace has no active mail provider.');
+        if (! app(MailManager::class)->canSendFor($organization)) {
+            return back()->with('error', 'Cannot send — this workspace has no active mail provider or SMTP settings.');
         }
 
         $validated = $request->validate([

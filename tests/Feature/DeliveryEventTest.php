@@ -164,6 +164,27 @@ class DeliveryEventTest extends TestCase
         $this->assertSame(2, $this->message->toWorkspaceArray()['open_count']);
     }
 
+    public function test_email_show_exposes_insights_from_delivery_meta(): void
+    {
+        $user = User::factory()->create();
+        $this->org->users()->attach($user->id, ['role' => 'owner']);
+
+        $this->event('email.opened');
+        $this->event('email.clicked', ['click' => ['link' => 'https://acme.test/offer']]);
+
+        $this->actingAs($user)
+            ->withSession(['current_organization_id' => $this->org->id])
+            ->get(route('emails.show', $this->message->uuid))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Emails/Show')
+                ->where('email.open_count', 1)
+                ->where('email.click_count', 1)
+                ->has('email.events', 2)
+                ->where('email.first_opened_at', fn ($v) => is_string($v) && $v !== '')
+                ->where('email.first_clicked_at', fn ($v) => is_string($v) && $v !== ''));
+    }
+
     public function test_late_delivered_event_does_not_overwrite_a_bounce(): void
     {
         $this->event('email.bounced', ['bounce' => ['type' => 'Permanent']]);

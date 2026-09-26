@@ -6,6 +6,8 @@ import ToastContainer from '@/Components/ToastContainer.vue';
 import PlansModal from '@/Components/PlansModal.vue';
 import ComposeModal from '@/Components/ComposeModal.vue';
 import FloatingComposeButton from '@/Components/FloatingComposeButton.vue';
+import MobileTabBar from '@/Components/MobileTabBar.vue';
+import MobileMoreSheet from '@/Components/MobileMoreSheet.vue';
 import CommandPalette from '@/Components/CommandPalette.vue';
 import OnboardingModal from '@/Components/OnboardingModal.vue';
 import NotificationsMenu from '@/Components/NotificationsMenu.vue';
@@ -22,6 +24,7 @@ import { useInboxLive } from '@/composables/useInboxLive';
 import { setInboxSoundPreference, unlockInboxAudio } from '@/composables/useInboxSound';
 import { useTheme } from '@/composables/useTheme';
 import { useToast } from '@/composables/useToast';
+import { useMobileChrome } from '@/composables/useMobileChrome';
 import {
     Mail,
     Inbox,
@@ -44,8 +47,6 @@ import {
     Plus,
     HelpCircle,
     MoreHorizontal,
-    Menu,
-    X,
     CreditCard,
     ExternalLink,
     Moon,
@@ -63,7 +64,7 @@ import {
 } from '@lucide/vue';
 
 const page = usePage();
-const mobileOpen = ref(false);
+const moreSheetOpen = ref(false);
 const teamOpen = ref(false);
 const accountOpen = ref(false);
 const showCreateTeam = ref(false);
@@ -73,7 +74,9 @@ const createTeamErrors = ref({});
 const createTeamFields = ref(null);
 const baseDomain = computed(() => page.props.tenant?.base_domain || '');
 const user = computed(() => page.props.auth?.user);
+const accessState = computed(() => page.props.access || {});
 const { open: openPlans } = usePlansModal();
+
 const { open: openCompose } = useComposeModal();
 const { open: openOnboarding } = useOnboarding();
 const { open: openCommandPalette } = useCommandPalette();
@@ -81,11 +84,19 @@ const { inboxUnread } = useNotifications();
 const { liveConnected } = useInboxLive();
 const { theme, setTheme } = useTheme();
 const toast = useToast();
+const { hideMobileHeader } = useMobileChrome();
 
 watch(
     () => page.props.auth?.user?.preferences?.inbox_sound,
     (enabled) => setInboxSoundPreference(enabled !== false),
     { immediate: true },
+);
+
+watch(
+    () => page.url,
+    () => {
+        moreSheetOpen.value = false;
+    },
 );
 
 onMounted(() => {
@@ -126,10 +137,12 @@ const navGroups = computed(() => {
                 { name: 'Inbox', route: 'inbox', icon: Inbox, ability: 'inbox' },
                 { name: 'Sent', route: 'sent', icon: Send, ability: 'inbox' },
                 { name: 'Drafts', route: 'drafts', icon: FilePenLine, ability: 'mail' },
-                { name: 'Archive', route: 'archive', icon: Archive, ability: 'inbox' },
+                // Members keep Archive in Mail; admins use Inbox folder tabs instead.
+                { name: 'Archive', route: 'archive', icon: Archive, ability: 'inbox', hideWhen: 'manage' },
                 { name: 'Bounced', route: 'bounced', icon: MailX, ability: 'manage' },
-                { name: 'Signature', route: 'mailbox.signature', icon: PenLine, ability: 'inbox' },
-                { name: 'Profile', route: 'profile.edit', icon: User },
+                // Personal signature — mailbox members only (admins use Settings → Signature).
+                { name: 'Signature', route: 'mailbox.signature', icon: PenLine, ability: 'inbox', hideWhen: 'manage' },
+                { name: 'Profile', route: 'profile.edit', icon: User, hideWhen: 'manage' },
                 { name: 'Groups', route: 'groups', icon: UsersRound, ability: 'manage' },
                 { name: 'Users', route: 'users', icon: UserCog, ability: 'manage' },
             ],
@@ -165,7 +178,9 @@ const navGroups = computed(() => {
         .map((group) => ({
             ...group,
             items: group.items.filter(
-                (item) => !item.ability || abilities[item.ability],
+                (item) =>
+                    (!item.ability || abilities[item.ability]) &&
+                    (!item.hideWhen || !abilities[item.hideWhen]),
             ),
         }))
         .filter((group) => group.items.length > 0);
@@ -198,6 +213,7 @@ const pageTitle = computed(() => {
     if (path.startsWith('/docs')) return 'Docs';
     if (path.startsWith('/help')) return 'Help';
     if (path.startsWith('/profile')) return 'Profile';
+    if (path.startsWith('/archive')) return 'Archive';
     if (path.startsWith('/trash')) return 'Trash';
     return 'MailDesk';
 });
@@ -207,7 +223,7 @@ const canCompose = computed(() => Boolean(abilities.value.mail));
 const canManage = computed(() => Boolean(abilities.value.manage));
 
 const onNavAction = (item) => {
-    mobileOpen.value = false;
+    moreSheetOpen.value = false;
     if (item.action === 'compose') {
         if (!canSend.value) {
             toast.error(
@@ -222,6 +238,23 @@ const onNavAction = (item) => {
         openCompose();
     }
 };
+
+const moreExcludeRoutes = computed(() => {
+    const routes = [];
+    if (abilities.value.inbox) {
+        routes.push('inbox', 'sent');
+    }
+    if (abilities.value.manage) {
+        routes.push('emails');
+    }
+    if (abilities.value.mail) {
+        routes.push('drafts');
+    }
+    if (abilities.value.marketing) {
+        routes.push('audience');
+    }
+    return routes;
+});
 
 const signOut = () => {
     accountOpen.value = false;
@@ -288,41 +321,65 @@ const createTeam = () => {
 <template>
     <div class="min-h-screen bg-black text-zinc-100">
         <ImpersonationBanner />
-        <!-- Mobile header -->
         <div
-            class="flex items-center justify-between border-b border-zinc-800 px-4 py-3 lg:hidden"
+            v-if="accessState.lockout"
+            class="border-b border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+            data-testid="trial-lockout-banner"
         >
-            <button
-                type="button"
-                class="rounded-md border border-zinc-800 p-2 text-zinc-300 transition hover:border-cyan-400/40 hover:text-cyan-300"
-                @click="mobileOpen = !mobileOpen"
-            >
-                <Menu v-if="!mobileOpen" :size="18" class="animate-fade-in" />
-                <X v-else :size="18" class="animate-fade-in" />
-            </button>
-            <div class="font-semibold tracking-tight">MailDesk</div>
-            <div class="flex items-center gap-2">
-                <span
-                    v-if="liveConnected"
-                    class="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300"
-                    title="Inbox updates over WebSocket"
-                >
-                    <span
-                        class="h-1.5 w-1.5 rounded-full bg-emerald-400"
-                        aria-hidden="true"
-                    />
-                    Live
-                </span>
-                <Link :href="route('docs')" class="text-zinc-400 hover:text-cyan-300">
-                    <BookOpen :size="18" />
-                </Link>
+            <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+                <p>{{ accessState.reason || 'Your free trial has ended. Choose a plan to continue.' }}</p>
+                <button type="button" class="md-btn-solid !py-1.5 !text-xs" @click="openPlans()">
+                    View plans
+                </button>
             </div>
         </div>
+        <!-- Mobile app header -->
+        <header
+            v-show="!hideMobileHeader"
+            class="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-zinc-800/80 bg-black/85 px-3 py-2.5 backdrop-blur-xl lg:hidden"
+            style="padding-top: max(0.625rem, env(safe-area-inset-top, 0px))"
+            data-testid="mobile-app-header"
+        >
+            <button
+                v-if="activeWorkspace"
+                type="button"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-semibold transition active:scale-95"
+                :class="colorMap[activeWorkspace.color] || colorMap.cyan"
+                aria-label="Open menu"
+                data-testid="mobile-workspace-button"
+                @click="moreSheetOpen = true"
+            >
+                {{ activeWorkspace.name.slice(0, 1) }}
+            </button>
+            <div
+                v-else
+                class="h-11 w-11 shrink-0"
+                aria-hidden="true"
+            />
+            <div class="min-w-0 flex-1 text-center">
+                <div class="truncate text-[11px] font-medium text-zinc-500">
+                    {{ activeWorkspace?.name || 'MailDesk' }}
+                </div>
+                <div class="truncate text-sm font-semibold tracking-tight text-white">
+                    {{ pageTitle }}
+                </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-1">
+                <button
+                    type="button"
+                    class="flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-800 text-zinc-400 transition active:scale-95 hover:border-zinc-700 hover:text-zinc-200"
+                    aria-label="Search"
+                    @click="openCommandPalette()"
+                >
+                    <Search :size="18" />
+                </button>
+                <NotificationsMenu />
+            </div>
+        </header>
 
         <div class="lg:flex lg:items-start">
             <aside
-                class="fixed inset-y-0 left-0 z-40 flex h-dvh w-[248px] shrink-0 -translate-x-full flex-col border-r border-zinc-900 bg-zinc-950/80 backdrop-blur-xl transition duration-300 ease-out lg:sticky lg:top-0 lg:translate-x-0"
-                :class="{ 'translate-x-0': mobileOpen }"
+                class="sticky top-0 z-auto hidden h-dvh w-[248px] shrink-0 flex-col border-r border-zinc-900 bg-zinc-950/95 backdrop-blur-xl lg:flex"
             >
                 <!-- Workspace switcher -->
                 <div v-if="activeWorkspace" class="relative border-b border-zinc-900/80 px-3 py-3">
@@ -453,7 +510,7 @@ const createTeam = () => {
                 </div>
 
                 <!-- Grouped nav -->
-                <nav class="min-h-0 flex-1 space-y-4 overflow-y-auto px-2 py-3">
+                <nav class="min-h-0 flex-1 space-y-4 overflow-y-auto px-2 py-3 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] lg:pb-3">
                     <div
                         v-for="(group, gi) in navGroups"
                         :key="group.label"
@@ -504,7 +561,6 @@ const createTeam = () => {
                                             ? inboxUnread
                                             : null
                                     "
-                                    @click="mobileOpen = false"
                                 >
                                     <template #icon>
                                         <component
@@ -522,12 +578,11 @@ const createTeam = () => {
                 </nav>
 
                 <div
-                    v-if="abilities.inbox"
+                    v-if="abilities.inbox && !abilities.manage"
                     class="shrink-0 px-2 pb-1"
                 >
                     <SidebarLink
                         :href="route('trash')"
-                        @click="mobileOpen = false"
                     >
                         <template #icon>
                             <Trash2
@@ -668,12 +723,6 @@ const createTeam = () => {
                 </div>
             </aside>
 
-            <div
-                v-if="mobileOpen"
-                class="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm transition lg:hidden"
-                @click="mobileOpen = false"
-            />
-
             <div class="flex min-h-screen min-w-0 flex-1 flex-col">
                 <!-- Top bar -->
                 <header
@@ -744,12 +793,27 @@ const createTeam = () => {
                 </header>
 
                 <main class="flex-1">
-                    <div class="mx-auto max-w-7xl animate-fade-in px-4 pb-24 pt-6 sm:px-6 lg:px-8">
+                    <div
+                        class="mx-auto max-w-7xl animate-fade-in px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-4 sm:px-6 lg:px-8 lg:pb-24 lg:pt-6"
+                    >
                         <slot />
                     </div>
                 </main>
             </div>
         </div>
+
+        <MobileTabBar
+            :more-open="moreSheetOpen"
+            @toggle-more="moreSheetOpen = !moreSheetOpen"
+        />
+
+        <MobileMoreSheet
+            :show="moreSheetOpen"
+            :groups="navGroups"
+            :exclude-routes="moreExcludeRoutes"
+            @close="moreSheetOpen = false"
+            @create-workspace="showCreateTeam = true"
+        />
 
         <Modal
             :show="showCreateTeam"

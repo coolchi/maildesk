@@ -70,7 +70,7 @@ const faqs = computed(() => [
             'Register with your name, email and a password, and confirm your email address if asked. Then create a workspace from the workspace menu at the top of the sidebar. You become its owner, and it gets its own subdomain (for example acme.<your platform domain>).',
             'You can belong to several workspaces and switch between them from the same menu. Everything you see (mail, domains, keys, webhooks, contacts) belongs to the workspace you are in.',
         ],
-        note: 'Inviting teammates by email is not yet available. Login accounts are under Settings → Team; mailbox addresses are on the Users page.',
+        note: 'Owners and admins can invite teammates by email from Settings → Team. Open self-serve signup remains at /join when enabled.',
     },
     {
         id: 'domain',
@@ -133,7 +133,7 @@ const faqs = computed(() => [
             'Each request is signed with your endpoint’s secret (shown once, when you create it). The X-MailDesk-Signature header is an HMAC-SHA256 of the raw body. X-MailDesk-Signature-V2 signs the X-MailDesk-Timestamp value plus the body, so you can also reject old, replayed requests. Always compare signatures before trusting a payload.',
             'Use Send test event on the webhook page to send a signed webhook.test event and see the response straight away. Failed deliveries are retried automatically with increasing delays (up to 5 attempts). Workspace owners and admins can rotate the signing secret; the old secret stops working immediately.',
         ],
-        note: 'Delivered, bounced, complained and opened events only arrive when your mail provider reports them. Click events are not generated yet.',
+        note: 'Delivered, bounced, complained, opened and clicked events only arrive when your mail provider reports them. For Resend, subscribe the webhook to email.opened and email.clicked (and enable open/click tracking) in addition to delivery events.',
         link: { route: 'webhooks', label: 'Open Webhooks' },
     },
     {

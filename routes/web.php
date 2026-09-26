@@ -27,6 +27,7 @@ use App\Http\Controllers\MailboxSignatureController;
 use App\Http\Controllers\MailDraftController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SegmentController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SuppressionController;
 use App\Http\Controllers\TemplateController;
@@ -34,6 +35,7 @@ use App\Http\Controllers\TenantRegistrationController;
 use App\Http\Controllers\UnsubscribeController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WorkspaceController;
+use App\Http\Controllers\WorkspaceInvitationController;
 use App\Http\Middleware\RequireFreshPassword;
 use App\Services\PlatformSettings;
 use App\Services\TenantResolver;
@@ -70,6 +72,14 @@ Route::post('/join', [TenantRegistrationController::class, 'store'])
     ->middleware('throttle:10,1')
     ->name('tenant.join.store');
 
+// Closed-team email invites (token in the URL is the credential).
+Route::get('/invitations/{token}', [WorkspaceInvitationController::class, 'show'])
+    ->middleware('throttle:60,1')
+    ->name('invitations.show');
+Route::post('/invitations/{token}', [WorkspaceInvitationController::class, 'accept'])
+    ->middleware('throttle:20,1')
+    ->name('invitations.accept.store');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/workspaces', [WorkspaceController::class, 'store'])->name('workspaces.store');
     Route::post('/workspace/{organization}/switch', [WorkspaceController::class, 'switch'])
@@ -90,6 +100,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/inbox/{thread}/trash', [InboxController::class, 'toggleTrash'])->whereNumber('thread')->name('inbox.trash');
     Route::delete('/inbox/{thread}', [InboxController::class, 'destroy'])->whereNumber('thread')->name('inbox.destroy');
     Route::post('/inbox/{thread}/reply', [InboxController::class, 'reply'])->whereNumber('thread')->name('inbox.reply');
+    Route::post('/inbox/{thread}/suggest-reply', [InboxController::class, 'suggestReply'])
+        ->whereNumber('thread')
+        ->middleware('throttle:20,1')
+        ->name('inbox.suggest-reply');
     Route::post('/inbox/{thread}/forward', [InboxController::class, 'forward'])->whereNumber('thread')->name('inbox.forward');
     Route::get('/archive', [InboxController::class, 'archiveIndex'])->name('archive');
     Route::get('/trash', [InboxController::class, 'trashIndex'])->name('trash');
@@ -109,8 +123,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/broadcasts/{broadcast}', [BroadcastController::class, 'show'])->name('broadcasts.show');
     Route::delete('/broadcasts/{broadcast}', [BroadcastController::class, 'destroy'])->name('broadcasts.destroy');
     Route::post('/broadcasts/{broadcast}/send', [BroadcastController::class, 'send'])->name('broadcasts.send');
+    Route::post('/broadcasts/{broadcast}/cancel', [BroadcastController::class, 'cancel'])->name('broadcasts.cancel');
     Route::get('/automations', [AutomationController::class, 'index'])->name('automations');
     Route::get('/automations/create', [AutomationController::class, 'create'])->name('automations.create');
+    Route::post('/automations', [AutomationController::class, 'store'])->name('automations.store');
     Route::get('/automations/{automation}', [AutomationController::class, 'show'])->name('automations.show');
     Route::put('/automations/{automation}', [AutomationController::class, 'update'])->name('automations.update');
     Route::delete('/automations/{automation}', [AutomationController::class, 'destroy'])->name('automations.destroy');
@@ -118,11 +134,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/templates', [TemplateController::class, 'store'])->name('templates.store');
     Route::get('/templates/{template}/edit', [TemplateController::class, 'edit'])->name('templates.edit');
     Route::put('/templates/{template}', [TemplateController::class, 'update'])->name('templates.update');
+    Route::post('/templates/{template}/test', [TemplateController::class, 'test'])->name('templates.test');
+    Route::post('/templates/{template}/publish', [TemplateController::class, 'publish'])->name('templates.publish');
     Route::delete('/templates/{template}', [TemplateController::class, 'destroy'])->name('templates.destroy');
     Route::get('/audience', [ContactController::class, 'index'])->name('audience');
     Route::post('/audience', [ContactController::class, 'store'])->name('audience.store');
-    Route::delete('/audience/{contact}', [ContactController::class, 'destroy'])->name('audience.destroy');
-    Route::post('/audience/{contact}/suppress', [ContactController::class, 'suppress'])->name('audience.suppress');
+    Route::post('/audience/import', [ContactController::class, 'import'])->middleware('throttle:10,1')->name('audience.import');
+    Route::post('/audience/segments', [SegmentController::class, 'store'])->name('audience.segments.store');
+    Route::put('/audience/segments/{segment}', [SegmentController::class, 'update'])->whereNumber('segment')->name('audience.segments.update');
+    Route::delete('/audience/segments/{segment}', [SegmentController::class, 'destroy'])->whereNumber('segment')->name('audience.segments.destroy');
+    Route::post('/audience/segments/{segment}/contacts', [SegmentController::class, 'attach'])->whereNumber('segment')->name('audience.segments.contacts.attach');
+    Route::delete('/audience/segments/{segment}/contacts/{contact}', [SegmentController::class, 'detach'])->whereNumber(['segment', 'contact'])->name('audience.segments.contacts.detach');
+    Route::patch('/audience/{contact}', [ContactController::class, 'update'])->whereNumber('contact')->name('audience.update');
+    Route::delete('/audience/{contact}', [ContactController::class, 'destroy'])->whereNumber('contact')->name('audience.destroy');
+    Route::post('/audience/{contact}/suppress', [ContactController::class, 'suppress'])->whereNumber('contact')->name('audience.suppress');
     Route::get('/users', [MailboxController::class, 'index'])->name('users');
     Route::post('/users', [MailboxController::class, 'store'])->name('users.store');
     Route::put('/users/{mailbox}', [MailboxController::class, 'update'])->name('users.update');
@@ -174,6 +199,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     Route::put('/settings/smtp', [SettingsController::class, 'updateSmtp'])->name('settings.smtp.update');
+    Route::post('/settings/invitations', [WorkspaceInvitationController::class, 'store'])
+        ->middleware('throttle:30,1')->name('invitations.store');
+    Route::delete('/settings/invitations/{invitation}', [WorkspaceInvitationController::class, 'destroy'])
+        ->whereNumber('invitation')->name('invitations.destroy');
     Route::post('/billing/monipay/initialize', [MonipayController::class, 'initialize'])
         ->middleware('throttle:20,1')->name('billing.monipay.initialize');
     Route::get('/billing/monipay/callback', [MonipayController::class, 'callback'])->name('billing.monipay.callback');

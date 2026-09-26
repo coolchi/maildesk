@@ -19,6 +19,7 @@ class Thread extends Model
         'mailbox_id',
         'subject',
         'snippet',
+        'ai',
         'last_message_at',
         'message_count',
         'is_read',
@@ -30,6 +31,7 @@ class Thread extends Model
     protected function casts(): array
     {
         return [
+            'ai' => 'array',
             'last_message_at' => 'datetime',
             'is_read' => 'boolean',
             'is_archived' => 'boolean',
@@ -63,9 +65,13 @@ class Thread extends Model
             : $this->messages()->orderBy('created_at')->get();
 
         $latest = $messages->last();
-        $from = $latest?->from_email
-            ?? $messages->firstWhere('direction', 'inbound')?->from_email
+        $fromMessage = $latest
+            ?? $messages->firstWhere('direction', 'inbound');
+        $fromEmail = $fromMessage?->from_email
             ?? 'unknown';
+        $fromName = filled($fromMessage?->from_name)
+            ? trim((string) $fromMessage->from_name)
+            : null;
 
         $recipients = self::addresses($latest?->to);
         if ($recipients === [] && $this->mailbox_id) {
@@ -76,7 +82,10 @@ class Thread extends Model
             'id' => $this->id,
             'subject' => $this->subject,
             'snippet' => $this->snippet ?? '',
-            'from' => $from,
+            'ai' => $this->aiWorkspacePayload(),
+            'from' => $fromEmail,
+            'from_email' => $fromEmail,
+            'from_name' => $fromName,
             'to' => implode(', ', $recipients),
             'unread' => ! $this->is_read,
             'is_archived' => (bool) $this->is_archived,
@@ -114,6 +123,32 @@ class Thread extends Model
             'updated' => $this->last_message_at?->diffForHumans()
                 ?? $this->updated_at?->diffForHumans()
                 ?? '',
+        ];
+    }
+
+    /**
+     * @return array{priority: ?string, intent: ?string, language: ?string}|null
+     */
+    protected function aiWorkspacePayload(): ?array
+    {
+        $ai = $this->ai;
+
+        if (! is_array($ai) || $ai === []) {
+            return null;
+        }
+
+        $priority = isset($ai['priority']) && is_string($ai['priority']) ? $ai['priority'] : null;
+        $intent = isset($ai['intent']) && is_string($ai['intent']) ? $ai['intent'] : null;
+        $language = isset($ai['language']) && is_string($ai['language']) ? $ai['language'] : null;
+
+        if ($priority === null && $intent === null && $language === null) {
+            return null;
+        }
+
+        return [
+            'priority' => $priority,
+            'intent' => $intent,
+            'language' => $language,
         ];
     }
 

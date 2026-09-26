@@ -9,11 +9,25 @@ export const SANDBOX = 'allow-same-origin allow-popups allow-popups-to-escape-sa
 
 const BASE_STYLE = `
 :root { color-scheme: light only; }
-html, body { background: #ffffff !important; color: #111827; }
-body { margin: 0; padding: 16px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow-wrap: anywhere; }
-img { max-width: 100%; height: auto; }
-table { max-width: 100%; }
-pre { white-space: pre-wrap; }
+html, body {
+  background: #ffffff !important;
+  color: #111827;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+  word-break: break-word;
+}
+body {
+  margin: 0;
+  padding: 12px;
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow-wrap: anywhere;
+  -webkit-text-size-adjust: 100%;
+}
+img, video, svg { max-width: 100% !important; height: auto !important; }
+table { max-width: 100% !important; }
+td, th { word-break: break-word; }
+pre, code { white-space: pre-wrap; word-break: break-word; }
+a { word-break: break-all; }
 `;
 
 /** Common reply/forward wrappers from Gmail, Apple Mail, Outlook, Yahoo, Proton. */

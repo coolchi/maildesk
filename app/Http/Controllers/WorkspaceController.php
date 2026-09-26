@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Organization;
+use App\Services\PlatformSettings;
 use App\Services\TenantResolver;
+use App\Services\TrialService;
 use App\Services\WorkspaceSubdomain;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,8 +16,13 @@ use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class WorkspaceController extends Controller
 {
-    public function store(Request $request, TenantResolver $tenants, WorkspaceSubdomain $subdomains): RedirectResponse|SymfonyResponse
-    {
+    public function store(
+        Request $request,
+        TenantResolver $tenants,
+        WorkspaceSubdomain $subdomains,
+        TrialService $trials,
+        PlatformSettings $platform,
+    ): RedirectResponse|SymfonyResponse {
         $user = $request->user();
 
         // The subdomain is chosen by the user (the form suggests one from the
@@ -38,12 +45,14 @@ class WorkspaceController extends Controller
             $suffix++;
         }
 
-        $organization = DB::transaction(function () use ($name, $slug, $subdomain, $user, $subdomains) {
+        $defaultProviderId = $platform->defaultWorkspaceProviderId();
+
+        $organization = DB::transaction(function () use ($name, $slug, $subdomain, $user, $subdomains, $trials, $defaultProviderId) {
             $organization = Organization::query()->create([
                 'name' => $name,
                 'slug' => $slug,
                 'status' => 'trial',
-                'plan' => 'Free',
+                'plan' => 'Trial',
                 'product' => 'transactional',
                 'seats' => 1,
                 'emails_30d' => 0,
@@ -51,6 +60,7 @@ class WorkspaceController extends Controller
                 'region' => 'us-east-1',
                 'owner_name' => $user->name,
                 'owner_email' => $user->email,
+                'mail_provider_id' => $defaultProviderId,
                 'provisioned_at' => now(),
                 'settings' => [],
             ]);
@@ -58,6 +68,7 @@ class WorkspaceController extends Controller
             $organization->users()->attach($user->id, ['role' => 'owner']);
 
             $subdomains->register($organization, $subdomain);
+            $trials->start($organization);
 
             return $organization;
         });

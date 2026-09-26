@@ -140,6 +140,7 @@ class Message extends Model
                     ? ($this->sent_at ?? $this->created_at)?->timezone(config('app.timezone'))->format('M j, g:i A')
                     : null),
             'open_count' => (int) ($this->meta['open_count'] ?? 0),
+            'click_count' => (int) ($this->meta['click_count'] ?? 0),
             'direction' => $this->direction,
             'log' => $this->direction === 'inbound' ? 'INBOUND' : 'POST /emails',
             'attachments' => [],
@@ -154,6 +155,18 @@ class Message extends Model
             $payload['provider_message_id'] = $this->provider_message_id;
             $payload['events'] = $this->meta['events'] ?? [];
             $payload['bounce'] = $this->meta['bounce'] ?? null;
+            $payload['first_opened_at'] = isset($this->meta['first_opened_at'])
+                ? Carbon::parse($this->meta['first_opened_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                : null;
+            $payload['last_opened_at'] = isset($this->meta['last_opened_at'])
+                ? Carbon::parse($this->meta['last_opened_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                : null;
+            $payload['first_clicked_at'] = isset($this->meta['first_clicked_at'])
+                ? Carbon::parse($this->meta['first_clicked_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                : null;
+            $payload['last_clicked_at'] = isset($this->meta['last_clicked_at'])
+                ? Carbon::parse($this->meta['last_clicked_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                : null;
             $payload['attachments'] = $this->attachments()->get()
                 ->map(fn (Attachment $attachment) => $attachment->toWorkspaceArray())
                 ->values()

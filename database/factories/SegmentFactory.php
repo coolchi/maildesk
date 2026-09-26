@@ -19,6 +19,7 @@ class SegmentFactory extends Factory
             'organization_id' => Organization::factory(),
             'name' => fake()->words(2, true),
             'description' => fake()->sentence(),
+            'rules' => null,
         ];
     }
 }

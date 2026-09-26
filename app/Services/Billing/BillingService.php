@@ -403,6 +403,7 @@ class BillingService
             'plan' => $plan->name,
             'product' => $plan->product,
             'mrr' => $plan->price,
+            'status' => 'active',
         ]);
 
         return $subscription;

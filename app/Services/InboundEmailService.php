@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\InboxUpdated;
+use App\Jobs\ClassifyInboundMessage;
 use App\Jobs\DispatchWebhook;
 use App\Mail\DTO\InboundEmail;
 use App\Models\Attachment;
@@ -103,6 +104,10 @@ class InboundEmailService
 
         // Mail to a group address (staff@...) is copied to each member via the queue.
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());
+
+        if (app(SmartTriageService::class)->shouldTriage()) {
+            ClassifyInboundMessage::dispatch($message->id);
+        }
 
         $fresh = $message->fresh(['attachments', 'thread']);
         $fresh->wasRecentlyCreated = true;

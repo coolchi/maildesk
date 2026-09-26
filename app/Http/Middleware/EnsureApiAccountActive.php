@@ -29,6 +29,12 @@ class EnsureApiAccountActive
             ], 403);
         }
 
+        if ($this->access->requiresPayment($organization)) {
+            return response()->json([
+                'message' => $this->access->paymentRequiredMessage($organization),
+            ], 402);
+        }
+
         return $next($request);
     }
 }

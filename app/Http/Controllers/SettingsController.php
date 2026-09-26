@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\MailManager;
 use App\Models\Organization;
 use App\Models\ProviderConfig;
+use App\Models\WorkspaceInvitation;
 use App\Services\Billing\BillingService;
 use App\Services\Impersonation\ImpersonationService;
 use App\Services\SignatureService;
@@ -39,22 +40,22 @@ class SettingsController extends Controller
 
         $usage = [
             'transactional' => [
-                'plan' => $organization->plan ?: 'Free',
+                'plan' => $organization->plan ?: 'Trial',
                 'monthly' => [
                     'used' => $emailsUsed,
-                    'limit' => $emailsLimit ?: 50000,
+                    'limit' => $emailsLimit ?: null,
                     'renews' => $organization->subscription?->renews_at
                         ?? now()->addMonth()->startOfMonth()->format('M j, Y'),
                 ],
                 'daily' => 'Unlimited',
             ],
             'marketing' => [
-                'plan' => $organization->product === 'marketing' ? ($organization->plan ?: 'Free') : 'Free',
+                'plan' => $organization->product === 'marketing' ? ($organization->plan ?: 'Trial') : '—',
                 'contacts' => [
                     'used' => method_exists($organization, 'contacts')
                         ? $organization->contacts()->count()
                         : 0,
-                    'limit' => $contactsLimit ?: 1000,
+                    'limit' => $contactsLimit ?: null,
                 ],
                 'segments' => [
                     'used' => method_exists($organization, 'segments')
@@ -65,10 +66,10 @@ class SettingsController extends Controller
                 'broadcasts' => 'Unlimited',
             ],
             'team' => [
-                'plan' => $organization->plan ?: 'Free',
+                'plan' => $organization->plan ?: 'Trial',
                 'seats' => [
                     'used' => $organization->users()->count(),
-                    'limit' => $seatsLimit ?: 10,
+                    'limit' => $seatsLimit ?: null,
                 ],
             ],
         ];
@@ -131,8 +132,29 @@ class SettingsController extends Controller
                 ->values()
                 ->all(),
             'joinUrl' => app(TenantResolver::class)->workspaceUrl($organization, '/join'),
+            'invitations' => $this->pendingInvitations($request, $organization),
             ...$this->teamImpersonationProps($request, $organization),
         ]);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    protected function pendingInvitations(Request $request, Organization $organization): array
+    {
+        if (! app(WorkspaceAccess::class)->isTeam($request->user(), $organization)) {
+            return [];
+        }
+
+        return $organization->invitations()
+            ->with('inviter')
+            ->whereNull('accepted_at')
+            ->where('expires_at', '>', now())
+            ->latest('id')
+            ->get()
+            ->map(fn (WorkspaceInvitation $invitation) => $invitation->toWorkspaceArray())
+            ->values()
+            ->all();
     }
 
     /**

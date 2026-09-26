@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Broadcast;
 use App\Services\BroadcastService;
 use App\Support\CurrentOrganization;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -78,6 +79,7 @@ class BroadcastController extends Controller
             'segment' => ['nullable', 'string', 'max:64'],
             'from' => ['nullable', 'string', 'max:255'],
             'send_now' => ['sometimes', 'boolean'],
+            'scheduled_at' => ['nullable', 'date', 'after:now'],
             'source_id' => ['nullable', 'integer'],
         ]);
 
@@ -103,6 +105,19 @@ class BroadcastController extends Controller
         }
 
         $sendNow = $request->boolean('send_now', true);
+        $scheduledAt = isset($validated['scheduled_at'])
+            ? Carbon::parse($validated['scheduled_at'])
+            : null;
+
+        if (! $sendNow && $scheduledAt !== null) {
+            $status = 'scheduled';
+        } elseif ($sendNow) {
+            $status = 'draft';
+        } else {
+            $status = 'draft';
+            $scheduledAt = null;
+        }
+
         $broadcast = Broadcast::query()->create([
             'organization_id' => $organization->id,
             'name' => $validated['name'],
@@ -110,14 +125,21 @@ class BroadcastController extends Controller
             'html' => $validated['html'],
             'audience' => $audience,
             'from' => $validated['from'] ?? null,
-            'status' => 'draft',
+            'status' => $status,
+            'scheduled_at' => $status === 'scheduled' ? $scheduledAt : null,
         ]);
 
         if ($sendNow) {
             $broadcasts->queue($broadcast);
+
+            return redirect()->route('broadcasts.show', $broadcast)->with('success', 'Broadcast queued for sending.');
         }
 
-        return redirect()->route('broadcasts.show', $broadcast)->with('success', $sendNow ? 'Broadcast queued for sending.' : 'Draft saved.');
+        if ($status === 'scheduled') {
+            return redirect()->route('broadcasts.show', $broadcast)->with('success', 'Broadcast scheduled.');
+        }
+
+        return redirect()->route('broadcasts.show', $broadcast)->with('success', 'Draft saved.');
     }
 
     public function send(Request $request, Broadcast $broadcast, BroadcastService $broadcasts): RedirectResponse
@@ -125,8 +147,8 @@ class BroadcastController extends Controller
         $organization = CurrentOrganization::from($request);
         abort_unless($broadcast->organization_id === $organization->id, 404);
 
-        if ($broadcast->status !== 'draft') {
-            return back()->with('error', 'Only draft broadcasts can be sent.');
+        if (! in_array($broadcast->status, ['draft', 'scheduled'], true)) {
+            return back()->with('error', 'Only draft or scheduled broadcasts can be sent.');
         }
 
         if (blank($broadcast->subject) || blank($broadcast->html)) {
@@ -136,6 +158,23 @@ class BroadcastController extends Controller
         $broadcasts->queue($broadcast);
 
         return back()->with('success', 'Broadcast queued for sending.');
+    }
+
+    public function cancel(Request $request, Broadcast $broadcast): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+        abort_unless($broadcast->organization_id === $organization->id, 404);
+
+        if ($broadcast->status !== 'scheduled') {
+            return back()->with('error', 'Only scheduled broadcasts can be cancelled.');
+        }
+
+        $broadcast->forceFill([
+            'status' => 'draft',
+            'scheduled_at' => null,
+        ])->save();
+
+        return back()->with('success', 'Schedule cancelled. Broadcast is a draft again.');
     }
 
     public function show(Request $request, Broadcast $broadcast, BroadcastService $broadcasts): Response

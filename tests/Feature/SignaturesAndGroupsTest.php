@@ -202,6 +202,25 @@ class SignaturesAndGroupsTest extends TestCase
         $this->as($user, $org)->get(route('settings', 'signature'))->assertForbidden();
     }
 
+    public function test_owner_without_mailbox_is_redirected_to_settings_signature(): void
+    {
+        [$user, $org] = $this->member();
+        // Owners are team managers and often have no linked mailbox.
+        $org->users()->updateExistingPivot($user->id, ['role' => 'owner']);
+        $this->assertNull($org->mailboxes()->where('user_id', $user->id)->first());
+
+        $this->as($user, $org)
+            ->get(route('mailbox.signature'))
+            ->assertRedirect(route('settings', 'signature'));
+
+        $this->as($user, $org)
+            ->get(route('settings', 'signature'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Settings/Index')
+                ->where('tab', 'signature'));
+    }
+
     public function test_disabled_signature_is_not_added(): void
     {
         [$user, $org] = $this->member();

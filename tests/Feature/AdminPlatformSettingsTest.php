@@ -20,6 +20,14 @@ class AdminPlatformSettingsTest extends TestCase
         return User::factory()->platformAdmin()->create();
     }
 
+    /** @return array<string, bool> */
+    private function defaultAiFeatures(bool $enabled = false): array
+    {
+        return collect(array_keys(PlatformSettings::AI_FEATURES))
+            ->mapWithKeys(fn (string $key) => [$key => $enabled])
+            ->all();
+    }
+
     private function payload(array $overrides = []): array
     {
         return array_merge([
@@ -27,6 +35,12 @@ class AdminPlatformSettingsTest extends TestCase
             'platform_name' => '',
             'support_email' => '',
             'default_workspace_provider_id' => null,
+            'trial_days' => 14,
+            'ai_enabled' => false,
+            'ai_features' => $this->defaultAiFeatures(),
+            'ai_provider' => 'openai',
+            'ai_model' => '',
+            'ai_api_key' => '',
         ], $overrides);
     }
 
@@ -46,7 +60,10 @@ class AdminPlatformSettingsTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Admin/Settings/Index')
                 ->where('settings.signup_open', true)
-                ->where('settings.default_workspace_provider_id', null));
+                ->where('settings.default_workspace_provider_id', null)
+                ->where('settings.ai.enabled', false)
+                ->where('settings.ai.features.smart_triage.enabled', false)
+                ->where('settings.ai.features.smart_triage.label', 'Smart triage'));
     }
 
     public function test_closing_signups_blocks_register_routes_and_hides_the_button(): void
@@ -120,5 +137,73 @@ class AdminPlatformSettingsTest extends TestCase
         $provider->update(['status' => 'disabled']);
         $later = Organization::factory()->create(['mail_provider_id' => null]);
         $this->assertNull($later->mail_provider_id);
+    }
+
+    public function test_admin_can_enable_selected_ai_features(): void
+    {
+        $features = $this->defaultAiFeatures();
+        $features['smart_triage'] = true;
+        $features['reply_draft'] = true;
+
+        $this->actingAs($this->admin())
+            ->put(route('admin.settings.update'), $this->payload([
+                'ai_enabled' => true,
+                'ai_features' => $features,
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $settings = app(PlatformSettings::class);
+
+        $this->assertTrue($settings->aiEnabled());
+        $this->assertTrue($settings->aiFeatureEnabled('smart_triage'));
+        $this->assertTrue($settings->aiFeatureEnabled('reply_draft'));
+        $this->assertFalse($settings->aiFeatureEnabled('thread_summary'));
+        $this->assertFalse($settings->aiFeatureEnabled('compose_assist'));
+    }
+
+    public function test_ai_features_are_off_when_master_switch_is_disabled(): void
+    {
+        $features = $this->defaultAiFeatures(true);
+
+        $this->actingAs($this->admin())
+            ->put(route('admin.settings.update'), $this->payload([
+                'ai_enabled' => false,
+                'ai_features' => $features,
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $settings = app(PlatformSettings::class);
+
+        $this->assertFalse($settings->aiEnabled());
+        $this->assertFalse($settings->aiFeatureEnabled('smart_triage'));
+        $this->assertTrue($settings->aiSettings()['features']['smart_triage']['enabled']);
+    }
+
+    public function test_unknown_ai_feature_is_rejected(): void
+    {
+        $features = $this->defaultAiFeatures();
+        $features['not_a_real_feature'] = true;
+
+        $this->actingAs($this->admin())
+            ->put(route('admin.settings.update'), $this->payload([
+                'ai_enabled' => true,
+                'ai_features' => $features,
+            ]))
+            ->assertSessionHasErrors(['ai_features']);
+
+        $this->assertFalse(app(PlatformSettings::class)->aiEnabled());
+    }
+
+    public function test_missing_ai_feature_toggle_is_rejected(): void
+    {
+        $features = $this->defaultAiFeatures();
+        unset($features['smart_triage']);
+
+        $this->actingAs($this->admin())
+            ->put(route('admin.settings.update'), $this->payload([
+                'ai_enabled' => true,
+                'ai_features' => $features,
+            ]))
+            ->assertSessionHasErrors(['ai_features']);
     }
 }

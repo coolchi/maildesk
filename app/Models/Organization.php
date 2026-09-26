@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\EmailUsage;
 use Database\Factories\OrganizationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -109,6 +110,11 @@ class Organization extends Model
         return $this->hasMany(Mailbox::class);
     }
 
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(WorkspaceInvitation::class);
+    }
+
     public function threads(): HasMany
     {
         return $this->hasMany(Thread::class);
@@ -183,7 +189,7 @@ class Organization extends Model
             'mrr' => $this->mrr,
             'seats' => $this->seats,
             // Live count from outbound messages (not the seeded column).
-            'emails30d' => $this->liveEmails30d ?? app(\App\Services\EmailUsage::class)->countFor($this),
+            'emails30d' => $this->liveEmails30d ?? app(EmailUsage::class)->countFor($this),
             'created' => $this->provisioned_at?->format('M j, Y')
                 ?? $this->created_at?->format('M j, Y')
                 ?? '',

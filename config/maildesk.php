@@ -134,4 +134,35 @@ return [
         'per_second' => (int) env('MAILDESK_BROADCAST_PER_SECOND', 2),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | AI providers
+    |--------------------------------------------------------------------------
+    |
+    | Platform admin chooses the active provider and can store an encrypted API
+    | key. Env values are the fallback when no key is saved in settings.
+    | When "fake" is true (local/testing by default), the FakeAiProvider is used.
+    |
+    */
+    'ai' => [
+        'fake' => env('MAILDESK_AI_FAKE', env('APP_ENV') === 'local' || env('APP_ENV') === 'testing'),
+        'default_provider' => env('MAILDESK_AI_PROVIDER', 'openai'),
+        'providers' => [
+            'openai' => [
+                'api_key' => env('OPENAI_API_KEY'),
+                'model' => env('OPENAI_MODEL', 'gpt-4.1-mini'),
+                'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+            ],
+            'anthropic' => [
+                'api_key' => env('ANTHROPIC_API_KEY'),
+                'model' => env('ANTHROPIC_MODEL', 'claude-sonnet-4-5'),
+                'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
+                'api_version' => env('ANTHROPIC_API_VERSION', '2023-06-01'),
+            ],
+            'fake' => [
+                'model' => 'fake-model',
+            ],
+        ],
+    ],
+
 ];

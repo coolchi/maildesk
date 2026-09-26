@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\SendScheduledBroadcast;
 use App\Jobs\SendScheduledMessage;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -10,6 +11,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::job(new SendScheduledMessage)->everyMinute();
+Schedule::job(new SendScheduledBroadcast)->everyMinute();
 
 // Real DNS verification: retry unverified domains hourly, confirm verified ones daily.
 Schedule::command('domains:recheck')->hourly()->withoutOverlapping();
@@ -17,3 +19,6 @@ Schedule::command('domains:recheck --all')->dailyAt('03:17')->withoutOverlapping
 
 // Gmail-style: permanently delete conversations left in Trash past retention.
 Schedule::command('inbox:purge-trash')->dailyAt('03:40')->withoutOverlapping();
+
+// End free trials → past_due lockout until Monipay payment.
+Schedule::command('billing:expire-trials')->hourly()->withoutOverlapping();

@@ -52,6 +52,8 @@ watch(search, () => {
 
 const setStatus = (key) =>
     visit({ status: key === 'all' ? undefined : key, page: undefined });
+
+const openEmail = (id) => router.visit(route('emails.show', id));
 </script>
 
 <template>
@@ -63,20 +65,23 @@ const setStatus = (key) =>
             description="Every email sent from this workspace, with its latest delivery status."
         />
 
-        <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div class="mb-4 space-y-3">
+            <!-- Single-row scrollable status chips on mobile; wrap ok on desktop -->
             <div
-                class="inline-flex flex-wrap rounded-full border border-zinc-800 bg-zinc-950 p-1"
+                class="md-hide-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 sm:-mx-6 sm:px-6 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
+                data-testid="sent-status-tabs"
             >
                 <button
                     v-for="t in tabs"
                     :key="t.key"
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm transition"
+                    class="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm transition active:scale-[0.98]"
                     :class="
                         filters.status === t.key
-                            ? 'bg-zinc-800 text-white'
-                            : 'text-zinc-400 hover:text-zinc-200'
+                            ? 'border-cyan-400/40 bg-cyan-400/10 text-cyan-200'
+                            : 'border-zinc-800 bg-zinc-950 text-zinc-400 active:bg-zinc-900'
                     "
+                    :data-testid="`sent-tab-${t.key}`"
                     @click="setStatus(t.key)"
                 >
                     {{ t.label }}
@@ -85,14 +90,17 @@ const setStatus = (key) =>
                         :class="
                             t.key === 'failed' && counts[t.key]
                                 ? 'bg-rose-500/15 text-rose-300'
-                                : 'bg-zinc-800/80 text-zinc-500'
+                                : filters.status === t.key
+                                  ? 'bg-cyan-400/15 text-cyan-300'
+                                  : 'bg-zinc-800/80 text-zinc-500'
                         "
                     >
                         {{ counts[t.key] ?? 0 }}
                     </span>
                 </button>
             </div>
-            <div class="relative lg:w-80">
+
+            <div class="relative">
                 <Search
                     :size="16"
                     class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
@@ -102,11 +110,90 @@ const setStatus = (key) =>
                     type="search"
                     placeholder="Search subject or recipient…"
                     class="md-input pl-9"
+                    data-testid="sent-search"
                 />
             </div>
         </div>
 
-        <div class="md-table-wrap">
+        <!-- Mobile list -->
+        <div
+            class="md-card overflow-hidden max-lg:-mx-4 max-lg:rounded-none max-lg:border-x-0 sm:max-lg:-mx-6 lg:hidden"
+            data-testid="sent-mobile-list"
+        >
+            <button
+                v-for="email in emails"
+                :key="`m-${email.id}`"
+                type="button"
+                class="flex w-full min-w-0 items-start gap-3 border-b border-zinc-900 px-4 py-3.5 text-left transition active:bg-white/[0.04] last:border-b-0"
+                @click="openEmail(email.id)"
+            >
+                <div class="min-w-0 flex-1 overflow-hidden">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0 flex-1">
+                            <div class="truncate text-sm font-medium text-zinc-100">
+                                {{ email.to || '—' }}
+                                <span
+                                    v-if="email.to_count > 1"
+                                    class="ml-1 text-xs font-normal text-zinc-500"
+                                >
+                                    +{{ email.to_count - 1 }}
+                                </span>
+                            </div>
+                            <div class="mt-0.5 truncate text-sm text-zinc-400">
+                                {{ email.subject }}
+                            </div>
+                        </div>
+                        <div class="shrink-0 text-right">
+                            <div class="text-[11px] text-zinc-500" :title="email.sent_at">
+                                {{ email.sent_ago || email.sent_at }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <StatusBadge :status="email.status" />
+                        <span
+                            v-if="email.failed && email.error"
+                            class="flex min-w-0 items-center gap-1 text-xs text-rose-400/90"
+                            :title="email.error"
+                        >
+                            <AlertCircle :size="12" class="shrink-0" />
+                            <span class="truncate">{{ email.error }}</span>
+                        </span>
+                    </div>
+                </div>
+            </button>
+
+            <div
+                v-if="!emails.length"
+                class="px-4 py-16 text-center"
+                data-testid="sent-empty"
+            >
+                <div
+                    class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-900 text-zinc-500"
+                >
+                    <Send :size="18" />
+                </div>
+                <p class="text-zinc-400">
+                    {{
+                        filters.q || filters.status !== 'all'
+                            ? 'No sent emails match your filters.'
+                            : 'Nothing sent yet.'
+                    }}
+                </p>
+                <button
+                    v-if="!filters.q && filters.status === 'all'"
+                    type="button"
+                    class="md-btn-primary mt-4"
+                    @click="openCompose()"
+                >
+                    <PenSquare :size="16" />
+                    Write your first email
+                </button>
+            </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="md-table-wrap hidden lg:block" data-testid="sent-desktop-table">
             <table class="min-w-full text-left text-sm">
                 <thead
                     class="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500"
@@ -123,7 +210,7 @@ const setStatus = (key) =>
                         v-for="email in emails"
                         :key="email.id"
                         class="cursor-pointer transition hover:bg-white/[0.03]"
-                        @click="router.visit(route('emails.show', email.id))"
+                        @click="openEmail(email.id)"
                     >
                         <td class="whitespace-nowrap px-4 py-3">
                             <Link
@@ -197,29 +284,29 @@ const setStatus = (key) =>
 
         <div
             v-if="pagination.total"
-            class="mt-4 flex items-center justify-between text-sm text-zinc-500"
+            class="mt-4 flex items-center justify-between gap-3 text-sm text-zinc-500"
         >
-            <span>
+            <span class="min-w-0 truncate">
                 {{ pagination.from }}–{{ pagination.to }} of
                 {{ Number(pagination.total).toLocaleString() }}
             </span>
-            <div class="flex items-center gap-2">
+            <div class="flex shrink-0 items-center gap-2">
                 <Link
                     v-if="pagination.prev_url"
                     :href="pagination.prev_url"
-                    class="md-btn-ghost"
+                    class="md-btn-ghost !px-2.5"
                     preserve-scroll
                 >
                     <ChevronLeft :size="16" />
-                    Newer
+                    <span class="hidden sm:inline">Newer</span>
                 </Link>
                 <Link
                     v-if="pagination.next_url"
                     :href="pagination.next_url"
-                    class="md-btn-ghost"
+                    class="md-btn-ghost !px-2.5"
                     preserve-scroll
                 >
-                    Older
+                    <span class="hidden sm:inline">Older</span>
                     <ChevronRight :size="16" />
                 </Link>
             </div>

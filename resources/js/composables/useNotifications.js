@@ -1,8 +1,7 @@
 import { computed, reactive } from 'vue';
-import { mockNotifications } from '@/data/mock';
 
 const state = reactive({
-    items: mockNotifications.map((n) => ({ ...n })),
+    items: [],
     inboxUnread: 0,
 });
 

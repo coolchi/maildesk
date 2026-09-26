@@ -14,11 +14,20 @@ class MailboxSignatureController extends Controller
 {
     public function __construct(public WorkspaceAccess $access) {}
 
-    public function edit(Request $request): Response
+    public function edit(Request $request): Response|RedirectResponse
     {
         $organization = CurrentOrganization::from($request);
-        $mailbox = $this->access->mailboxFor($request->user(), $organization);
-        abort_unless($mailbox, 404, 'You do not have a mailbox signature to edit.');
+        $user = $request->user();
+        $mailbox = $this->access->mailboxFor($user, $organization);
+
+        if ($mailbox === null) {
+            // Owners/admins manage workspace + mailbox signatures under Settings.
+            if ($this->access->abilities($user, $organization)['manage']) {
+                return redirect()->route('settings', 'signature');
+            }
+
+            abort(404, 'You do not have a mailbox signature to edit.');
+        }
 
         return Inertia::render('Mailbox/Signature', [
             'mailbox' => [

@@ -24,6 +24,7 @@ class Broadcast extends Model
         'from',
         'recipient_count',
         'queued_at',
+        'scheduled_at',
         'completed_at',
     ];
 
@@ -32,6 +33,7 @@ class Broadcast extends Model
         return [
             'sent_at' => 'datetime',
             'queued_at' => 'datetime',
+            'scheduled_at' => 'datetime',
             'completed_at' => 'datetime',
         ];
     }
@@ -59,8 +61,11 @@ class Broadcast extends Model
             'audience' => $this->audienceLabel(),
             'recipients' => (int) $this->recipient_count,
             'open_rate' => '—',
-            'sent' => $this->sent_at?->diffForHumans()
-                ?? ($this->status === 'draft' ? '—' : ($this->updated_at?->diffForHumans() ?? '—')),
+            'scheduled_at' => $this->scheduled_at?->toIso8601String(),
+            'sent' => $this->scheduled_at && $this->status === 'scheduled'
+                ? 'Scheduled '.$this->scheduled_at->diffForHumans()
+                : ($this->sent_at?->diffForHumans()
+                    ?? ($this->status === 'draft' ? '—' : ($this->updated_at?->diffForHumans() ?? '—'))),
         ];
     }
 

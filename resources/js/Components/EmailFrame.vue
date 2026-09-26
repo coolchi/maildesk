@@ -129,7 +129,7 @@ watch(expanded, async () => {
 </script>
 
 <template>
-    <div class="space-y-2">
+    <div class="w-full min-w-0 max-w-full space-y-2 overflow-x-auto">
         <iframe
             v-if="srcdoc"
             :key="frameKey"
@@ -138,14 +138,14 @@ watch(expanded, async () => {
             :sandbox="SANDBOX"
             :title="title"
             referrerpolicy="no-referrer"
-            class="block w-full rounded-lg border-0 bg-white"
+            class="block w-full min-w-0 max-w-full rounded-xl border-0 bg-white"
             :style="{ height: `${height}px`, colorScheme: 'light' }"
             data-testid="email-frame"
             @load="onLoad"
         />
         <p
             v-else-if="displayText"
-            class="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300"
+            class="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-300"
             data-testid="email-text"
         >
             {{ displayText }}

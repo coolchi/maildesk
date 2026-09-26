@@ -2,7 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use App\Mail\MailManager;
 use App\Models\Organization;
+use App\Services\AccountAccess;
 use App\Services\Billing\BillingService;
 use App\Services\Impersonation\ImpersonationService;
 use App\Services\TenantResolver;
@@ -51,6 +53,12 @@ class HandleInertiaRequests extends Middleware
         }
 
         $provider = $organization?->mailProvider;
+        $mail = app(MailManager::class);
+        $access = app(AccountAccess::class);
+
+        if ($organization) {
+            $organization->loadMissing(['subscriptions']);
+        }
 
         $sendingFrom = [];
         if ($organization) {
@@ -107,9 +115,14 @@ class HandleInertiaRequests extends Middleware
                 // No provider config/credentials are shared with tenant pages.
                 'provider' => $provider?->toTenantArray(),
                 'smtp' => $provider?->smtpSummary(),
-                'can_send' => $provider !== null && $provider->status === 'active',
+                'can_send' => $organization
+                    ? (! $access->requiresPayment($organization)
+                        && ! $access->organizationBlocked($organization)
+                        && $mail->canSendFor($organization))
+                    : false,
                 'sending_from' => $sendingFrom,
             ],
+            'access' => fn () => $access->sharedAccessState($organization),
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

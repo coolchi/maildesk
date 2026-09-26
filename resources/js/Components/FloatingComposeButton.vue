@@ -58,7 +58,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
         <button
             v-if="!state.open"
             type="button"
-            class="md-btn-primary group fixed bottom-5 right-5 z-[80] h-14 gap-2.5 rounded-2xl px-4 font-semibold shadow-lg shadow-black/30 transition hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 sm:bottom-6 sm:right-6 sm:px-5"
+            class="md-btn-primary group fixed bottom-5 right-5 z-[80] hidden h-14 gap-2.5 rounded-2xl px-4 font-semibold shadow-lg shadow-black/30 transition hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 lg:inline-flex sm:bottom-6 sm:right-6 sm:px-5"
             :class="{ 'opacity-60': !canSend }"
             title="Compose (C)"
             aria-label="Compose new email"

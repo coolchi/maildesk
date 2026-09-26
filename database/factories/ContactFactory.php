@@ -20,6 +20,7 @@ class ContactFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'first_name' => fake()->firstName(),
             'last_name' => fake()->lastName(),
+            'company' => fake()->optional(0.6)->company(),
             'meta' => ['status' => 'subscribed'],
         ];
     }

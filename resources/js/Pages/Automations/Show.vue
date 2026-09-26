@@ -67,22 +67,25 @@ const removeStep = (index) => {
 
 const save = () => {
     syncTriggerLabel();
+    const payload = {
+        name: name.value,
+        status: status.value,
+        trigger: trigger.value,
+        steps: steps.value.map((step) => ({
+            type: step.type,
+            label: step.label,
+            ...(step.config ? { config: step.config } : {}),
+        })),
+    };
+    const options = {
+        preserveScroll: true,
+        onSuccess: () => toast.success('Automation saved.'),
+    };
     if (!props.id) {
-        toast.info('Automation create wizard coming soon.');
+        router.post(route('automations.store'), payload, options);
         return;
     }
-    router.put(
-        route('automations.update', props.id),
-        {
-            name: name.value,
-            status: status.value,
-            trigger: trigger.value,
-        },
-        {
-            preserveScroll: true,
-            onSuccess: () => toast.success('Automation saved.'),
-        },
-    );
+    router.put(route('automations.update', props.id), payload, options);
 };
 
 const stepIcon = (type) => {

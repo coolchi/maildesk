@@ -19,6 +19,7 @@ class TemplateFactory extends Factory
             'organization_id' => Organization::factory(),
             'name' => fake()->words(3, true),
             'subject' => fake()->sentence(4),
+            'status' => 'draft',
             'html' => '<p>'.fake()->paragraph().'</p>',
         ];
     }

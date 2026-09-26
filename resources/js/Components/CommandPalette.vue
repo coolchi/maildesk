@@ -41,11 +41,11 @@ const baseCommands = [
     { name: 'Compose', action: 'compose', icon: PenSquare, group: 'Mail', ability: 'mail' },
     { name: 'Sent', route: 'sent', icon: Send, group: 'Mail', ability: 'inbox' },
     { name: 'Drafts', route: 'drafts', icon: FilePenLine, group: 'Mail', ability: 'mail' },
-    { name: 'Archive', route: 'archive', icon: Archive, group: 'Mail', ability: 'inbox' },
-    { name: 'Trash', route: 'trash', icon: Trash2, group: 'Mail', ability: 'inbox' },
+    { name: 'Archive', route: 'archive', icon: Archive, group: 'Mail', ability: 'inbox', hideWhen: 'manage' },
+    { name: 'Trash', route: 'trash', icon: Trash2, group: 'Mail', ability: 'inbox', hideWhen: 'manage' },
     { name: 'Bounced', route: 'bounced', icon: MailX, group: 'Mail', ability: 'manage' },
-    { name: 'Signature', route: 'mailbox.signature', icon: PenLine, group: 'Mail', ability: 'inbox' },
-    { name: 'Profile', route: 'profile.edit', icon: User, group: 'Mail' },
+    { name: 'Signature', route: 'mailbox.signature', icon: PenLine, group: 'Mail', ability: 'inbox', hideWhen: 'manage' },
+    { name: 'Profile', route: 'profile.edit', icon: User, group: 'Mail', hideWhen: 'manage' },
     { name: 'Groups', route: 'groups', icon: UsersRound, group: 'Mail', ability: 'manage' },
     { name: 'Users', route: 'users', icon: Users, group: 'Mail', ability: 'manage' },
     { name: 'Broadcasts', route: 'broadcasts', icon: Megaphone, group: 'Engage', ability: 'marketing' },
@@ -58,12 +58,16 @@ const baseCommands = [
     { name: 'Webhooks', route: 'webhooks', icon: Webhook, group: 'Developers', ability: 'manage' },
     { name: 'Docs', route: 'docs', icon: BookOpen, group: 'Developers', ability: 'manage' },
     { name: 'Settings', route: 'settings', params: 'usage', icon: Settings, group: 'Developers', ability: 'manage' },
+    { name: 'Archive', route: 'archive', icon: Archive, group: 'Folders', ability: 'manage' },
+    { name: 'Trash', route: 'trash', icon: Trash2, group: 'Folders', ability: 'manage' },
 ];
 
 const commands = computed(() => {
     const abilities = page.props.auth?.abilities || {};
     const list = baseCommands.filter(
-        (c) => !c.ability || abilities[c.ability],
+        (c) =>
+            (!c.ability || abilities[c.ability]) &&
+            (!c.hideWhen || !abilities[c.hideWhen]),
     );
     if (page.props.auth?.user?.is_platform_admin) {
         list.push({

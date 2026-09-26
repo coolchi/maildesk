@@ -30,6 +30,11 @@ class Automation extends Model
         return $this->hasMany(AutomationStep::class)->orderBy('position');
     }
 
+    public function runs(): HasMany
+    {
+        return $this->hasMany(AutomationRun::class);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -48,7 +53,7 @@ class Automation extends Model
             'id' => $this->id,
             'name' => $this->name,
             'status' => $uiStatus,
-            'runs' => 0,
+            'runs' => $this->runs_count ?? $this->runs()->count(),
             'created' => $this->created_at?->diffForHumans() ?? '',
             'trigger' => $this->trigger,
             'steps' => $steps->map(fn (AutomationStep $step) => [

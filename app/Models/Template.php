@@ -17,6 +17,11 @@ class Template extends Model
         'name',
         'subject',
         'html',
+        'status',
+    ];
+
+    protected $attributes = [
+        'status' => 'draft',
     ];
 
     public function organization(): BelongsTo
@@ -33,7 +38,8 @@ class Template extends Model
             'id' => $this->id,
             'name' => $this->name,
             'subject' => $this->subject,
-            'status' => 'published',
+            'status' => $this->status ?: 'draft',
+            'html' => $this->html,
             'updated' => $this->updated_at?->diffForHumans() ?? '',
             'accent' => '#22d3ee',
         ];

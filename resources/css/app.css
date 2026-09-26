@@ -52,6 +52,7 @@
         transition:
             background-color 0.2s ease,
             color 0.2s ease;
+        overflow-x: hidden;
     }
 
     ::selection {
@@ -60,6 +61,17 @@
 
     html.light ::selection {
         background: rgb(8 145 178 / 0.2);
+    }
+}
+
+@layer utilities {
+    .md-hide-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .md-hide-scrollbar::-webkit-scrollbar {
+        display: none;
     }
 }
 

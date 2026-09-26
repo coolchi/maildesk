@@ -5,16 +5,21 @@ namespace App\Http\Controllers;
 use App\Models\Contact;
 use App\Models\Segment;
 use App\Models\Suppression;
+use App\Services\ContactWriter;
+use App\Services\SegmentMembership;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ContactController extends Controller
 {
-    public function index(Request $request): Response
+    public function __construct(public ContactWriter $writer) {}
+
+    public function index(Request $request, SegmentMembership $membership): Response
     {
         $organization = CurrentOrganization::from($request);
 
@@ -26,10 +31,14 @@ class ContactController extends Controller
             ->all();
 
         $segments = $organization->segments()
-            ->withCount('contacts')
             ->latest()
             ->get()
-            ->map(fn (Segment $segment) => $segment->toWorkspaceArray())
+            ->map(function (Segment $segment) use ($membership) {
+                return $segment->toWorkspaceArray(
+                    memberCount: $membership->count($segment),
+                    ruleSummary: $membership->summarize($segment->rules),
+                );
+            })
             ->values()
             ->all();
 
@@ -45,25 +54,178 @@ class ContactController extends Controller
     {
         $organization = CurrentOrganization::from($request);
 
+        // Single-contact payload (legacy) or contacts[] repeater.
+        if ($request->filled('email') && ! $request->has('contacts')) {
+            $request->merge([
+                'contacts' => [[
+                    'email' => $request->input('email'),
+                    'name' => $request->input('name'),
+                    'first_name' => $request->input('first_name'),
+                    'last_name' => $request->input('last_name'),
+                    'company' => $request->input('company'),
+                ]],
+            ]);
+        }
+
         $validated = $request->validate([
-            'email' => ['required', 'email', 'max:255'],
-            'first_name' => ['nullable', 'string', 'max:120'],
-            'last_name' => ['nullable', 'string', 'max:120'],
+            'contacts' => ['required', 'array', 'min:1', 'max:100'],
+            'contacts.*.email' => ['required', 'email', 'max:255'],
+            'contacts.*.name' => ['nullable', 'string', 'max:240'],
+            'contacts.*.first_name' => ['nullable', 'string', 'max:120'],
+            'contacts.*.last_name' => ['nullable', 'string', 'max:120'],
+            'contacts.*.company' => ['nullable', 'string', 'max:190'],
         ]);
 
-        Contact::query()->updateOrCreate(
-            [
-                'organization_id' => $organization->id,
-                'email' => Str::lower($validated['email']),
-            ],
-            [
-                'first_name' => $validated['first_name'] ?? null,
-                'last_name' => $validated['last_name'] ?? null,
-                'meta' => ['status' => 'subscribed'],
-            ],
-        );
+        $saved = 0;
+        foreach ($validated['contacts'] as $row) {
+            $this->writer->upsert(
+                $organization,
+                $row['email'],
+                $row['first_name'] ?? null,
+                $row['last_name'] ?? null,
+                $row['company'] ?? null,
+                $row['name'] ?? null,
+            );
+            $saved++;
+        }
 
-        return back()->with('success', 'Contact saved.');
+        return back()->with(
+            'success',
+            $saved === 1 ? 'Contact saved.' : "{$saved} contacts saved.",
+        );
+    }
+
+    public function import(Request $request): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        $validated = $request->validate([
+            'file' => ['required', 'file', 'mimes:csv,txt', 'max:2048'],
+        ]);
+
+        $handle = fopen($validated['file']->getRealPath(), 'r');
+        if ($handle === false) {
+            return back()->with('error', 'Could not read the uploaded file.');
+        }
+
+        $header = null;
+        $saved = 0;
+        $skipped = 0;
+        $rowNumber = 0;
+
+        try {
+            while (($row = fgetcsv($handle)) !== false) {
+                $rowNumber++;
+                if ($row === [null] || $row === false) {
+                    continue;
+                }
+
+                $cells = array_map(fn ($value) => trim((string) $value), $row);
+
+                if ($header === null) {
+                    $header = $this->normalizeImportHeader($cells);
+                    if (! in_array('email', $header, true)) {
+                        // Headerless file: treat first row as data with email in column 0.
+                        $header = ['email', 'name', 'company'];
+                        $mapped = $this->mapImportRow($header, $cells);
+                    } else {
+                        continue;
+                    }
+                } else {
+                    $mapped = $this->mapImportRow($header, $cells);
+                }
+
+                $email = Str::lower((string) ($mapped['email'] ?? ''));
+                if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                if ($saved >= 1000) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $this->writer->upsert(
+                    $organization,
+                    $email,
+                    $mapped['first_name'] ?? null,
+                    $mapped['last_name'] ?? null,
+                    $mapped['company'] ?? null,
+                    $mapped['name'] ?? null,
+                );
+                $saved++;
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        if ($saved === 0) {
+            return back()->withErrors([
+                'file' => $skipped > 0
+                    ? 'No valid contacts found in the file.'
+                    : 'The file was empty.',
+            ]);
+        }
+
+        $message = $saved === 1 ? '1 contact imported.' : "{$saved} contacts imported.";
+        if ($skipped > 0) {
+            $message .= " {$skipped} row(s) skipped.";
+        }
+
+        return back()->with('success', $message);
+    }
+
+    public function update(Request $request, Contact $contact): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+        abort_unless($contact->organization_id === $organization->id, 404);
+
+        $validated = $request->validate([
+            'status' => ['sometimes', 'string', Rule::in(['subscribed', 'unsubscribed'])],
+            'name' => ['sometimes', 'nullable', 'string', 'max:240'],
+            'first_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'last_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'company' => ['sometimes', 'nullable', 'string', 'max:190'],
+        ]);
+
+        if (array_key_exists('name', $validated)) {
+            [$first, $last] = $this->writer->splitName($validated['name']);
+            $contact->first_name = $first;
+            $contact->last_name = $last;
+        }
+
+        if (array_key_exists('first_name', $validated)) {
+            $contact->first_name = $validated['first_name'];
+        }
+
+        if (array_key_exists('last_name', $validated)) {
+            $contact->last_name = $validated['last_name'];
+        }
+
+        if (array_key_exists('company', $validated)) {
+            $contact->company = $validated['company'] !== null && trim((string) $validated['company']) !== ''
+                ? trim((string) $validated['company'])
+                : null;
+        }
+
+        if (isset($validated['status'])) {
+            $meta = (array) ($contact->meta ?? []);
+            if ($validated['status'] === 'unsubscribed') {
+                $meta['status'] = 'unsubscribed';
+                $contact->unsubscribed_at = $contact->unsubscribed_at ?? now();
+            } else {
+                $meta['status'] = 'subscribed';
+                $contact->unsubscribed_at = null;
+            }
+            $contact->meta = $meta;
+        }
+
+        $contact->save();
+
+        return back()->with('success', 'Contact updated.');
     }
 
     public function destroy(Request $request, Contact $contact): RedirectResponse
@@ -93,5 +255,40 @@ class ContactController extends Controller
         );
 
         return back()->with('success', 'Contact added to suppressions.');
+    }
+
+    /**
+     * @param  list<string>  $cells
+     * @return list<string>
+     */
+    protected function normalizeImportHeader(array $cells): array
+    {
+        return array_map(function (string $cell) {
+            $key = Str::of($cell)->lower()->replace([' ', '-'], '_')->toString();
+
+            return match ($key) {
+                'e_mail', 'email_address', 'mail' => 'email',
+                'full_name', 'fullname' => 'name',
+                'firstname', 'first' => 'first_name',
+                'lastname', 'last' => 'last_name',
+                'organisation', 'organization', 'org', 'company_name' => 'company',
+                default => $key,
+            };
+        }, $cells);
+    }
+
+    /**
+     * @param  list<string>  $header
+     * @param  list<string>  $cells
+     * @return array<string, string>
+     */
+    protected function mapImportRow(array $header, array $cells): array
+    {
+        $mapped = [];
+        foreach ($header as $index => $key) {
+            $mapped[$key] = $cells[$index] ?? '';
+        }
+
+        return $mapped;
     }
 }

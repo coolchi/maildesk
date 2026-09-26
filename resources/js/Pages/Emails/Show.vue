@@ -36,6 +36,34 @@ const eventLabel = computed(() => {
     return 'Delivered';
 });
 
+const insightEvents = computed(() => {
+    const events = Array.isArray(email.value.events) ? email.value.events : [];
+
+    return [...events].reverse().map((event, index) => {
+        const type = String(event?.type ?? 'event');
+        const at = event?.at
+            ? new Date(event.at).toLocaleString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+              })
+            : null;
+
+        return {
+            key: `${type}-${event?.id ?? index}-${event?.at ?? index}`,
+            type,
+            label: type.replace(/_/g, ' '),
+            at,
+            detail:
+                event?.link ||
+                event?.reason ||
+                (event?.ip ? `IP ${event.ip}` : null) ||
+                null,
+        };
+    });
+});
+
 const copyId = async () => {
     try {
         await navigator.clipboard.writeText(email.value.id);
@@ -241,18 +269,88 @@ Date: {{ email.sent_at }}
 
 {{ email.text }}</pre
                 >
-                <div v-else class="p-6 text-sm text-zinc-400">
-                    <div class="flex items-start gap-3">
-                        <FileText :size="18" class="mt-0.5 text-cyan-300" />
-                        <div>
-                            <div class="font-medium text-white">
-                                Insights (mock)
+                <div v-else class="space-y-6 p-6 text-sm text-zinc-400">
+                    <div>
+                        <div class="font-medium text-white">Insights</div>
+                        <p class="mt-1 text-xs text-zinc-500">
+                            Opens and clicks from your ESP webhooks (e.g. Resend
+                            <code class="text-zinc-400">email.opened</code> /
+                            <code class="text-zinc-400">email.clicked</code>).
+                        </p>
+                    </div>
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+                            <div class="text-xs uppercase tracking-wide text-zinc-500">
+                                Opens
                             </div>
-                            <p class="mt-1">
-                                Opens, clicks, and device breakdown will appear
-                                here once tracking is connected.
+                            <div class="mt-1 text-2xl font-semibold text-white">
+                                {{ email.open_count ?? 0 }}
+                            </div>
+                            <p
+                                v-if="email.first_opened_at"
+                                class="mt-2 text-xs text-zinc-500"
+                            >
+                                First {{ email.first_opened_at }}
+                                <span v-if="email.last_opened_at">
+                                    · Last {{ email.last_opened_at }}
+                                </span>
+                            </p>
+                            <p v-else class="mt-2 text-xs text-zinc-600">
+                                No opens recorded yet.
                             </p>
                         </div>
+                        <div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+                            <div class="text-xs uppercase tracking-wide text-zinc-500">
+                                Clicks
+                            </div>
+                            <div class="mt-1 text-2xl font-semibold text-white">
+                                {{ email.click_count ?? 0 }}
+                            </div>
+                            <p
+                                v-if="email.first_clicked_at"
+                                class="mt-2 text-xs text-zinc-500"
+                            >
+                                First {{ email.first_clicked_at }}
+                                <span v-if="email.last_clicked_at">
+                                    · Last {{ email.last_clicked_at }}
+                                </span>
+                            </p>
+                            <p v-else class="mt-2 text-xs text-zinc-600">
+                                No clicks recorded yet.
+                            </p>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                            Event timeline
+                        </div>
+                        <ul
+                            v-if="insightEvents.length"
+                            class="divide-y divide-zinc-800 rounded-lg border border-zinc-800"
+                        >
+                            <li
+                                v-for="item in insightEvents"
+                                :key="item.key"
+                                class="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3"
+                            >
+                                <span class="font-medium capitalize text-zinc-200">{{
+                                    item.label
+                                }}</span>
+                                <span
+                                    v-if="item.at"
+                                    class="text-xs text-zinc-500"
+                                    >{{ item.at }}</span
+                                >
+                                <span
+                                    v-if="item.detail"
+                                    class="w-full truncate text-xs text-cyan-400"
+                                    >{{ item.detail }}</span
+                                >
+                            </li>
+                        </ul>
+                        <p v-else class="text-xs text-zinc-600">
+                            Delivery events will appear here as webhooks arrive.
+                        </p>
                     </div>
                 </div>
             </div>

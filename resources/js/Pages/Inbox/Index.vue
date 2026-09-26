@@ -1,7 +1,7 @@
 <script setup>
 import EmailFrame from '@/Components/EmailFrame.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Head, router, usePage } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
@@ -11,8 +11,10 @@ import StatusBadge from '@/Components/StatusBadge.vue';
 import { useNotifications } from '@/composables/useNotifications';
 import { useInboxPageLive } from '@/composables/useInboxLive';
 import { useToast } from '@/composables/useToast';
+import { useMobileChrome } from '@/composables/useMobileChrome';
 import {
     Archive,
+    ArrowLeft,
     CheckCheck,
     Mail,
     MailOpen,
@@ -20,6 +22,7 @@ import {
     Paperclip,
     Forward,
     Reply,
+    Sparkles,
     UsersRound,
     RotateCw,
     Search,
@@ -31,6 +34,7 @@ import {
 
 const props = defineProps({
     signatureEnabled: { type: Boolean, default: false },
+    replyDraftEnabled: { type: Boolean, default: false },
     folder: { type: String, default: 'inbox' },
     threads: { type: Array, default: () => [] },
     trashRetentionDays: { type: Number, default: 30 },
@@ -40,17 +44,67 @@ const page = usePage();
 const { markThreadRead, setInboxUnread, inboxUnread } = useNotifications();
 useInboxPageLive();
 const toast = useToast();
+const { setHideMobileHeader } = useMobileChrome();
+const canManage = computed(() => Boolean(page.props.auth?.abilities?.manage));
+
+const folderLinks = computed(() => [
+    { id: 'inbox', label: 'Inbox', href: route('inbox') },
+    { id: 'archive', label: 'Archive', href: route('archive') },
+    { id: 'trash', label: 'Trash', href: route('trash') },
+]);
 const search = ref('');
 const threads = ref(props.threads.map((t) => ({ ...t })));
-const activeId = ref(threads.value[0]?.id ?? null);
+/** On mobile, start on the list — don't auto-open a thread under it. */
+const isNarrow = () =>
+    typeof window !== 'undefined' &&
+    window.matchMedia('(max-width: 1023px)').matches;
+const activeId = ref(isNarrow() ? null : (threads.value[0]?.id ?? null));
+const mobileDetail = ref(false);
 const replyHtml = ref('<p></p>');
+
+const syncMobileChrome = () => {
+    setHideMobileHeader(Boolean(mobileDetail.value && activeId.value && isNarrow()));
+};
+
+const syncViewportMode = () => {
+    if (!isNarrow()) {
+        mobileDetail.value = false;
+        if (!activeId.value && threads.value[0]) {
+            activeId.value = threads.value[0].id;
+        }
+        syncMobileChrome();
+        return;
+    }
+    if (!mobileDetail.value) {
+        // Keep list-first on phone; clear selection so the pane stays hidden.
+        activeId.value = null;
+    }
+    syncMobileChrome();
+};
+
+onMounted(() => {
+    syncViewportMode();
+    window.addEventListener('resize', syncViewportMode);
+});
+
+onBeforeUnmount(() => {
+    window.removeEventListener('resize', syncViewportMode);
+    setHideMobileHeader(false);
+});
+
+watch(mobileDetail, syncMobileChrome);
 
 watch(
     () => props.threads,
     (value) => {
         threads.value = value.map((t) => ({ ...t }));
         if (!threads.value.find((t) => t.id === activeId.value)) {
-            activeId.value = threads.value[0]?.id ?? null;
+            activeId.value = isNarrow()
+                ? null
+                : (threads.value[0]?.id ?? null);
+            if (isNarrow()) {
+                mobileDetail.value = false;
+            }
         }
         // After live reload, prefer the shared unread count — the thread list
         // is capped and must not overwrite the sidebar badge.
@@ -90,11 +144,18 @@ const filtered = computed(() =>
             !q ||
             t.subject.toLowerCase().includes(q) ||
             t.from.toLowerCase().includes(q) ||
+            (t.from_name || '').toLowerCase().includes(q) ||
             (t.to || '').toLowerCase().includes(q) ||
             t.snippet.toLowerCase().includes(q)
         );
     }),
 );
+
+const threadFromLabel = (thread) =>
+    (thread?.from_name || '').trim() || thread?.from_email || thread?.from || 'Unknown';
+
+const threadFromEmail = (thread) =>
+    thread?.from_email || thread?.from || '';
 
 const active = computed(
     () => threads.value.find((t) => t.id === activeId.value) ?? null,
@@ -112,6 +173,16 @@ const markThreadAsRead = (thread) => {
 
 const selectThread = (thread) => {
     activeId.value = thread.id;
+    if (isNarrow()) {
+        mobileDetail.value = true;
+        syncMobileChrome();
+    }
+};
+
+const closeMobileDetail = () => {
+    mobileDetail.value = false;
+    activeId.value = null;
+    syncMobileChrome();
 };
 
 // Mark read once the detail pane is showing this thread's body (including the
@@ -164,7 +235,12 @@ const removeThreadFromList = (thread) => {
     const wasUnread = thread.unread;
     threads.value = threads.value.filter((t) => t.id !== thread.id);
     if (activeId.value === thread.id) {
-        activeId.value = threads.value[0]?.id ?? null;
+        if (isNarrow()) {
+            mobileDetail.value = false;
+            activeId.value = null;
+        } else {
+            activeId.value = threads.value[0]?.id ?? null;
+        }
     }
     if (props.folder === 'inbox' && wasUnread) {
         syncInboxBadge(-1);
@@ -302,6 +378,7 @@ const onHeaderAction = (item) => {
 };
 
 const sendingReply = ref(false);
+const suggestingReply = ref(false);
 const replyCc = ref('');
 const replyBcc = ref('');
 const showCc = ref(false);
@@ -512,33 +589,185 @@ const sendReply = () => {
         },
     );
 };
+
+const suggestReply = async () => {
+    if (!active.value || suggestingReply.value || replyMode.value !== 'reply') {
+        return;
+    }
+
+    suggestingReply.value = true;
+    try {
+        const { data } = await window.axios.post(route('inbox.suggest-reply', active.value.id));
+        if (data?.html) {
+            replyHtml.value = data.html;
+            if (!replyOpen.value) {
+                openReply();
+            }
+            toast.success('Draft inserted — review before sending.');
+        } else {
+            toast.error('No draft was returned.');
+        }
+    } catch (error) {
+        const message =
+            error?.response?.data?.message ||
+            error?.response?.data?.error ||
+            'Could not suggest a reply.';
+        toast.error(message);
+    } finally {
+        suggestingReply.value = false;
+    }
+};
+
+const avatarTones = [
+    'bg-cyan-400/20 text-cyan-300',
+    'bg-violet-400/20 text-violet-300',
+    'bg-emerald-400/20 text-emerald-300',
+    'bg-amber-400/20 text-amber-300',
+    'bg-rose-400/20 text-rose-300',
+    'bg-sky-400/20 text-sky-300',
+    'bg-fuchsia-400/20 text-fuchsia-300',
+    'bg-teal-400/20 text-teal-300',
+];
+
+const avatarInitials = (thread) => {
+    const name = (thread?.from_name || '').trim();
+    if (name) {
+        const parts = name.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) {
+            return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+        }
+        return name.slice(0, 2).toUpperCase();
+    }
+    const raw = String(thread?.from_email || thread?.from || '').trim();
+    if (!raw) {
+        return '?';
+    }
+    const local = raw.includes('@') ? raw.split('@')[0] : raw;
+    const parts = local
+        .replace(/[._+\-]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+    if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    return local.slice(0, 2).toUpperCase();
+};
+
+const avatarTone = (thread) => {
+    const value = String(thread?.from_email || thread?.from_name || thread?.from || '');
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+        hash = (hash + value.charCodeAt(i) * (i + 1)) % avatarTones.length;
+    }
+    return avatarTones[hash];
+};
 </script>
 
 <template>
     <Head :title="folderTitle" />
 
     <AppLayout>
-        <PageHeader :title="folderTitle" :description="folderDescription">
-            <template v-if="folder === 'trash'" #actions>
-                <button
-                    type="button"
-                    class="md-btn-ghost !border-rose-500/30 !text-rose-300 hover:!border-rose-400/50 hover:!text-rose-200"
-                    data-testid="empty-trash"
-                    :disabled="!threads.length"
-                    @click="emptyTrash"
-                >
-                    <Trash2 :size="14" />
-                    Empty trash
-                </button>
-            </template>
-        </PageHeader>
+        <div class="hidden lg:block">
+            <PageHeader :title="folderTitle" :description="folderDescription">
+                <template #actions>
+                    <div
+                        v-if="canManage"
+                        class="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5"
+                        data-testid="admin-folder-switcher"
+                    >
+                        <Link
+                            v-for="link in folderLinks"
+                            :key="link.id"
+                            :href="link.href"
+                            class="rounded-md px-3 py-1.5 text-xs font-medium transition"
+                            :class="
+                                folder === link.id
+                                    ? 'bg-zinc-800 text-white'
+                                    : 'text-zinc-400 hover:text-zinc-200'
+                            "
+                        >
+                            {{ link.label }}
+                        </Link>
+                    </div>
+                    <button
+                        v-if="folder === 'trash'"
+                        type="button"
+                        class="md-btn-ghost !border-rose-500/30 !text-rose-300 hover:!border-rose-400/50 hover:!text-rose-200"
+                        data-testid="empty-trash"
+                        :disabled="!threads.length"
+                        @click="emptyTrash"
+                    >
+                        <Trash2 :size="14" />
+                        Empty trash
+                    </button>
+                </template>
+            </PageHeader>
+        </div>
 
         <div
-            class="md-card grid overflow-hidden lg:h-[calc(100vh-15rem)] lg:min-h-[540px] lg:grid-cols-[340px_1fr]"
+            v-if="canManage"
+            class="mb-3 flex items-center gap-2 px-1 lg:hidden"
+            data-testid="admin-folder-switcher-mobile"
+        >
+            <div
+                class="inline-flex flex-1 rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5"
+            >
+                <Link
+                    v-for="link in folderLinks"
+                    :key="link.id"
+                    :href="link.href"
+                    class="flex-1 rounded-md px-2 py-1.5 text-center text-xs font-medium transition"
+                    :class="
+                        folder === link.id
+                            ? 'bg-zinc-800 text-white'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                    "
+                >
+                    {{ link.label }}
+                </Link>
+            </div>
+            <button
+                v-if="folder === 'trash'"
+                type="button"
+                class="md-btn-ghost !border-rose-500/30 !py-1.5 !text-xs !text-rose-300"
+                data-testid="empty-trash-mobile"
+                :disabled="!threads.length"
+                @click="emptyTrash"
+            >
+                <Trash2 :size="14" />
+            </button>
+        </div>
+
+        <div
+            v-else-if="folder === 'trash'"
+            class="mb-3 flex items-center justify-end px-1 lg:hidden"
+        >
+            <button
+                type="button"
+                class="md-btn-ghost !border-rose-500/30 !py-1.5 !text-xs !text-rose-300"
+                data-testid="empty-trash-mobile"
+                :disabled="!threads.length"
+                @click="emptyTrash"
+            >
+                <Trash2 :size="14" />
+                Empty trash
+            </button>
+        </div>
+
+        <div
+            class="md-card grid min-w-0 overflow-hidden lg:h-[calc(100vh-15rem)] lg:min-h-[540px] lg:grid-cols-[340px_1fr]"
+            :class="
+                mobileDetail && active
+                    ? 'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:top-0 max-lg:z-30 max-lg:w-full max-lg:max-w-none max-lg:rounded-none max-lg:border-0'
+                    : 'max-lg:-mx-4 max-lg:-mt-4 max-lg:min-h-[calc(100dvh-8.5rem-env(safe-area-inset-bottom,0px))] max-lg:w-[calc(100%+2rem)] max-lg:max-w-[100vw] max-lg:rounded-none max-lg:border-x-0 sm:max-lg:-mx-6 sm:max-lg:w-[calc(100%+3rem)]'
+            "
             data-testid="inbox-card"
         >
             <div
-                class="flex min-h-0 flex-col border-b border-zinc-800 lg:border-b-0 lg:border-r"
+                class="min-h-0 min-w-0 flex-col overflow-hidden border-b border-zinc-800 lg:flex lg:border-b-0 lg:border-r"
+                :class="mobileDetail && active ? 'hidden lg:flex' : 'flex'"
+                data-testid="inbox-thread-list"
             >
                 <div class="relative border-b border-zinc-800 p-3">
                     <Search
@@ -552,72 +781,96 @@ const sendReply = () => {
                         class="md-input pl-9"
                     />
                 </div>
-                <ul class="max-h-[50vh] overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1">
-                    <li v-for="thread in filtered" :key="thread.id">
+                <ul class="md-hide-scrollbar min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                    <li
+                        v-for="thread in filtered"
+                        :key="thread.id"
+                        class="min-w-0 overflow-hidden"
+                    >
                         <div
-                            class="group flex items-start border-b border-zinc-900 transition hover:bg-white/[0.03]"
+                            class="group flex min-w-0 items-start overflow-hidden border-b border-zinc-900 transition active:bg-white/[0.04] hover:bg-white/[0.03]"
                             :class="{
                                 'bg-zinc-900/80': activeId === thread.id,
                             }"
                         >
                             <button
                                 type="button"
-                                class="min-w-0 flex-1 px-4 py-3 text-left"
+                                class="flex min-w-0 flex-1 items-start gap-3 overflow-hidden px-4 py-3.5 text-left"
                                 @click="selectThread(thread)"
                             >
-                                <div
-                                    class="flex items-center justify-between gap-2"
+                                <span
+                                    class="relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xs font-semibold lg:hidden"
+                                    :class="avatarTone(thread)"
+                                    aria-hidden="true"
+                                    data-testid="inbox-thread-avatar"
                                 >
+                                    {{ avatarInitials(thread) }}
                                     <span
-                                        class="flex min-w-0 items-center gap-2"
+                                        v-if="thread.unread"
+                                        class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-zinc-950 bg-cyan-400"
+                                    />
+                                </span>
+                                <span class="min-w-0 flex-1 overflow-hidden">
+                                    <div
+                                        class="flex min-w-0 items-center justify-between gap-2"
                                     >
                                         <span
-                                            v-if="thread.unread"
-                                            class="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400"
-                                        />
-                                        <span
-                                            class="truncate text-sm"
-                                            :class="
-                                                thread.unread
-                                                    ? 'font-semibold text-white'
-                                                    : 'text-zinc-300'
-                                            "
+                                            class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
                                         >
-                                            {{ thread.from }}
+                                            <span
+                                                v-if="thread.unread"
+                                                class="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400 lg:inline-flex"
+                                            />
+                                            <span
+                                                class="block min-w-0 truncate text-sm"
+                                                :class="
+                                                    thread.unread
+                                                        ? 'font-semibold text-white'
+                                                        : 'text-zinc-300'
+                                                "
+                                                :title="threadFromEmail(thread)"
+                                            >
+                                                {{ threadFromLabel(thread) }}
+                                            </span>
                                         </span>
-                                    </span>
-                                    <span
-                                        class="shrink-0 text-[11px] text-zinc-500"
+                                        <span
+                                            class="shrink-0 text-[11px] text-zinc-500"
+                                        >
+                                            {{ thread.updated }}
+                                        </span>
+                                    </div>
+                                    <div
+                                        class="mt-1 block min-w-0 truncate text-sm"
+                                        :class="
+                                            thread.unread
+                                                ? 'font-medium text-zinc-100'
+                                                : 'text-zinc-400'
+                                        "
                                     >
-                                        {{ thread.updated }}
-                                    </span>
-                                </div>
-                                <div
-                                    v-if="thread.to"
-                                    class="mt-0.5 truncate text-[11px] text-zinc-500"
-                                    :title="`To ${thread.to}`"
-                                >
-                                    <span class="text-zinc-600">To</span>
-                                    {{ thread.to }}
-                                </div>
-                                <div
-                                    class="mt-1 truncate text-sm"
-                                    :class="
-                                        thread.unread
-                                            ? 'font-medium text-zinc-100'
-                                            : 'text-zinc-400'
-                                    "
-                                >
-                                    {{ thread.subject }}
-                                </div>
-                                <div
-                                    class="mt-0.5 truncate text-xs text-zinc-500"
-                                >
-                                    {{ thread.snippet }}
-                                </div>
+                                        {{ thread.subject }}
+                                    </div>
+                                    <div
+                                        v-if="thread.ai?.priority || thread.ai?.intent"
+                                        class="mt-1 flex flex-wrap gap-1"
+                                    >
+                                        <StatusBadge
+                                            v-if="thread.ai?.priority"
+                                            :status="thread.ai.priority"
+                                        />
+                                        <StatusBadge
+                                            v-if="thread.ai?.intent"
+                                            :status="thread.ai.intent"
+                                        />
+                                    </div>
+                                    <div
+                                        class="mt-0.5 block min-w-0 truncate text-xs text-zinc-500"
+                                    >
+                                        {{ thread.snippet }}
+                                    </div>
+                                </span>
                             </button>
                             <div
-                                class="pr-2 pt-2 opacity-0 transition group-hover:opacity-100"
+                                class="shrink-0 pr-2 pt-2 opacity-100 transition lg:opacity-0 lg:group-hover:opacity-100"
                             >
                                 <RowActions
                                     :items="threadActions(thread)"
@@ -635,46 +888,79 @@ const sendReply = () => {
                 </ul>
             </div>
 
-            <div v-if="active" class="flex min-h-0 min-w-0 flex-col">
+            <div
+                v-if="active"
+                class="min-h-0 min-w-0 flex-col bg-black lg:bg-transparent"
+                :class="mobileDetail ? 'flex' : 'hidden lg:flex'"
+                data-testid="inbox-thread-detail"
+            >
                 <div
-                    class="flex items-start justify-between gap-3 border-b border-zinc-800 px-6 py-4"
+                    class="flex items-center gap-3 border-b border-zinc-800 px-4 pb-3.5 pt-[max(1rem,calc(env(safe-area-inset-top,0px)+0.5rem))] lg:items-start lg:gap-3 lg:px-6 lg:py-4"
+                    data-testid="inbox-thread-toolbar"
                 >
-                    <div class="min-w-0">
-                        <h2 class="text-lg font-semibold text-white">
+                    <button
+                        type="button"
+                        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-800 text-zinc-300 transition active:scale-95 lg:hidden"
+                        aria-label="Back to conversations"
+                        data-testid="inbox-mobile-back"
+                        @click="closeMobileDetail"
+                    >
+                        <ArrowLeft :size="18" />
+                    </button>
+                    <div class="min-w-0 flex-1 overflow-hidden py-0.5">
+                        <h2
+                            class="line-clamp-2 break-words text-[17px] font-semibold leading-snug text-white lg:line-clamp-none lg:text-lg"
+                        >
                             {{ active.subject }}
                         </h2>
-                        <p class="mt-1 text-sm text-zinc-400">
-                            {{ active.from }}
-                            <template v-if="active.to">
-                                <span class="text-zinc-600">to</span>
-                                {{ active.to }}
-                            </template>
-                            · {{ active.updated }}
+                        <p class="mt-1.5 truncate text-sm text-zinc-400" :title="threadFromEmail(active)">
+                            {{ threadFromLabel(active) }}
+                            <span class="mx-1 text-zinc-600">·</span>
+                            {{ active.updated }}
                         </p>
+                        <div
+                            v-if="active.ai?.priority || active.ai?.intent || active.ai?.language"
+                            class="mt-2 flex flex-wrap gap-1"
+                        >
+                            <StatusBadge
+                                v-if="active.ai?.priority"
+                                :status="active.ai.priority"
+                            />
+                            <StatusBadge
+                                v-if="active.ai?.intent"
+                                :status="active.ai.intent"
+                            />
+                            <span
+                                v-if="active.ai?.language"
+                                class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium uppercase text-zinc-400 ring-1 ring-inset ring-zinc-500/20"
+                            >
+                                {{ active.ai.language }}
+                            </span>
+                        </div>
                     </div>
-                    <div class="flex shrink-0 items-center gap-2">
+                    <div class="flex shrink-0 items-center gap-1.5 self-center lg:gap-2 lg:self-start">
                         <template v-if="folder !== 'trash'">
                             <button
                                 type="button"
-                                class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                                class="md-btn-ghost !px-2.5 !py-1.5 text-sm lg:!px-3"
                                 :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'reply' }"
                                 title="Reply (r)"
                                 data-testid="reply-toggle"
                                 @click="replyOpen && replyMode === 'reply' ? closeReply() : openReply()"
                             >
                                 <Reply :size="15" />
-                                Reply
+                                <span class="hidden sm:inline">Reply</span>
                             </button>
                             <button
                                 type="button"
-                                class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                                class="md-btn-ghost !px-2.5 !py-1.5 text-sm lg:!px-3"
                                 :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'forward' }"
                                 title="Forward (f)"
                                 data-testid="forward-toggle"
                                 @click="replyOpen && replyMode === 'forward' ? closeReply() : openForward()"
                             >
                                 <Forward :size="15" />
-                                Forward
+                                <span class="hidden sm:inline">Forward</span>
                             </button>
                         </template>
                         <RowActions
@@ -685,13 +971,13 @@ const sendReply = () => {
                 </div>
                 <div
                     ref="messagesEl"
-                    class="space-y-4 p-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
+                    class="md-hide-scrollbar mx-auto min-h-0 min-w-0 w-full max-w-3xl flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-4 py-3 lg:max-w-none lg:space-y-4 lg:p-6"
                     data-testid="thread-messages"
                 >
                     <article
                         v-for="message in active.messages"
                         :key="message.id || message"
-                        class="rounded-xl border bg-zinc-950 p-4"
+                        class="w-full min-w-0 overflow-hidden rounded-xl border bg-zinc-950 p-3 lg:p-4"
                         :class="
                             message.can_retry || message.status === 'suppressed'
                                 ? 'border-rose-500/30'
@@ -702,17 +988,17 @@ const sendReply = () => {
                              several messages; for one message it repeats the pane header. -->
                         <div
                             v-if="active.messages.length > 1"
-                            class="mb-3 flex items-center justify-between text-xs text-zinc-500"
+                            class="mb-3 flex items-center justify-between gap-3 text-xs text-zinc-500"
                             data-testid="message-header"
                         >
-                            <span class="truncate">
-                                {{ message.from || active.from }}
-                                <template v-if="message.to">
-                                    <span class="text-zinc-600">to</span>
-                                    {{ message.to }}
-                                </template>
+                            <span class="min-w-0 truncate">
+                                {{
+                                    (message.from_name || '').trim() ||
+                                    message.from ||
+                                    active.from
+                                }}
                             </span>
-                            <span>{{ message.sent || '—' }}</span>
+                            <span class="shrink-0">{{ message.sent || '—' }}</span>
                         </div>
                         <div
                             v-if="message.cc || message.bcc"
@@ -899,7 +1185,7 @@ const sendReply = () => {
                             </button>
                         </span>
                     </div>
-                    <div class="mt-3 flex items-center gap-2">
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
                         <button
                             type="button"
                             class="md-btn-primary"
@@ -908,6 +1194,18 @@ const sendReply = () => {
                         >
                             <Send :size="16" />
                             {{ sendingReply ? 'Sending…' : replyMode === 'forward' ? 'Forward' : 'Send reply' }}
+                        </button>
+                        <button
+                            v-if="replyDraftEnabled && replyMode === 'reply'"
+                            type="button"
+                            class="md-btn-ghost"
+                            data-testid="suggest-reply"
+                            title="Suggest a reply with AI"
+                            :disabled="suggestingReply || sendingReply"
+                            @click="suggestReply"
+                        >
+                            <Sparkles :size="16" :class="{ 'animate-pulse': suggestingReply }" />
+                            {{ suggestingReply ? 'Drafting…' : 'Suggest reply' }}
                         </button>
                         <button
                             type="button"
@@ -937,7 +1235,7 @@ const sendReply = () => {
             </div>
             <div
                 v-else
-                class="flex items-center justify-center p-12 text-sm text-zinc-500"
+                class="hidden items-center justify-center p-12 text-sm text-zinc-500 lg:flex"
             >
                 Select a conversation
             </div>

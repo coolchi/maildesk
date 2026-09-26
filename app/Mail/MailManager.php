@@ -112,6 +112,21 @@ class MailManager
         return $defaults;
     }
 
+    /**
+     * Whether this workspace can send mail right now (provider or SMTP ready).
+     * Does not check suspension/trial — pair with AccountAccess::assertCanSend.
+     */
+    public function canSendFor(Organization $organization): bool
+    {
+        if ($this->organizationSmtpConfig($organization) !== null) {
+            return true;
+        }
+
+        $provider = $this->platformProviderFor($organization);
+
+        return $provider !== null && $provider->status === 'active';
+    }
+
     public function driver(string $provider, ?Organization $organization = null, ?PlatformMailProvider $platform = null): MailProvider
     {
         if (config('maildesk.fake_send')) {

@@ -36,6 +36,15 @@ const styles = {
     developer: 'bg-violet-500/15 text-violet-300 ring-violet-500/20',
     business_owner: 'bg-amber-500/15 text-amber-300 ring-amber-500/20',
     admin: 'bg-amber-500/15 text-amber-300 ring-amber-500/20',
+    urgent: 'bg-rose-500/15 text-rose-400 ring-rose-500/20',
+    high: 'bg-amber-500/15 text-amber-300 ring-amber-500/20',
+    normal: 'bg-sky-500/15 text-sky-300 ring-sky-500/20',
+    low: 'bg-zinc-500/20 text-zinc-400 ring-zinc-500/20',
+    support: 'bg-cyan-400/15 text-cyan-300 ring-cyan-400/20',
+    sales: 'bg-violet-500/15 text-violet-300 ring-violet-500/20',
+    billing: 'bg-amber-500/15 text-amber-300 ring-amber-500/20',
+    spam: 'bg-rose-500/15 text-rose-400 ring-rose-500/20',
+    other: 'bg-zinc-500/20 text-zinc-300 ring-zinc-500/20',
 };
 
 const labels = {

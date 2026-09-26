@@ -7,6 +7,7 @@ use App\Models\Broadcast;
 use App\Models\BroadcastRecipient;
 use App\Models\Contact;
 use App\Models\Message;
+use App\Models\Segment;
 use App\Models\Suppression;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
@@ -17,6 +18,7 @@ class BroadcastService
     public function __construct(
         protected EmailService $emails,
         protected SignatureService $signatures,
+        protected SegmentMembership $segments,
     ) {}
 
     /**
@@ -31,6 +33,7 @@ class BroadcastService
             'from' => $from ?? $broadcast->from,
             'status' => 'queued',
             'queued_at' => now(),
+            'scheduled_at' => null,
             'sent_at' => null,
             'completed_at' => null,
         ])->save();
@@ -53,10 +56,21 @@ class BroadcastService
             return $this->buildGroupRecipients($broadcast, (int) substr($audience, 6));
         }
 
-        $query = $organization->contacts()->orderBy('id');
-
         if ($audience !== 'all' && ctype_digit($audience)) {
-            $query->whereHas('segments', fn ($q) => $q->where('segments.id', (int) $audience));
+            $segment = Segment::query()
+                ->where('organization_id', $organization->id)
+                ->whereKey((int) $audience)
+                ->first();
+
+            if ($segment === null) {
+                $broadcast->forceFill(['recipient_count' => 0])->save();
+
+                return 0;
+            }
+
+            $query = $this->segments->query($segment);
+        } else {
+            $query = $organization->contacts()->orderBy('id');
         }
 
         $suppressed = array_flip(Suppression::query()

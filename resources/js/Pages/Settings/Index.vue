@@ -59,6 +59,10 @@ const props = defineProps({
         type: String,
         default: '',
     },
+    invitations: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const page = usePage();
@@ -70,6 +74,39 @@ const {
     activeProviderHealth,
     activeSmtp,
 } = useTenant();
+
+const inviteEmail = ref('');
+const inviteRole = ref('member');
+const inviting = ref(false);
+
+const sendInvite = () => {
+    if (!inviteEmail.value.trim()) {
+        toast.info('Enter an email address to invite.');
+        return;
+    }
+    inviting.value = true;
+    router.post(
+        route('invitations.store'),
+        { email: inviteEmail.value.trim(), role: inviteRole.value },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                inviteEmail.value = '';
+                toast.success('Invitation sent.');
+            },
+            onFinish: () => {
+                inviting.value = false;
+            },
+        },
+    );
+};
+
+const cancelInvite = (invitation) => {
+    router.delete(route('invitations.destroy', invitation.id), {
+        preserveScroll: true,
+        onSuccess: () => toast.success('Invitation cancelled.'),
+    });
+};
 
 const mockUsageFallback = {
     transactional: {
@@ -248,20 +285,9 @@ const subscriptions = computed(
         ],
 );
 
-const paymentMethods = ref([
-    {
-        id: 1,
-        brand: 'Visa',
-        last4: '0702',
-        expires: '8/2028',
-        default: true,
-    },
-]);
+const paymentMethods = ref([]);
 
-const invoices = [
-    { id: 'inv_1', date: 'Sep 4, 2026', amount: '$20.00', status: 'Paid' },
-    { id: 'inv_2', date: 'Aug 4, 2026', amount: '$20.00', status: 'Paid' },
-];
+const invoices = [];
 
 const countries = [
     'Nigeria',
@@ -415,10 +441,10 @@ const onCardAction = (card, item) => {
     }
 };
 
-const addCard = () => toast.info('Card form coming soon (mock).');
-
-const downloadInvoice = (inv) => {
-    toast.success(`Downloading invoice ${inv.date} (mock).`);
+const addCard = () =>
+    toast.info('Card payments are not used — upgrade with Monipay from View plans.');
+const downloadInvoice = () => {
+    toast.info('Use Payment history below for Monipay receipts.');
 };
 </script>
 
@@ -655,6 +681,82 @@ const downloadInvoice = (inv) => {
                                 {{ member.email }}
                             </div>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="md-card overflow-hidden">
+                <div class="border-b border-zinc-800 px-5 py-4">
+                    <h2 class="text-base font-medium text-white">
+                        Invite by email
+                    </h2>
+                    <p class="mt-1 text-sm text-zinc-500">
+                        Send a closed-team invite. Open self-serve signup stays
+                        at /join when enabled.
+                    </p>
+                </div>
+                <form
+                    class="flex flex-wrap items-end gap-3 px-5 py-4"
+                    @submit.prevent="sendInvite"
+                >
+                    <div class="min-w-[14rem] flex-1">
+                        <label class="mb-1 block text-xs text-zinc-500"
+                            >Email</label
+                        >
+                        <input
+                            v-model="inviteEmail"
+                            type="email"
+                            required
+                            class="md-input w-full"
+                            placeholder="teammate@company.com"
+                        />
+                    </div>
+                    <div>
+                        <label class="mb-1 block text-xs text-zinc-500"
+                            >Role</label
+                        >
+                        <select v-model="inviteRole" class="md-input">
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <button
+                        type="submit"
+                        class="md-btn-solid"
+                        :disabled="inviting"
+                    >
+                        Send invite
+                    </button>
+                </form>
+                <div
+                    v-if="invitations.length"
+                    class="divide-y divide-zinc-800/80 border-t border-zinc-800"
+                >
+                    <div
+                        v-for="invitation in invitations"
+                        :key="invitation.id"
+                        class="flex items-center gap-3 px-5 py-3"
+                    >
+                        <div class="min-w-0 flex-1">
+                            <div class="truncate text-sm text-white">
+                                {{ invitation.email }}
+                                <span
+                                    class="ml-1.5 text-xs capitalize text-zinc-500"
+                                    >{{ invitation.role }}</span
+                                >
+                            </div>
+                            <div class="text-xs text-zinc-500">
+                                Expires {{ invitation.expires_at }} ·
+                                {{ invitation.status }}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="text-xs text-zinc-500 hover:text-red-400"
+                            @click="cancelInvite(invitation)"
+                        >
+                            Cancel
+                        </button>
                     </div>
                 </div>
             </section>

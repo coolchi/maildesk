@@ -3,9 +3,14 @@
 use App\Http\Controllers\Api\DeliveryEventController;
 use App\Http\Controllers\Api\InboundEmailController;
 use App\Http\Controllers\Api\MonipayWebhookController;
+use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\DomainController;
 use App\Http\Controllers\Api\V1\EmailController;
+use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\InboxController;
+use App\Http\Controllers\Api\V1\SegmentController;
+use App\Http\Controllers\Api\V1\SuppressionController;
+use App\Http\Controllers\Api\V1\TemplateController;
 use App\Http\Middleware\AuthenticateApiKey;
 use App\Http\Middleware\EnsureApiAccountActive;
 use App\Services\DeliveryEventService;
@@ -21,6 +26,15 @@ Route::middleware([AuthenticateApiKey::class, EnsureApiAccountActive::class])->g
 
     Route::get('/domains', [DomainController::class, 'index']);
     Route::post('/domains', [DomainController::class, 'store']);
+
+    Route::get('/contacts', [ContactController::class, 'index']);
+    Route::post('/contacts', [ContactController::class, 'store']);
+
+    Route::get('/segments', [SegmentController::class, 'index']);
+    Route::get('/suppressions', [SuppressionController::class, 'index']);
+    Route::get('/templates', [TemplateController::class, 'index']);
+
+    Route::post('/events', [EventController::class, 'store']);
 });
 
 // Provider webhooks for received mail (signature-verified, no API key).

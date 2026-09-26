@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Automation;
+use App\Services\AutomationService;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,6 +19,7 @@ class AutomationController extends Controller
 
         $automations = $organization->automations()
             ->with('steps')
+            ->withCount('runs')
             ->latest()
             ->get()
             ->map(fn (Automation $automation) => $automation->toWorkspaceArray())
@@ -38,12 +40,32 @@ class AutomationController extends Controller
         ]);
     }
 
+    public function store(Request $request, AutomationService $automations): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        $validated = $this->validatedPayload($request);
+
+        $automation = Automation::query()->create([
+            'organization_id' => $organization->id,
+            'name' => $validated['name'],
+            'status' => $validated['status'],
+            'trigger' => $validated['trigger'],
+        ]);
+
+        $automations->syncSteps($automation, $validated['steps']);
+
+        return redirect()
+            ->route('automations.show', $automation)
+            ->with('success', 'Automation created.');
+    }
+
     public function show(Request $request, Automation $automation): Response
     {
         $organization = CurrentOrganization::from($request);
         abort_unless($automation->organization_id === $organization->id, 404);
 
-        $automation->load('steps');
+        $automation->load('steps')->loadCount('runs');
 
         return Inertia::render('Automations/Show', [
             'id' => $automation->id,
@@ -51,29 +73,22 @@ class AutomationController extends Controller
         ]);
     }
 
-    public function update(Request $request, Automation $automation): RedirectResponse
+    public function update(Request $request, Automation $automation, AutomationService $automations): RedirectResponse
     {
         $organization = CurrentOrganization::from($request);
         abort_unless($automation->organization_id === $organization->id, 404);
 
-        $validated = $request->validate([
-            'name' => ['sometimes', 'string', 'max:180'],
-            'status' => ['sometimes', Rule::in(['enabled', 'disabled', 'active', 'paused'])],
-            'trigger' => ['sometimes', 'string', 'max:120'],
-        ]);
-
-        if (isset($validated['status'])) {
-            $validated['status'] = match ($validated['status']) {
-                'enabled', 'active' => 'active',
-                default => 'paused',
-            };
-        }
+        $validated = $this->validatedPayload($request, partial: true);
 
         $automation->fill([
             'name' => $validated['name'] ?? $automation->name,
             'status' => $validated['status'] ?? $automation->status,
             'trigger' => $validated['trigger'] ?? $automation->trigger,
         ])->save();
+
+        if (array_key_exists('steps', $validated)) {
+            $automations->syncSteps($automation, $validated['steps']);
+        }
 
         return back()->with('success', 'Automation updated.');
     }
@@ -87,5 +102,32 @@ class AutomationController extends Controller
         $automation->delete();
 
         return redirect()->route('automations')->with('success', 'Automation deleted.');
+    }
+
+    /**
+     * @return array{name?: string, status?: string, trigger?: string, steps?: array<int, array{type: string, label?: string, config?: array<string, mixed>}>}
+     */
+    private function validatedPayload(Request $request, bool $partial = false): array
+    {
+        $rules = [
+            'name' => [$partial ? 'sometimes' : 'required', 'string', 'max:180'],
+            'status' => [$partial ? 'sometimes' : 'required', Rule::in(['enabled', 'disabled', 'active', 'paused'])],
+            'trigger' => [$partial ? 'sometimes' : 'required', 'string', 'max:120'],
+            'steps' => [$partial ? 'sometimes' : 'required', 'array', 'min:1'],
+            'steps.*.type' => ['required_with:steps', 'string', Rule::in(['trigger', 'delay', 'email'])],
+            'steps.*.label' => ['nullable', 'string', 'max:255'],
+            'steps.*.config' => ['nullable', 'array'],
+        ];
+
+        $validated = $request->validate($rules);
+
+        if (isset($validated['status'])) {
+            $validated['status'] = match ($validated['status']) {
+                'enabled', 'active' => 'active',
+                default => 'paused',
+            };
+        }
+
+        return $validated;
     }
 }
