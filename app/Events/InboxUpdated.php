@@ -25,15 +25,24 @@ class InboxUpdated implements ShouldBroadcastNow, ShouldDispatchAfterCommit, Sho
 
     public int $unread;
 
+    public int $workspace_unread;
+
     public string $cursor;
 
     public function __construct(
         public Organization $organization,
         public ?int $mailboxId = null,
     ) {
-        $state = InboxSyncState::for($organization);
-        $this->unread = $state['unread'];
-        $this->cursor = $state['cursor'];
+        $scoped = InboxSyncState::for($organization, $mailboxId);
+        $workspace = $mailboxId === null
+            ? $scoped
+            : InboxSyncState::for($organization);
+
+        // `unread` is scoped to the mailbox when one is known so mailbox
+        // clients can update their badge from the broadcast alone.
+        $this->unread = $scoped['unread'];
+        $this->workspace_unread = $workspace['unread'];
+        $this->cursor = $scoped['cursor'];
     }
 
     /**
@@ -52,7 +61,7 @@ class InboxUpdated implements ShouldBroadcastNow, ShouldDispatchAfterCommit, Sho
     }
 
     /**
-     * @return array{unread: int, cursor: string, organization_id: int, mailbox_id: int|null}
+     * @return array{unread: int, workspace_unread: int, cursor: string, organization_id: int, mailbox_id: int|null}
      */
     public function broadcastWith(): array
     {
@@ -60,6 +69,7 @@ class InboxUpdated implements ShouldBroadcastNow, ShouldDispatchAfterCommit, Sho
             'organization_id' => $this->organization->id,
             'mailbox_id' => $this->mailboxId,
             'unread' => $this->unread,
+            'workspace_unread' => $this->workspace_unread,
             'cursor' => $this->cursor,
         ];
     }

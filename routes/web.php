@@ -36,11 +36,18 @@ use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WorkspaceController;
 use App\Http\Middleware\RequireFreshPassword;
 use App\Services\PlatformSettings;
+use App\Services\TenantResolver;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
-Route::get('/', function () {
+Route::get('/', function (Request $request, TenantResolver $tenants) {
+    // Workspace hosts are sign-in entry points, not the public marketing site.
+    if ($tenants->resolveFromHost($tenants->hostFromRequest($request))) {
+        return redirect()->route('login');
+    }
+
     return Inertia::render('Welcome', [
         'canLogin' => Route::has('login'),
         'canRegister' => Route::has('register') && app(PlatformSettings::class)->signupOpen(),
@@ -80,9 +87,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/inbox/{thread}', [InboxController::class, 'show'])->whereNumber('thread')->name('inbox.show');
     Route::patch('/inbox/{thread}/read', [InboxController::class, 'markRead'])->whereNumber('thread')->name('inbox.read');
     Route::post('/inbox/{thread}/archive', [InboxController::class, 'toggleArchive'])->whereNumber('thread')->name('inbox.archive');
+    Route::post('/inbox/{thread}/trash', [InboxController::class, 'toggleTrash'])->whereNumber('thread')->name('inbox.trash');
+    Route::delete('/inbox/{thread}', [InboxController::class, 'destroy'])->whereNumber('thread')->name('inbox.destroy');
     Route::post('/inbox/{thread}/reply', [InboxController::class, 'reply'])->whereNumber('thread')->name('inbox.reply');
     Route::post('/inbox/{thread}/forward', [InboxController::class, 'forward'])->whereNumber('thread')->name('inbox.forward');
     Route::get('/archive', [InboxController::class, 'archiveIndex'])->name('archive');
+    Route::get('/trash', [InboxController::class, 'trashIndex'])->name('trash');
+    Route::delete('/trash', [InboxController::class, 'emptyTrash'])->name('trash.empty');
     Route::get('/sent', [EmailController::class, 'sent'])->name('sent');
     Route::get('/drafts', [MailDraftController::class, 'index'])->name('drafts');
     Route::post('/drafts', [MailDraftController::class, 'store'])->name('drafts.store');
@@ -207,6 +218,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::patch('/profile/preferences', [ProfileController::class, 'updatePreferences'])->name('profile.preferences');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::post('/impersonate/leave', [ImpersonationController::class, 'leave'])->name('impersonate.leave');
 });

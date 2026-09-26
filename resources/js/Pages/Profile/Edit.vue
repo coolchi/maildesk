@@ -3,6 +3,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import DeleteUserForm from './Partials/DeleteUserForm.vue';
 import UpdatePasswordForm from './Partials/UpdatePasswordForm.vue';
 import UpdateProfileInformationForm from './Partials/UpdateProfileInformationForm.vue';
+import UpdateNotificationPreferencesForm from './Partials/UpdateNotificationPreferencesForm.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import { Head } from '@inertiajs/vue3';
 
@@ -32,6 +33,10 @@ defineProps({
                     :status="status"
                     class="max-w-xl"
                 />
+            </div>
+
+            <div class="md-card p-6">
+                <UpdateNotificationPreferencesForm class="max-w-xl" />
             </div>
 
             <div class="md-card p-6">

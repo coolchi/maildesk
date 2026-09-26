@@ -19,7 +19,10 @@ class Attachment extends Model
     ];
 
     /** Raster image types that are safe to render inline (no SVG: it can carry script). */
-    public const PREVIEWABLE = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'];
+    public const PREVIEWABLE_IMAGES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'];
+
+    /** Non-image types safe to open inline in a sandboxed preview. */
+    public const PREVIEWABLE_DOCUMENTS = ['application/pdf'];
 
     public function message(): BelongsTo
     {
@@ -42,7 +45,31 @@ class Attachment extends Model
 
     public function isPreviewableImage(): bool
     {
-        return in_array(strtolower((string) $this->content_type), self::PREVIEWABLE, true);
+        return in_array(strtolower((string) $this->content_type), self::PREVIEWABLE_IMAGES, true);
+    }
+
+    public function isPreviewable(): bool
+    {
+        $type = strtolower((string) $this->content_type);
+
+        return $this->isPreviewableImage()
+            || in_array($type, self::PREVIEWABLE_DOCUMENTS, true);
+    }
+
+    /**
+     * @return 'image'|'pdf'|null
+     */
+    public function previewKind(): ?string
+    {
+        if ($this->isPreviewableImage()) {
+            return 'image';
+        }
+
+        if (strtolower((string) $this->content_type) === 'application/pdf') {
+            return 'pdf';
+        }
+
+        return null;
     }
 
     /**
@@ -51,6 +78,7 @@ class Attachment extends Model
     public function toWorkspaceArray(): array
     {
         $image = $this->isPreviewableImage();
+        $previewable = $this->isPreviewable();
 
         return [
             'id' => $this->id,
@@ -60,8 +88,12 @@ class Attachment extends Model
             'size' => (int) $this->size,
             'size_label' => self::humanSize((int) $this->size),
             'is_image' => $image,
+            'previewable' => $previewable,
+            'preview_kind' => $this->previewKind(),
             'url' => route('attachments.download', $this->id),
-            'preview_url' => $image ? route('attachments.download', ['attachment' => $this->id, 'inline' => 1]) : null,
+            'preview_url' => $previewable
+                ? route('attachments.download', ['attachment' => $this->id, 'inline' => 1])
+                : null,
         ];
     }
 

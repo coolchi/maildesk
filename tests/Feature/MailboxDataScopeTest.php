@@ -151,6 +151,6 @@ class MailboxDataScopeTest extends TestCase
                 'text' => 'Hello',
                 'stay' => true,
             ])
-            ->assertForbidden();
+            ->assertSessionHasErrors('from');
     }
 }

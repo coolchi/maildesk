@@ -80,6 +80,10 @@ class InboundEmailService
                 'last_message_at' => now(),
                 'message_count' => $thread->messages()->count(),
                 'is_read' => false,
+                // Gmail-style: a reply resurfaces the conversation in the inbox.
+                'is_trashed' => false,
+                'trashed_at' => null,
+                'is_archived' => false,
             ])->save();
 
             return $message;

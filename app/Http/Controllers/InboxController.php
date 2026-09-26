@@ -7,6 +7,7 @@ use App\Models\Thread;
 use App\Services\EmailService;
 use App\Services\Impersonation\ImpersonationService;
 use App\Services\SignatureService;
+use App\Services\ThreadTrashService;
 use App\Services\WorkspaceAccess;
 use App\Support\AddressList;
 use App\Support\CurrentOrganization;
@@ -23,21 +24,32 @@ class InboxController extends Controller
 
     public function index(Request $request): Response
     {
-        return $this->folder($request, archived: false);
+        return $this->folder($request, 'inbox');
     }
 
     public function archiveIndex(Request $request): Response
     {
-        return $this->folder($request, archived: true);
+        return $this->folder($request, 'archive');
     }
 
-    protected function folder(Request $request, bool $archived): Response
+    public function trashIndex(Request $request): Response
+    {
+        return $this->folder($request, 'trash');
+    }
+
+    protected function folder(Request $request, string $folder): Response
     {
         $organization = CurrentOrganization::from($request);
         $user = $request->user();
 
         $threads = $this->access->scopeMailData($organization->threads(), $user, $organization)
-            ->where('is_archived', $archived)
+            ->when(
+                $folder === 'trash',
+                fn ($query) => $query->where('is_trashed', true),
+                fn ($query) => $query
+                    ->where('is_trashed', false)
+                    ->where('is_archived', $folder === 'archive'),
+            )
             ->with(['mailbox', 'messages' => fn ($query) => $query->orderBy('created_at'), 'messages.attachments'])
             ->latest('last_message_at')
             ->limit(50)
@@ -47,8 +59,9 @@ class InboxController extends Controller
             ->all();
 
         return Inertia::render('Inbox/Index', [
-            'folder' => $archived ? 'archive' : 'inbox',
+            'folder' => $folder,
             'threads' => $threads,
+            'trashRetentionDays' => (int) config('maildesk.trash.retention_days', 30),
             'signatureEnabled' => app(SignatureService::class)->settings($organization)['enabled']
                 || filled($this->access->mailboxFor($user, $organization)?->signature),
         ]);
@@ -60,6 +73,7 @@ class InboxController extends Controller
 
         /** @var Thread $model */
         $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
+            ->where('is_trashed', false)
             ->findOrFail($thread);
 
         $model->forceFill(['is_archived' => ! $model->is_archived])->save();
@@ -78,6 +92,74 @@ class InboxController extends Controller
         }
 
         return back()->with('success', $message);
+    }
+
+    public function toggleTrash(Request $request, int $thread): RedirectResponse|JsonResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        /** @var Thread $model */
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
+            ->findOrFail($thread);
+
+        $trashed = ! $model->is_trashed;
+        $model->forceFill([
+            'is_trashed' => $trashed,
+            'trashed_at' => $trashed ? now() : null,
+        ])->save();
+
+        $message = $trashed ? 'Moved to trash.' : 'Restored.';
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'id' => $model->id,
+                'is_trashed' => $model->is_trashed,
+                'inbox_unread' => InboxSyncState::for(
+                    $organization,
+                    $this->access->scopedMailboxId($request->user(), $organization),
+                )['unread'],
+            ]);
+        }
+
+        return back()->with('success', $message);
+    }
+
+    public function destroy(Request $request, int $thread, ThreadTrashService $trash): RedirectResponse|JsonResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        /** @var Thread $model */
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
+            ->where('is_trashed', true)
+            ->findOrFail($thread);
+
+        $trash->permanentlyDelete($model);
+
+        if ($request->wantsJson()) {
+            return response()->json(['id' => $thread]);
+        }
+
+        return redirect()->route('trash')->with('success', 'Deleted forever.');
+    }
+
+    public function emptyTrash(Request $request, ThreadTrashService $trash): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+        $user = $request->user();
+
+        $threads = $this->access->scopeMailData($organization->threads(), $user, $organization)
+            ->where('is_trashed', true)
+            ->with(['messages.attachments'])
+            ->get();
+
+        $count = $trash->permanentlyDeleteMany($threads);
+
+        return redirect()->route('trash')->with(
+            'success',
+            $count === 0
+                ? 'Trash is already empty.'
+                : ($count === 1 ? 'Deleted 1 conversation forever.' : "Deleted {$count} conversations forever."),
+        );
     }
 
     /**

@@ -5,7 +5,7 @@ import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 
 const props = defineProps({
     organization: {
@@ -30,13 +30,37 @@ const form = useForm({
     password_confirmation: '',
 });
 
+/**
+ * Local-part only: letters, digits, ., _, +, -. If a full address is pasted,
+ * keep the part before @.
+ */
+const sanitizeLocal = (value) => {
+    let next = String(value ?? '');
+    if (next.includes('@')) {
+        next = next.split('@')[0];
+    }
+
+    return next.replace(/[^a-zA-Z0-9._+-]/g, '').toLowerCase();
+};
+
+watch(
+    () => form.local,
+    (value) => {
+        const cleaned = sanitizeLocal(value);
+        if (cleaned !== value) {
+            form.local = cleaned;
+        }
+    },
+);
+
 const emailPreview = computed(() => {
-    const local = form.local.trim().toLowerCase();
+    const local = form.local.trim();
     if (!local || !form.domain) return '';
     return `${local}@${form.domain}`;
 });
 
 const submit = () => {
+    form.local = sanitizeLocal(form.local);
     form.post(route('tenant.join.store'), {
         onFinish: () => form.reset('password', 'password_confirmation'),
     });
@@ -85,6 +109,10 @@ const submit = () => {
                         required
                         autocomplete="username"
                         placeholder="you"
+                        spellcheck="false"
+                        autocapitalize="off"
+                        pattern="[a-z0-9._+\-]+"
+                        title="Letters, numbers, and . _ + - only"
                     />
                     <span
                         class="flex shrink-0 items-center text-sm text-zinc-500"

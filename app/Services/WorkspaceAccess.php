@@ -19,7 +19,7 @@ class WorkspaceAccess
     /**
      * Route-name patterns → required ability.
      * First match wins. Unlisted authenticated workspace routes stay open
-     * (profile, help, logout, impersonate leave, workspace switch).
+     * (profile, logout, impersonate leave, workspace switch).
      *
      * @var array<string, string>
      */
@@ -36,6 +36,7 @@ class WorkspaceAccess
         'billing*' => 'manage',
         'suppressions*' => 'manage',
         'docs' => 'manage',
+        'help' => 'manage',
 
         'inbox*' => 'inbox',
         'sent*' => 'inbox',
@@ -47,14 +48,20 @@ class WorkspaceAccess
         'audience*' => 'marketing',
 
         'emails.store' => 'mail',
+        'emails.show' => 'inbox',
+        'emails.retry' => 'mail',
         'emails*' => 'manage',
         'compose' => 'mail',
         'attachments*' => 'mail',
 
         'mailbox.signature*' => 'inbox',
         'archive*' => 'inbox',
+        'trash*' => 'inbox',
         'drafts*' => 'mail',
         'inbox.archive' => 'inbox',
+        'inbox.trash' => 'inbox',
+        'inbox.destroy' => 'inbox',
+        'trash.empty' => 'inbox',
     ];
 
     public function orgRole(User $user, Organization $organization): ?string

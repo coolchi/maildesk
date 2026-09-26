@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\TenantResolver;
+use App\Support\UserRegistrationSettings;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,8 +21,12 @@ class RegisteredUserController extends Controller
     /**
      * Display the registration view.
      */
-    public function create(): Response
+    public function create(Request $request, TenantResolver $tenants): Response|RedirectResponse
     {
+        if ($redirect = $this->workspaceHostRedirect($request, $tenants)) {
+            return $redirect;
+        }
+
         return Inertia::render('Auth/Register');
     }
 
@@ -29,8 +35,12 @@ class RegisteredUserController extends Controller
      *
      * @throws ValidationException
      */
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, TenantResolver $tenants): RedirectResponse
     {
+        if ($redirect = $this->workspaceHostRedirect($request, $tenants)) {
+            return $redirect;
+        }
+
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|lowercase|email|max:255|unique:'.User::class,
@@ -48,5 +58,20 @@ class RegisteredUserController extends Controller
         Auth::login($user);
 
         return redirect(route('dashboard', absolute: false));
+    }
+
+    protected function workspaceHostRedirect(Request $request, TenantResolver $tenants): ?RedirectResponse
+    {
+        $organization = $tenants->resolveFromHost($tenants->hostFromRequest($request));
+
+        if (! $organization) {
+            return null;
+        }
+
+        if (UserRegistrationSettings::enabled($organization)) {
+            return redirect()->route('tenant.join');
+        }
+
+        return redirect()->route('login');
     }
 }

@@ -206,6 +206,29 @@ class TenantUserRegistrationTest extends TestCase
         ])->assertSessionHasErrors('local');
     }
 
+    public function test_registration_rejects_invalid_local_part_characters(): void
+    {
+        $this->ownerWorkspace(['enabled' => true, 'approval' => 'auto']);
+
+        $this->post('http://acme.maildesk.test/join', [
+            'name' => 'Sherif',
+            'local' => 'sherif@autocredit.ng',
+            'domain' => 'acme.test',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ])->assertSessionHasErrors('local');
+
+        $this->post('http://acme.maildesk.test/join', [
+            'name' => 'Sherif',
+            'local' => 'sherif space',
+            'domain' => 'acme.test',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ])->assertSessionHasErrors('local');
+
+        $this->assertDatabaseMissing('users', ['email' => 'sherif@autocredit.ng@acme.test']);
+    }
+
     public function test_non_team_cannot_approve_pending_users(): void
     {
         [, $org] = $this->ownerWorkspace(['enabled' => true, 'approval' => 'manual']);

@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_platform_admin'])]
+#[Fillable(['name', 'email', 'password', 'is_platform_admin', 'preferences'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -30,7 +30,33 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_platform_admin' => 'boolean',
+            'preferences' => 'array',
         ];
+    }
+
+    /**
+     * Whether a notification sound should play when new mail arrives.
+     * Defaults to on when unset.
+     */
+    public function prefersInboxSound(): bool
+    {
+        $prefs = $this->preferences ?? [];
+
+        if (! array_key_exists('inbox_sound', $prefs)) {
+            return true;
+        }
+
+        return (bool) $prefs['inbox_sound'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     */
+    public function mergePreferences(array $values): void
+    {
+        $this->forceFill([
+            'preferences' => array_merge($this->preferences ?? [], $values),
+        ])->save();
     }
 
     public function isPlatformAdmin(): bool

@@ -149,6 +149,7 @@ class EmailController extends Controller
 
         return Inertia::render('Emails/Show', [
             'email' => $message->toWorkspaceArray(detailed: true),
+            'adminView' => $this->access->can($request->user(), $organization, 'manage'),
         ]);
     }
 

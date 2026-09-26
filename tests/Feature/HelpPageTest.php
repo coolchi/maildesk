@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Mailbox;
 use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,11 +13,11 @@ class HelpPageTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_authenticated_user_sees_help_page(): void
+    public function test_team_user_sees_help_page(): void
     {
         $user = User::factory()->create();
         $org = Organization::factory()->create();
-        $org->users()->attach($user->id, ['role' => 'member']);
+        $org->users()->attach($user->id, ['role' => 'owner']);
 
         $this->actingAs($user)
             ->withSession(['current_organization_id' => $org->id])
@@ -25,7 +26,28 @@ class HelpPageTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Help/Index')
                 ->has('appName')
-                ->where('paymentsConfigured', false));
+                ->has('paymentsConfigured'));
+    }
+
+    public function test_mailbox_member_cannot_open_help(): void
+    {
+        $owner = User::factory()->create();
+        $member = User::factory()->create(['email' => 'desk@acme.test']);
+        $org = Organization::factory()->create();
+        $org->users()->attach($owner->id, ['role' => 'owner']);
+        $org->users()->attach($member->id, ['role' => 'member']);
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'user_id' => $member->id,
+            'email' => 'desk@acme.test',
+            'inbox' => true,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($member)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('help'))
+            ->assertForbidden();
     }
 
     public function test_help_page_never_exposes_payment_secrets(): void

@@ -10,6 +10,7 @@ import { useTenant } from '@/composables/useTenant';
 import { useToast } from '@/composables/useToast';
 import {
     Calendar,
+    Eye,
     File,
     Maximize2,
     Minimize2,
@@ -33,6 +34,7 @@ const fileInput = ref(null);
 const sending = ref(false);
 const savingDraft = ref(false);
 const draftId = composeDraft.draftId;
+const previewAttachment = ref(null);
 
 const fromOptions = computed(() => {
     if (sendingFrom.value.length) {
@@ -175,7 +177,8 @@ const onAttach = (e) => {
     if (!files.length) return;
 
     for (const file of files) {
-        const isImage = file.type.startsWith('image/');
+        const isImage = file.type.startsWith('image/') && file.type !== 'image/svg+xml';
+        const isPdf = file.type === 'application/pdf';
         const url = URL.createObjectURL(file);
         attachments.value.push({
             id: Date.now() + Math.random(),
@@ -184,6 +187,8 @@ const onAttach = (e) => {
             type: file.type || 'application/octet-stream',
             url,
             isImage,
+            previewable: isImage || isPdf,
+            previewKind: isImage ? 'image' : isPdf ? 'pdf' : null,
             file,
         });
     }
@@ -207,6 +212,17 @@ const insertIntoBody = (att) => {
     }
     editorRef.value?.insertImage(att.url, att.name);
     toast.success('Image inserted into body.');
+};
+
+const openAttachmentPreview = (att) => {
+    if (!att.previewable || !att.url) {
+        return;
+    }
+    previewAttachment.value = att;
+};
+
+const closeAttachmentPreview = () => {
+    previewAttachment.value = null;
 };
 
 const fileIcon = (att) => {
@@ -583,9 +599,12 @@ const submit = () => {
                                             :key="att.id"
                                             class="group relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60"
                                         >
-                                            <div
+                                            <button
                                                 v-if="att.isImage"
-                                                class="relative aspect-[16/10] bg-zinc-950"
+                                                type="button"
+                                                class="relative aspect-[16/10] w-full bg-zinc-950 text-left"
+                                                title="Preview"
+                                                @click="openAttachmentPreview(att)"
                                             >
                                                 <img
                                                     :src="att.url"
@@ -593,19 +612,24 @@ const submit = () => {
                                                     class="h-full w-full object-cover"
                                                 />
                                                 <div
-                                                    class="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition group-hover:opacity-100"
+                                                    class="absolute inset-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition group-hover:opacity-100"
                                                 >
-                                                    <button
-                                                        type="button"
+                                                    <span
+                                                        class="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-zinc-900"
+                                                    >
+                                                        <Eye :size="12" />
+                                                        Preview
+                                                    </span>
+                                                    <span
                                                         class="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-900"
-                                                        @click="
+                                                        @click.stop="
                                                             insertIntoBody(att)
                                                         "
                                                     >
                                                         Insert into body
-                                                    </button>
+                                                    </span>
                                                 </div>
-                                            </div>
+                                            </button>
                                             <div
                                                 class="flex items-start gap-2.5 p-3"
                                             >
@@ -630,6 +654,18 @@ const submit = () => {
                                                         {{
                                                             formatSize(att.size)
                                                         }}
+                                                        <button
+                                                            v-if="att.previewable"
+                                                            type="button"
+                                                            class="ml-2 text-cyan-300 hover:text-cyan-200"
+                                                            @click="
+                                                                openAttachmentPreview(
+                                                                    att,
+                                                                )
+                                                            "
+                                                        >
+                                                            Preview
+                                                        </button>
                                                         <button
                                                             v-if="att.isImage"
                                                             type="button"
@@ -772,6 +808,61 @@ const submit = () => {
                         </form>
                     </div>
                 </Transition>
+            </div>
+        </Transition>
+    </Teleport>
+
+    <Teleport to="body">
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div
+                v-if="previewAttachment"
+                class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-3 backdrop-blur-md sm:p-6"
+                data-testid="compose-attachment-preview"
+                @click.self="closeAttachmentPreview"
+            >
+                <div
+                    class="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+                    role="dialog"
+                    aria-modal="true"
+                >
+                    <div
+                        class="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3"
+                    >
+                        <div class="min-w-0 truncate text-sm font-medium text-white">
+                            {{ previewAttachment.name }}
+                        </div>
+                        <button
+                            type="button"
+                            class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-900 hover:text-white"
+                            @click="closeAttachmentPreview"
+                        >
+                            <X :size="16" />
+                        </button>
+                    </div>
+                    <div
+                        class="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-zinc-900/40 p-3 sm:p-5"
+                    >
+                        <img
+                            v-if="previewAttachment.previewKind === 'image'"
+                            :src="previewAttachment.url"
+                            :alt="previewAttachment.name"
+                            class="max-h-[75vh] max-w-full rounded-lg object-contain"
+                        />
+                        <iframe
+                            v-else-if="previewAttachment.previewKind === 'pdf'"
+                            :src="previewAttachment.url"
+                            :title="previewAttachment.name"
+                            class="h-[75vh] w-full rounded-lg border border-zinc-800 bg-white"
+                        />
+                    </div>
+                </div>
             </div>
         </Transition>
     </Teleport>

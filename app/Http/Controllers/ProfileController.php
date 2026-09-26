@@ -41,6 +41,22 @@ class ProfileController extends Controller
     }
 
     /**
+     * Update notification / UI preferences.
+     */
+    public function updatePreferences(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'inbox_sound' => ['required', 'boolean'],
+        ]);
+
+        $request->user()->mergePreferences([
+            'inbox_sound' => $validated['inbox_sound'],
+        ]);
+
+        return Redirect::route('profile.edit')->with('success', 'Preferences saved.');
+    }
+
+    /**
      * Delete the user's account.
      */
     public function destroy(Request $request): RedirectResponse

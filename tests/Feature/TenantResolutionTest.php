@@ -7,6 +7,7 @@ use App\Models\Organization;
 use App\Models\OrganizationHost;
 use App\Models\User;
 use App\Services\TenantResolver;
+use App\Support\UserRegistrationSettings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -104,5 +105,84 @@ class TenantResolutionTest extends TestCase
                 ->where('tenant.current.id', $second->id)
                 ->where('tenant.host_locked', false)
                 ->has('tenant.workspaces', 2));
+    }
+
+    public function test_tenant_home_redirects_guests_to_login(): void
+    {
+        config([
+            'maildesk.base_domain' => 'maildesk.test',
+            'maildesk.central_domains' => ['maildesk.test'],
+            'app.url' => 'http://maildesk.test',
+        ]);
+
+        Organization::factory()->create(['subdomain' => 'acme']);
+
+        $this->get('http://acme.maildesk.test/')
+            ->assertRedirect(route('login'));
+
+        $this->get('http://maildesk.test/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Welcome'));
+    }
+
+    public function test_tenant_register_redirects_to_login_when_join_disabled(): void
+    {
+        config([
+            'maildesk.base_domain' => 'maildesk.test',
+            'maildesk.central_domains' => ['maildesk.test'],
+            'app.url' => 'http://maildesk.test',
+        ]);
+
+        Organization::factory()->create(['subdomain' => 'acme']);
+
+        $this->get('http://acme.maildesk.test/register')
+            ->assertRedirect(route('login'));
+
+        $this->post('http://acme.maildesk.test/register', [
+            'name' => 'New Admin',
+            'email' => 'new@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ])->assertRedirect(route('login'));
+
+        $this->assertGuest();
+        $this->assertDatabaseMissing('users', ['email' => 'new@example.com']);
+    }
+
+    public function test_tenant_register_redirects_to_join_when_join_enabled(): void
+    {
+        config([
+            'maildesk.base_domain' => 'maildesk.test',
+            'maildesk.central_domains' => ['maildesk.test'],
+            'app.url' => 'http://maildesk.test',
+        ]);
+
+        $org = Organization::factory()->create([
+            'subdomain' => 'acme',
+            'settings' => [
+                'user_registration' => [
+                    'enabled' => true,
+                    'approval' => 'auto',
+                    'default_role' => 'staff',
+                    'default_inbox' => true,
+                    'default_transactional' => false,
+                    'default_marketing' => false,
+                ],
+            ],
+        ]);
+
+        $this->get('http://acme.maildesk.test/register')
+            ->assertRedirect(route('tenant.join'));
+
+        $this->post('http://acme.maildesk.test/register', [
+            'name' => 'New Admin',
+            'email' => 'new@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ])->assertRedirect(route('tenant.join'));
+
+        $this->assertGuest();
+        $this->assertDatabaseMissing('users', ['email' => 'new@example.com']);
+        $this->assertTrue(UserRegistrationSettings::enabled($org));
     }
 }

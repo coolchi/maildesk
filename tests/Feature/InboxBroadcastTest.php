@@ -82,13 +82,56 @@ class InboxBroadcastTest extends TestCase
             ->assertCreated();
 
         Event::assertDispatched(InboxUpdated::class, function (InboxUpdated $event) use ($org) {
+            $payload = $event->broadcastWith();
+
             return $event->organization->is($org)
                 && $event->mailboxId !== null
                 && $event->unread === 1
+                && $event->workspace_unread === 1
                 && $event->broadcastAs() === 'inbox.updated'
                 && $event->broadcastOn()[0]->name === 'private-organizations.'.$org->id.'.inbox'
-                && ($event->broadcastWith()['mailbox_id'] ?? null) === $event->mailboxId;
+                && ($payload['mailbox_id'] ?? null) === $event->mailboxId
+                && ($payload['unread'] ?? null) === 1
+                && ($payload['workspace_unread'] ?? null) === 1;
         });
+    }
+
+    public function test_inbox_updated_payload_scopes_unread_to_mailbox_and_keeps_workspace_total(): void
+    {
+        [, $org, $mailbox] = $this->workspace();
+        $otherMailbox = Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'billing@acme.test',
+            'inbox' => true,
+            'status' => 'active',
+        ]);
+
+        Thread::factory()->create([
+            'organization_id' => $org->id,
+            'mailbox_id' => $mailbox->id,
+            'is_read' => false,
+            'is_archived' => false,
+        ]);
+        Thread::factory()->create([
+            'organization_id' => $org->id,
+            'mailbox_id' => $otherMailbox->id,
+            'is_read' => false,
+            'is_archived' => false,
+        ]);
+        Thread::factory()->create([
+            'organization_id' => $org->id,
+            'mailbox_id' => $mailbox->id,
+            'is_read' => true,
+            'is_archived' => false,
+        ]);
+
+        $event = new InboxUpdated($org, $mailbox->id);
+        $payload = $event->broadcastWith();
+
+        $this->assertSame($mailbox->id, $payload['mailbox_id']);
+        $this->assertSame(1, $payload['unread']);
+        $this->assertSame(2, $payload['workspace_unread']);
+        $this->assertNotSame('0:0:0', $payload['cursor']);
     }
 
     public function test_duplicate_inbound_does_not_dispatch_inbox_updated_again(): void

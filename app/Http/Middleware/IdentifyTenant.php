@@ -76,7 +76,6 @@ class IdentifyTenant
         if (in_array($name, [
             'login',
             'logout',
-            'register',
             'tenant.join',
             'tenant.join.store',
             'password.request',

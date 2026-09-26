@@ -26,6 +26,7 @@ import {
     Workflow,
     Send,
     MailX,
+    Trash2,
 } from '@lucide/vue';
 
 const page = usePage();
@@ -41,6 +42,7 @@ const baseCommands = [
     { name: 'Sent', route: 'sent', icon: Send, group: 'Mail', ability: 'inbox' },
     { name: 'Drafts', route: 'drafts', icon: FilePenLine, group: 'Mail', ability: 'mail' },
     { name: 'Archive', route: 'archive', icon: Archive, group: 'Mail', ability: 'inbox' },
+    { name: 'Trash', route: 'trash', icon: Trash2, group: 'Mail', ability: 'inbox' },
     { name: 'Bounced', route: 'bounced', icon: MailX, group: 'Mail', ability: 'manage' },
     { name: 'Signature', route: 'mailbox.signature', icon: PenLine, group: 'Mail', ability: 'inbox' },
     { name: 'Profile', route: 'profile.edit', icon: User, group: 'Mail' },

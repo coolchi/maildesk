@@ -47,8 +47,9 @@ defineProps({
                         </div>
                     </div>
                     <EmailFrame
-                        v-if="message.html"
-                        :html="message.html"
+                        v-if="message.html || message.text"
+                        :html="message.html || ''"
+                        :text="message.text || ''"
                         :title="`Message from ${message.from}`"
                     />
                     <pre

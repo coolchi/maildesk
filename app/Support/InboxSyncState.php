@@ -13,6 +13,7 @@ class InboxSyncState
     {
         $base = fn () => $organization->threads()
             ->where('is_archived', false)
+            ->where('is_trashed', false)
             ->when($mailboxId !== null, fn ($query) => $query->where('mailbox_id', $mailboxId));
 
         $unread = $base()->where('is_read', false)->count();

@@ -85,6 +85,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trash
+    |--------------------------------------------------------------------------
+    |
+    | Conversations stay in Trash for this many days, then inbox:purge-trash
+    | permanently deletes them (scheduled daily). Empty Trash deletes sooner.
+    |
+    */
+    'trash' => [
+        'retention_days' => (int) env('MAILDESK_TRASH_RETENTION_DAYS', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Sending domains
     |--------------------------------------------------------------------------
     |

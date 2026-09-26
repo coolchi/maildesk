@@ -91,6 +91,9 @@ class HandleInertiaRequests extends Middleware
                         'name' => $user->name,
                         'email' => $user->email,
                         'is_platform_admin' => $user->isPlatformAdmin(),
+                        'preferences' => [
+                            'inbox_sound' => $user->prefersInboxSound(),
+                        ],
                     ]
                     : null,
                 'abilities' => fn () => app(WorkspaceAccess::class)->abilities($user, $organization),

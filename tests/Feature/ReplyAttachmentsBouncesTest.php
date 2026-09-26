@@ -91,7 +91,7 @@ class ReplyAttachmentsBouncesTest extends TestCase
         [$user, $org] = $this->member();
         [$thread, $inbound] = $this->thread($org);
         $image = $this->attach($inbound, 'photo.png', 'image/png');
-        $this->attach($inbound, 'invoice.pdf', 'application/pdf', str_repeat('x', 2048));
+        $pdf = $this->attach($inbound, 'invoice.pdf', 'application/pdf', str_repeat('x', 2048));
 
         $this->as($user, $org)->get(route('inbox'))
             ->assertOk()
@@ -102,16 +102,22 @@ class ReplyAttachmentsBouncesTest extends TestCase
                 ->where('threads.0.messages.0.attachments.0.url', route('attachments.download', $image->id))
                 ->where('threads.0.messages.0.attachments.1.filename', 'invoice.pdf')
                 ->where('threads.0.messages.0.attachments.1.is_image', false)
-                ->where('threads.0.messages.0.attachments.1.preview_url', null)
+                ->where('threads.0.messages.0.attachments.1.previewable', true)
+                ->where('threads.0.messages.0.attachments.1.preview_kind', 'pdf')
+                ->where(
+                    'threads.0.messages.0.attachments.1.preview_url',
+                    route('attachments.download', ['attachment' => $pdf->id, 'inline' => 1]),
+                )
                 ->where('threads.0.messages.0.attachments.1.size_label', '2 KB'));
     }
 
-    public function test_attachment_download_is_scoped_and_only_previews_raster_images(): void
+    public function test_attachment_download_is_scoped_and_previews_images_and_pdfs(): void
     {
         Storage::fake('local');
         [$user, $org] = $this->member();
         [, $inbound] = $this->thread($org);
         $png = $this->attach($inbound, 'photo.png', 'image/png');
+        $pdf = $this->attach($inbound, 'doc.pdf', 'application/pdf', '%PDF-1.4');
         $svg = $this->attach($inbound, 'logo.svg', 'image/svg+xml', '<svg onload="alert(1)"/>');
 
         $this->as($user, $org)->get(route('attachments.download', $png->id))
@@ -122,6 +128,11 @@ class ReplyAttachmentsBouncesTest extends TestCase
         $inline = $this->as($user, $org)->get(route('attachments.download', ['attachment' => $png->id, 'inline' => 1]));
         $inline->assertOk();
         $this->assertStringStartsWith('inline', (string) $inline->headers->get('Content-Disposition'));
+
+        $pdfInline = $this->as($user, $org)->get(route('attachments.download', ['attachment' => $pdf->id, 'inline' => 1]));
+        $pdfInline->assertOk();
+        $this->assertStringStartsWith('inline', (string) $pdfInline->headers->get('Content-Disposition'));
+        $this->assertStringContainsString('application/pdf', (string) $pdfInline->headers->get('Content-Type'));
 
         // SVG is never served inline, even when asked.
         $this->as($user, $org)->get(route('attachments.download', ['attachment' => $svg->id, 'inline' => 1]))

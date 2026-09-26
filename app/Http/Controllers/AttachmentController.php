@@ -38,12 +38,16 @@ class AttachmentController extends Controller
         $disk = Storage::disk($model->disk ?: 'local');
         abort_unless($disk->exists($model->path), 404, 'This attachment file is missing from storage.');
 
-        $inline = $request->boolean('inline') && $model->isPreviewableImage();
+        $inline = $request->boolean('inline') && $model->isPreviewable();
         $headers = [
             'Content-Type' => $inline ? $model->content_type : ($model->content_type ?: 'application/octet-stream'),
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, max-age=3600',
         ];
+
+        if ($inline && $model->previewKind() === 'pdf') {
+            $headers['Content-Security-Policy'] = "default-src 'none'; sandbox";
+        }
 
         return $inline
             ? $disk->response($model->path, $model->filename, $headers, 'inline')

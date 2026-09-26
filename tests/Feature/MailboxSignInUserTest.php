@@ -118,6 +118,11 @@ class MailboxSignInUserTest extends TestCase
             ->get(route('emails'))
             ->assertForbidden();
 
+        $this->actingAs($member)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('help'))
+            ->assertForbidden();
+
         $this->actingAs($owner)
             ->withSession(['current_organization_id' => $org->id])
             ->get(route('users'))
@@ -135,6 +140,11 @@ class MailboxSignInUserTest extends TestCase
         $this->actingAs($owner)
             ->withSession(['current_organization_id' => $org->id])
             ->get(route('emails'))
+            ->assertOk();
+
+        $this->actingAs($owner)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('help'))
             ->assertOk();
     }
 

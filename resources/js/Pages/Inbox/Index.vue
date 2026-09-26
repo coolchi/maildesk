@@ -1,7 +1,7 @@
 <script setup>
 import EmailFrame from '@/Components/EmailFrame.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
@@ -25,15 +25,19 @@ import {
     Search,
     X,
     Send,
+    Trash2,
+    RotateCcw,
 } from '@lucide/vue';
 
 const props = defineProps({
     signatureEnabled: { type: Boolean, default: false },
     folder: { type: String, default: 'inbox' },
     threads: { type: Array, default: () => [] },
+    trashRetentionDays: { type: Number, default: 30 },
 });
 
-const { markThreadRead, setInboxUnread } = useNotifications();
+const page = usePage();
+const { markThreadRead, setInboxUnread, inboxUnread } = useNotifications();
 useInboxPageLive();
 const toast = useToast();
 const search = ref('');
@@ -48,21 +52,36 @@ watch(
         if (!threads.value.find((t) => t.id === activeId.value)) {
             activeId.value = threads.value[0]?.id ?? null;
         }
-        syncInboxBadge();
+        // After live reload, prefer the shared unread count — the thread list
+        // is capped and must not overwrite the sidebar badge.
+        if (typeof page.props.inbox_unread === 'number') {
+            setInboxUnread(page.props.inbox_unread);
+        }
     },
 );
 
 const persistRead = (thread, read) => {
     window.axios
         .patch(`/inbox/${thread.id}/read`, { read })
+        .then(({ data }) => {
+            if (typeof data?.inbox_unread === 'number') {
+                setInboxUnread(data.inbox_unread);
+            }
+        })
         .catch(() => toast.error('Could not update read state.'));
 };
 
-const syncInboxBadge = () => {
+/** Optimistic local badge adjust while waiting for the read API. */
+const syncInboxBadge = (delta = null) => {
+    if (typeof delta === 'number') {
+        setInboxUnread(inboxUnread.value + delta);
+        return;
+    }
+    if (props.folder !== 'inbox') {
+        return;
+    }
     setInboxUnread(threads.value.filter((t) => t.unread).length);
 };
-
-syncInboxBadge();
 
 const filtered = computed(() =>
     threads.value.filter((t) => {
@@ -88,7 +107,7 @@ const markThreadAsRead = (thread) => {
     thread.unread = false;
     markThreadRead(thread.id);
     persistRead(thread, true);
-    syncInboxBadge();
+    syncInboxBadge(-1);
 };
 
 const selectThread = (thread) => {
@@ -112,25 +131,55 @@ watch(
     { immediate: true },
 );
 
-const threadActions = (thread) => [
-    {
-        id: 'read',
-        label: thread.unread ? 'Mark as read' : 'Mark as unread',
-        icon: thread.unread ? MailOpen : Mail,
-    },
-    {
-        id: 'archive',
-        label: props.folder === 'archive' ? 'Move to inbox' : 'Archive',
-        icon: Archive,
-    },
-];
+const threadActions = (thread) => {
+    const actions = [
+        {
+            id: 'read',
+            label: thread.unread ? 'Mark as read' : 'Mark as unread',
+            icon: thread.unread ? MailOpen : Mail,
+        },
+    ];
+
+    if (props.folder === 'trash') {
+        actions.push(
+            { id: 'restore', label: 'Restore', icon: RotateCcw },
+            { id: 'destroy', label: 'Delete forever', icon: Trash2, danger: true },
+        );
+        return actions;
+    }
+
+    actions.push(
+        {
+            id: 'archive',
+            label: props.folder === 'archive' ? 'Move to inbox' : 'Archive',
+            icon: Archive,
+        },
+        { id: 'trash', label: 'Move to trash', icon: Trash2, danger: true },
+    );
+
+    return actions;
+};
+
+const removeThreadFromList = (thread) => {
+    const wasUnread = thread.unread;
+    threads.value = threads.value.filter((t) => t.id !== thread.id);
+    if (activeId.value === thread.id) {
+        activeId.value = threads.value[0]?.id ?? null;
+    }
+    if (props.folder === 'inbox' && wasUnread) {
+        syncInboxBadge(-1);
+    } else if (typeof page.props.inbox_unread === 'number') {
+        setInboxUnread(page.props.inbox_unread);
+    }
+};
 
 const onThreadAction = (thread, item) => {
     if (item.id === 'read') {
+        const wasUnread = thread.unread;
         thread.unread = !thread.unread;
         if (!thread.unread) markThreadRead(thread.id);
         persistRead(thread, !thread.unread);
-        syncInboxBadge();
+        syncInboxBadge(wasUnread ? -1 : 1);
         toast.success(thread.unread ? 'Marked unread.' : 'Marked read.');
     } else if (item.id === 'archive') {
         router.post(
@@ -139,11 +188,7 @@ const onThreadAction = (thread, item) => {
             {
                 preserveScroll: true,
                 onSuccess: () => {
-                    threads.value = threads.value.filter((t) => t.id !== thread.id);
-                    if (activeId.value === thread.id) {
-                        activeId.value = threads.value[0]?.id ?? null;
-                    }
-                    syncInboxBadge();
+                    removeThreadFromList(thread);
                     toast.success(
                         props.folder === 'archive'
                             ? 'Moved to inbox.'
@@ -153,18 +198,103 @@ const onThreadAction = (thread, item) => {
                 onError: () => toast.error('Could not update conversation.'),
             },
         );
+    } else if (item.id === 'trash' || item.id === 'restore') {
+        router.post(
+            route('inbox.trash', thread.id),
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    removeThreadFromList(thread);
+                    toast.success(
+                        item.id === 'restore' ? 'Restored.' : 'Moved to trash.',
+                    );
+                },
+                onError: () => toast.error('Could not update conversation.'),
+            },
+        );
+    } else if (item.id === 'destroy') {
+        if (
+            !window.confirm(
+                'Delete this conversation forever? This cannot be undone.',
+            )
+        ) {
+            return;
+        }
+        router.delete(route('inbox.destroy', thread.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                removeThreadFromList(thread);
+                toast.success('Deleted forever.');
+            },
+            onError: () => toast.error('Could not delete conversation.'),
+        });
     }
 };
 
-const headerActions = computed(() => [
-    {
-        id: 'read',
-        label: active.value?.unread ? 'Mark as read' : 'Mark as unread',
-        icon: CheckCheck,
-    },
-    { id: 'archive', label: 'Archive', icon: Archive },
-    { id: 'delete', label: 'Delete', icon: Trash2, danger: true },
-]);
+const folderTitle = computed(() => {
+    if (props.folder === 'archive') return 'Archive';
+    if (props.folder === 'trash') return 'Trash';
+    return 'Inbox';
+});
+
+const folderDescription = computed(() => {
+    if (props.folder !== 'trash') {
+        return '';
+    }
+    const days = props.trashRetentionDays || 30;
+    return `Conversations stay here for ${days} days, then are deleted forever.`;
+});
+
+const emptyTrash = () => {
+    if (!threads.value.length) {
+        toast.error('Trash is already empty.');
+        return;
+    }
+    if (
+        !window.confirm(
+            `Empty trash? ${threads.value.length} conversation${threads.value.length === 1 ? '' : 's'} will be deleted forever.`,
+        )
+    ) {
+        return;
+    }
+    router.delete(route('trash.empty'), {
+        onSuccess: () => {
+            threads.value = [];
+            activeId.value = null;
+            toast.success('Trash emptied.');
+        },
+        onError: () => toast.error('Could not empty trash.'),
+    });
+};
+
+const headerActions = computed(() => {
+    if (props.folder === 'trash') {
+        return [
+            {
+                id: 'read',
+                label: active.value?.unread ? 'Mark as read' : 'Mark as unread',
+                icon: CheckCheck,
+            },
+            { id: 'restore', label: 'Restore', icon: RotateCcw },
+            { id: 'destroy', label: 'Delete forever', icon: Trash2, danger: true },
+        ];
+    }
+
+    return [
+        {
+            id: 'read',
+            label: active.value?.unread ? 'Mark as read' : 'Mark as unread',
+            icon: CheckCheck,
+        },
+        {
+            id: 'archive',
+            label: props.folder === 'archive' ? 'Move to inbox' : 'Archive',
+            icon: Archive,
+        },
+        { id: 'trash', label: 'Move to trash', icon: Trash2, danger: true },
+    ];
+});
 
 const onHeaderAction = (item) => {
     if (!active.value) return;
@@ -229,6 +359,7 @@ const closeReply = () => {
 
 // "r" opens the reply box and "f" forwards, like Gmail. Ignored while typing in a field.
 const onKeydown = (event) => {
+    if (props.folder === 'trash') return;
     if (!['r', 'f'].includes(event.key) || event.metaKey || event.ctrlKey || event.altKey) return;
     const el = event.target;
     if (el?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
@@ -384,10 +515,23 @@ const sendReply = () => {
 </script>
 
 <template>
-    <Head :title="folder === 'archive' ? 'Archive' : 'Inbox'" />
+    <Head :title="folderTitle" />
 
     <AppLayout>
-        <PageHeader :title="folder === 'archive' ? 'Archive' : 'Inbox'" />
+        <PageHeader :title="folderTitle" :description="folderDescription">
+            <template v-if="folder === 'trash'" #actions>
+                <button
+                    type="button"
+                    class="md-btn-ghost !border-rose-500/30 !text-rose-300 hover:!border-rose-400/50 hover:!text-rose-200"
+                    data-testid="empty-trash"
+                    :disabled="!threads.length"
+                    @click="emptyTrash"
+                >
+                    <Trash2 :size="14" />
+                    Empty trash
+                </button>
+            </template>
+        </PageHeader>
 
         <div
             class="md-card grid overflow-hidden lg:h-[calc(100vh-15rem)] lg:min-h-[540px] lg:grid-cols-[340px_1fr]"
@@ -404,7 +548,7 @@ const sendReply = () => {
                     <input
                         v-model="search"
                         type="search"
-                        placeholder="Search inbox…"
+                        :placeholder="`Search ${folderTitle.toLowerCase()}…`"
                         class="md-input pl-9"
                     />
                 </div>
@@ -509,28 +653,30 @@ const sendReply = () => {
                         </p>
                     </div>
                     <div class="flex shrink-0 items-center gap-2">
-                        <button
-                            type="button"
-                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
-                            :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'reply' }"
-                            title="Reply (r)"
-                            data-testid="reply-toggle"
-                            @click="replyOpen && replyMode === 'reply' ? closeReply() : openReply()"
-                        >
-                            <Reply :size="15" />
-                            Reply
-                        </button>
-                        <button
-                            type="button"
-                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
-                            :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'forward' }"
-                            title="Forward (f)"
-                            data-testid="forward-toggle"
-                            @click="replyOpen && replyMode === 'forward' ? closeReply() : openForward()"
-                        >
-                            <Forward :size="15" />
-                            Forward
-                        </button>
+                        <template v-if="folder !== 'trash'">
+                            <button
+                                type="button"
+                                class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                                :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'reply' }"
+                                title="Reply (r)"
+                                data-testid="reply-toggle"
+                                @click="replyOpen && replyMode === 'reply' ? closeReply() : openReply()"
+                            >
+                                <Reply :size="15" />
+                                Reply
+                            </button>
+                            <button
+                                type="button"
+                                class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                                :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'forward' }"
+                                title="Forward (f)"
+                                data-testid="forward-toggle"
+                                @click="replyOpen && replyMode === 'forward' ? closeReply() : openForward()"
+                            >
+                                <Forward :size="15" />
+                                Forward
+                            </button>
+                        </template>
                         <RowActions
                             :items="headerActions"
                             @select="onHeaderAction"
@@ -598,15 +744,16 @@ const sendReply = () => {
                             </span>
                         </div>
                         <EmailFrame
-                            v-if="message.html"
-                            :html="message.html"
+                            v-if="message.html || message.text"
+                            :html="message.html || ''"
+                            :text="message.text || active.snippet || ''"
                             :title="`Message from ${message.from || active.from}`"
                         />
                         <p
                             v-else
                             class="text-sm leading-relaxed text-zinc-300"
                         >
-                            {{ message.text || active.snippet }}
+                            {{ active.snippet }}
                         </p>
                         <AttachmentList
                             v-if="message.attachments?.length"

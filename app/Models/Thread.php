@@ -23,6 +23,8 @@ class Thread extends Model
         'message_count',
         'is_read',
         'is_archived',
+        'is_trashed',
+        'trashed_at',
     ];
 
     protected function casts(): array
@@ -31,6 +33,8 @@ class Thread extends Model
             'last_message_at' => 'datetime',
             'is_read' => 'boolean',
             'is_archived' => 'boolean',
+            'is_trashed' => 'boolean',
+            'trashed_at' => 'datetime',
         ];
     }
 
@@ -76,7 +80,13 @@ class Thread extends Model
             'to' => implode(', ', $recipients),
             'unread' => ! $this->is_read,
             'is_archived' => (bool) $this->is_archived,
-            'label' => $this->is_archived ? 'Archive' : 'Inbox',
+            'is_trashed' => (bool) $this->is_trashed,
+            'trashed_at' => $this->trashed_at?->toIso8601String(),
+            'label' => match (true) {
+                (bool) $this->is_trashed => 'Trash',
+                (bool) $this->is_archived => 'Archive',
+                default => 'Inbox',
+            },
             'messages' => $messages->map(fn (Message $message) => [
                 'id' => $message->uuid,
                 'from' => $message->from_email,

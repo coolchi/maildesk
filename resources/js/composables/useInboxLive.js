@@ -1,6 +1,7 @@
 import { computed, onMounted, onUnmounted, reactive, watch } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import { useNotifications } from '@/composables/useNotifications';
+import { playInboxSound } from '@/composables/useInboxSound';
 
 /**
  * Live inbox: prefer Reverb/Echo WebSocket; fall back to HTTP polling when
@@ -11,7 +12,10 @@ const POLL_MS = 5000;
 let started = false;
 let timer = null;
 let inFlight = false;
+let pendingPoll = null;
 let lastCursor = null;
+/** Cursor we already chimed for — avoids double sound from broadcast + poll. */
+let lastSoundCursor = null;
 let channelName = null;
 const inboxListeners = new Set();
 
@@ -38,17 +42,31 @@ const notifyListeners = (data) => {
     });
 };
 
-const applyPayload = (data, setInboxUnread) => {
+const chimeForCursor = (cursor) => {
+    if (!cursor || cursor === lastSoundCursor) {
+        return;
+    }
+    lastSoundCursor = cursor;
+    playInboxSound();
+};
+
+const applyPayload = (data, setInboxUnread, { announce = true } = {}) => {
     if (typeof data?.unread === 'number') {
         setInboxUnread(data.unread);
     }
 
-    if (data?.cursor && lastCursor !== null && data.cursor !== lastCursor) {
+    const cursor = data?.cursor ?? null;
+    const changed = Boolean(
+        cursor && lastCursor !== null && cursor !== lastCursor,
+    );
+
+    if (changed && announce) {
+        chimeForCursor(cursor);
         notifyListeners(data);
     }
 
-    if (data?.cursor) {
-        lastCursor = data.cursor;
+    if (cursor) {
+        lastCursor = cursor;
     }
 };
 
@@ -81,14 +99,24 @@ export function useInboxLive() {
             return;
         }
         setMode('polling');
-        timer = window.setInterval(poll, POLL_MS);
+        timer = window.setInterval(() => {
+            poll();
+        }, POLL_MS);
     };
 
-    const poll = async () => {
-        if (socketConnected() || inFlight || document.visibilityState === 'hidden') {
+    const poll = async ({ force = false, announce = true } = {}) => {
+        if (!force && socketConnected()) {
+            return;
+        }
+        if (document.visibilityState === 'hidden' && !force) {
             return;
         }
         if (!page.props.auth?.user || !organizationId()) {
+            return;
+        }
+
+        if (inFlight) {
+            pendingPoll = { force: true, announce };
             return;
         }
 
@@ -97,12 +125,21 @@ export function useInboxLive() {
             const { data } = await window.axios.get(route('inbox.sync'), {
                 headers: { Accept: 'application/json' },
             });
-            applyPayload(data, setInboxUnread);
+            applyPayload(data, setInboxUnread, { announce });
         } catch {
             // Transient network errors; next tick retries.
         } finally {
             inFlight = false;
+            if (pendingPoll) {
+                const next = pendingPoll;
+                pendingPoll = null;
+                poll(next);
+            }
         }
+    };
+
+    const seedCursor = async () => {
+        await poll({ force: true, announce: false });
     };
 
     const leaveChannel = () => {
@@ -128,6 +165,25 @@ export function useInboxLive() {
         startPolling();
     };
 
+    /**
+     * Broadcast `unread` is mailbox-scoped when mailbox_id is set.
+     * Team clients prefer workspace_unread so a single mailbox event does
+     * not shrink their org-wide badge.
+     */
+    const unreadFromPayload = (payload) => {
+        const myMailbox = page.props.auth?.mailbox_id ?? null;
+        if (myMailbox) {
+            return typeof payload?.unread === 'number' ? payload.unread : null;
+        }
+        if (typeof payload?.workspace_unread === 'number') {
+            return payload.workspace_unread;
+        }
+        if (typeof payload?.unread === 'number') {
+            return payload.unread;
+        }
+        return null;
+    };
+
     const subscribeSocket = () => {
         const orgId = organizationId();
         const echo = window.Echo;
@@ -136,6 +192,7 @@ export function useInboxLive() {
 
         if (!echo || !orgId || !page.props.broadcasting?.enabled) {
             startPolling();
+            seedCursor();
             return;
         }
 
@@ -155,20 +212,22 @@ export function useInboxLive() {
                     return;
                 }
 
-                // Scoped mailboxes must refresh unread via sync (broadcast
-                // unread is workspace-wide for the team badge).
-                if (myMailbox) {
-                    if (payload?.cursor) {
-                        if (lastCursor !== null && payload.cursor !== lastCursor) {
-                            notifyListeners(payload);
-                        }
-                        lastCursor = payload.cursor;
-                    }
-                    poll();
-                    return;
+                const unread = unreadFromPayload(payload);
+                if (unread !== null) {
+                    setInboxUnread(unread);
                 }
 
-                applyPayload(payload, setInboxUnread);
+                // Broadcast itself means new mail — chime even before we have
+                // a seeded cursor (first event after connect).
+                if (payload?.cursor) {
+                    chimeForCursor(payload.cursor);
+                    notifyListeners(payload);
+                    lastCursor = payload.cursor;
+                }
+
+                // Confirm via scoped sync (also covers older payloads without
+                // workspace_unread / mailbox-scoped unread).
+                poll({ force: true, announce: false });
             });
 
             // Pusher-protocol connection state (Reverb compatible).
@@ -184,12 +243,15 @@ export function useInboxLive() {
 
                 if (pusher.connection.state === 'connected') {
                     markConnected();
+                    seedCursor();
                 } else {
                     // Until connected, keep polling as safety net.
                     startPolling();
+                    seedCursor();
                 }
             } else {
                 markConnected();
+                seedCursor();
             }
 
             channel.error(() => {
@@ -227,11 +289,10 @@ export function useInboxLive() {
         () => organizationId(),
         () => {
             lastCursor = null;
+            lastSoundCursor = null;
             applyUnread(page.props.inbox_unread);
             subscribeSocket();
-            if (!socketConnected()) {
-                poll();
-            }
+            seedCursor();
         },
     );
 

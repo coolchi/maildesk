@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
 import SidebarLink from '@/Components/SidebarLink.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
@@ -19,6 +19,7 @@ import { useOnboarding } from '@/composables/useOnboarding';
 import { useCommandPalette } from '@/composables/useCommandPalette';
 import { useNotifications } from '@/composables/useNotifications';
 import { useInboxLive } from '@/composables/useInboxLive';
+import { setInboxSoundPreference, unlockInboxAudio } from '@/composables/useInboxSound';
 import { useTheme } from '@/composables/useTheme';
 import { useToast } from '@/composables/useToast';
 import {
@@ -58,6 +59,7 @@ import {
     Archive,
     FilePenLine,
     PenLine,
+    Trash2,
 } from '@lucide/vue';
 
 const page = usePage();
@@ -79,6 +81,24 @@ const { inboxUnread } = useNotifications();
 const { liveConnected } = useInboxLive();
 const { theme, setTheme } = useTheme();
 const toast = useToast();
+
+watch(
+    () => page.props.auth?.user?.preferences?.inbox_sound,
+    (enabled) => setInboxSoundPreference(enabled !== false),
+    { immediate: true },
+);
+
+onMounted(() => {
+    const unlock = () => {
+        unlockInboxAudio();
+        window.removeEventListener('pointerdown', unlock, true);
+        window.removeEventListener('keydown', unlock, true);
+        window.removeEventListener('touchstart', unlock, true);
+    };
+    window.addEventListener('pointerdown', unlock, { capture: true, once: true });
+    window.addEventListener('keydown', unlock, { capture: true, once: true });
+    window.addEventListener('touchstart', unlock, { capture: true, once: true });
+});
 
 const {
     workspaces,
@@ -178,6 +198,7 @@ const pageTitle = computed(() => {
     if (path.startsWith('/docs')) return 'Docs';
     if (path.startsWith('/help')) return 'Help';
     if (path.startsWith('/profile')) return 'Profile';
+    if (path.startsWith('/trash')) return 'Trash';
     return 'MailDesk';
 });
 
@@ -500,6 +521,25 @@ const createTeam = () => {
                     </div>
                 </nav>
 
+                <div
+                    v-if="abilities.inbox"
+                    class="shrink-0 px-2 pb-1"
+                >
+                    <SidebarLink
+                        :href="route('trash')"
+                        @click="mobileOpen = false"
+                    >
+                        <template #icon>
+                            <Trash2
+                                :size="16"
+                                :stroke-width="1.75"
+                                class="transition duration-200"
+                            />
+                        </template>
+                        Trash
+                    </SidebarLink>
+                </div>
+
                 <div class="relative shrink-0 border-t border-zinc-900 bg-zinc-950/80 p-3">
                     <Transition
                         enter-active-class="transition duration-150 ease-out"
@@ -690,6 +730,7 @@ const createTeam = () => {
                             Docs
                         </Link>
                         <Link
+                            v-if="canManage"
                             :href="route('help')"
                             class="group inline-flex items-center gap-1.5 rounded-full border border-zinc-800 px-3 py-1.5 text-sm text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200"
                         >

@@ -16,6 +16,21 @@ table { max-width: 100%; }
 pre { white-space: pre-wrap; }
 `;
 
+/** Common reply/forward wrappers from Gmail, Apple Mail, Outlook, Yahoo, Proton. */
+const QUOTE_SELECTOR = [
+    '.gmail_quote',
+    '.gmail_quote_container',
+    '.gmail_extra',
+    '.yahoo_quoted',
+    '.protonmail_quote',
+    '.moz-cite-prefix',
+    '#divRplyFwdMsg',
+    'blockquote[type="cite"]',
+].join(', ');
+
+const PLAIN_QUOTE_RE =
+    /(?:^|\n)(?:On .{10,200} wrote:|-{2,}\s*Original Message\s*-{2,}|_{5,}|From:\s.+\nSent:\s)/i;
+
 export function buildSrcdoc(html) {
     return [
         '<!doctype html><html><head><meta charset="utf-8">',
@@ -50,4 +65,168 @@ export function contentHeight(doc) {
             body?.offsetHeight || 0,
         ),
     );
+}
+
+/**
+ * Split a message so reply history can stay collapsed in the thread view.
+ * Threads already list each message; nested quotes inside a body are noise.
+ *
+ * @returns {{ visible: string, quoted: string, hasQuote: boolean }}
+ */
+export function splitQuotedHtml(html) {
+    if (html == null || String(html).trim() === '') {
+        return { visible: html ?? '', quoted: '', hasQuote: false };
+    }
+
+    if (typeof DOMParser === 'undefined') {
+        return { visible: html, quoted: '', hasQuote: false };
+    }
+
+    const doc = new DOMParser().parseFromString(
+        `<div id="md-root">${html}</div>`,
+        'text/html',
+    );
+    const root = doc.getElementById('md-root');
+    if (!root) {
+        return { visible: html, quoted: '', hasQuote: false };
+    }
+
+    const quoteEl = earliestQuoteElement(root);
+    if (!quoteEl) {
+        return { visible: html, quoted: '', hasQuote: false };
+    }
+
+    const start = expandQuoteStart(quoteEl);
+    const quotedNodes = [];
+    let node = start;
+    while (node) {
+        const next = node.nextSibling;
+        quotedNodes.push(node);
+        node.parentNode?.removeChild(node);
+        node = next;
+    }
+
+    const visible = root.innerHTML;
+    const quotedWrap = doc.createElement('div');
+    quotedNodes.forEach((n) => quotedWrap.appendChild(n));
+    const quoted = quotedWrap.innerHTML;
+
+    if (!meaningfulText(visible) || !meaningfulText(quoted)) {
+        return { visible: html, quoted: '', hasQuote: false };
+    }
+
+    return { visible, quoted, hasQuote: true };
+}
+
+/**
+ * Collapse plain-text reply history at the first "On … wrote:" / Original Message.
+ *
+ * @returns {{ visible: string, quoted: string, hasQuote: boolean }}
+ */
+export function splitQuotedText(text) {
+    if (text == null || String(text).trim() === '') {
+        return { visible: text ?? '', quoted: '', hasQuote: false };
+    }
+
+    const match = String(text).match(PLAIN_QUOTE_RE);
+    if (!match || match.index == null) {
+        return { visible: text, quoted: '', hasQuote: false };
+    }
+
+    const at = match.index + (match[0].startsWith('\n') ? 1 : 0);
+    if (at <= 0) {
+        return { visible: text, quoted: '', hasQuote: false };
+    }
+
+    const visible = String(text).slice(0, at).replace(/\s+$/, '');
+    const quoted = String(text).slice(at).replace(/^\s+/, '');
+
+    if (!visible.trim() || !quoted.trim()) {
+        return { visible: text, quoted: '', hasQuote: false };
+    }
+
+    return { visible, quoted, hasQuote: true };
+}
+
+function earliestQuoteElement(root) {
+    const matches = [...root.querySelectorAll(QUOTE_SELECTOR)];
+
+    // Plain "On … wrote:" markers (Gmail attr sometimes stripped by sanitizer).
+    root.querySelectorAll('div, p, span, font').forEach((el) => {
+        if (el.closest(QUOTE_SELECTOR)) {
+            return;
+        }
+        if (/^on .{8,200} wrote:?$/i.test((el.textContent || '').trim())) {
+            matches.push(el);
+        }
+    });
+
+    if (matches.length === 0) {
+        // Last-resort: a trailing bare <blockquote> after real content.
+        const blocks = [...root.querySelectorAll(':scope > blockquote')];
+        if (blocks.length === 1 && meaningfulText(root.innerHTML.replace(blocks[0].outerHTML, ''))) {
+            matches.push(blocks[0]);
+        }
+    }
+
+    if (matches.length === 0) {
+        return null;
+    }
+
+    // Prefer the outermost / earliest quote so nested history stays one block.
+    return matches.reduce((earliest, el) => {
+        if (!earliest) {
+            return el;
+        }
+        const pos = earliest.compareDocumentPosition(el);
+        return pos & Node.DOCUMENT_POSITION_PRECEDING ? el : earliest;
+    }, null);
+}
+
+/**
+ * Include a preceding "On … wrote:" attr line, <hr>, or blank <br>s with the quote.
+ */
+function expandQuoteStart(quoteEl) {
+    let start = quoteEl;
+
+    while (start.previousSibling) {
+        const prev = start.previousSibling;
+
+        if (prev.nodeType === Node.TEXT_NODE) {
+            if (!prev.textContent?.trim()) {
+                start = prev;
+                continue;
+            }
+            break;
+        }
+
+        if (prev.nodeType !== Node.ELEMENT_NODE) {
+            break;
+        }
+
+        const el = prev;
+        if (el.tagName === 'BR' || el.tagName === 'HR') {
+            start = el;
+            continue;
+        }
+        if (
+            el.classList?.contains('gmail_attr') ||
+            el.id === 'appendonsend' ||
+            /^on .+ wrote:?$/i.test((el.textContent || '').trim())
+        ) {
+            start = el;
+            continue;
+        }
+        break;
+    }
+
+    return start;
+}
+
+function meaningfulText(html) {
+    if (!html) {
+        return false;
+    }
+    const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+    return (doc.body?.textContent || '').replace(/\u00a0/g, ' ').trim().length > 0;
 }
