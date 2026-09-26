@@ -4,15 +4,25 @@ namespace App\Http\Controllers;
 
 use App\Jobs\DeliverWebhook;
 use App\Services\Webhooks\WebhookDeliverer;
+use App\Services\WorkspaceAccess;
+use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class DashboardController extends Controller
 {
-    public function index(): RedirectResponse
+    public function index(Request $request, WorkspaceAccess $access): RedirectResponse
     {
-        return redirect()->route('emails');
+        try {
+            $organization = CurrentOrganization::from($request);
+        } catch (NotFoundHttpException) {
+            return redirect()->route('emails');
+        }
+
+        return redirect()->route($access->homeRoute($request->user(), $organization));
     }
 
     public function compose(): Response

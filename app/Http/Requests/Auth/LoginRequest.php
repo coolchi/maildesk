@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Services\AccountAccess;
+use App\Services\WorkspaceAccess;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -52,12 +54,22 @@ class LoginRequest extends FormRequest
 
         // Suspended / closed accounts cannot sign in (platform admins can).
         $user = Auth::user();
-        $access = app(\App\Services\AccountAccess::class);
+        $access = app(AccountAccess::class);
         if ($user && $access->isLockedOut($user)) {
             $message = $access->lockoutMessage($user);
             Auth::guard('web')->logout();
 
             throw ValidationException::withMessages(['email' => $message]);
+        }
+
+        $workspace = app(WorkspaceAccess::class);
+        if ($user && ! $workspace->mailboxLoginAllowed($user)) {
+            $message = $workspace->mailboxLoginDeniedMessage($user);
+            Auth::guard('web')->logout();
+
+            throw ValidationException::withMessages([
+                'email' => $message,
+            ]);
         }
 
         RateLimiter::clear($this->throttleKey());

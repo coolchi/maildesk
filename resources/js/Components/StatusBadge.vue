@@ -47,6 +47,7 @@ const labels = {
     developer: 'Developer',
     active: 'Active',
     inactive: 'Inactive',
+    pending: 'Pending',
     trial: 'Trial',
     past_due: 'Past due',
     suspended: 'Suspended',

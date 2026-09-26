@@ -70,7 +70,7 @@ const faqs = computed(() => [
             'Register with your name, email and a password, and confirm your email address if asked. Then create a workspace from the workspace menu at the top of the sidebar. You become its owner, and it gets its own subdomain (for example acme.<your platform domain>).',
             'You can belong to several workspaces and switch between them from the same menu. Everything you see (mail, domains, keys, webhooks, contacts) belongs to the workspace you are in.',
         ],
-        note: 'Inviting teammates by email is not yet available. Mailbox users are managed on the Users page.',
+        note: 'Inviting teammates by email is not yet available. Login accounts are under Settings → Team; mailbox addresses are on the Users page.',
     },
     {
         id: 'domain',
@@ -112,7 +112,7 @@ const faqs = computed(() => [
             'Mail sent to your mailbox addresses (and catch-all mail for your domains, where your provider is set up to deliver it) lands in Inbox, grouped into conversations. Read and unread state is saved for the whole workspace.',
             'Open a conversation and press Reply (or the r key) to open the reply box, with Cc, Bcc and attachments. Press Forward (or f) to send the message on to someone else. Replies stay in the same thread, and when the customer answers, their reply comes back into that conversation.',
         ],
-        note: 'Star, archive and delete in the inbox are not saved yet (coming soon).',
+        note: 'New mail updates the Inbox badge and open list over WebSocket when Reverb is running; otherwise it falls back to polling every few seconds.',
         link: { route: 'inbox', label: 'Open Inbox' },
     },
     {
@@ -149,12 +149,12 @@ const faqs = computed(() => [
         id: 'billing',
         q: 'How do billing and plans work?',
         a: [
-            'See your plan and usage under Settings → Usage and Settings → Billing. Paid plans are paid in naira (₦) through Monipay’s secure checkout by card or bank transfer: click Pay with Monipay next to a plan, complete the payment on Monipay, and you are brought back to MailDesk. Your plan is activated once we have confirmed the payment with Monipay.',
+            'See your plan and usage under Settings → Usage and Settings → Billing. Paid plans are paid in naira (₦) through Monipay’s secure checkout by card or bank transfer: open View plans, choose a plan, and Pay with Monipay takes you straight to checkout. You are brought back to MailDesk when you finish, and your plan is activated once we have confirmed the payment with Monipay.',
             'Plans are prepaid for one billing period at a time and do not renew automatically. To continue, pay again before the period ends; paying for the plan you already have extends it by another period.',
         ],
         note: props.paymentsConfigured
             ? 'Saved cards, downloadable invoices and self-service cancellation are not yet available.'
-            : 'Online payments are not switched on for this platform yet, so the Pay button is disabled. Saved cards, downloadable invoices and self-service cancellation are also not yet available.',
+            : 'Online payments are not switched on for this platform yet, so Pay with Monipay is disabled. Saved cards, downloadable invoices and self-service cancellation are also not yet available.',
         link: { route: 'settings', params: 'billing', label: 'Open Billing' },
     },
     {

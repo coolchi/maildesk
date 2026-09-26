@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Message;
+use App\Services\WorkspaceAccess;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -10,11 +11,13 @@ use Inertia\Response;
 
 class LogController extends Controller
 {
+    public function __construct(public WorkspaceAccess $access) {}
+
     public function index(Request $request): Response
     {
         $organization = CurrentOrganization::from($request);
 
-        $logs = $organization->messages()
+        $logs = $this->access->scopeMailData($organization->messages(), $request->user(), $organization)
             ->latest('id')
             ->limit(100)
             ->get()

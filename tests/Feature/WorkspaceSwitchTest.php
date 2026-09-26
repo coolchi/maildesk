@@ -92,6 +92,8 @@ class WorkspaceSwitchTest extends TestCase
         ]);
 
         $user = User::factory()->create();
+        $org = Organization::factory()->create(['subdomain' => 'harbor']);
+        $org->users()->attach($user->id, ['role' => 'owner']);
 
         $this->get('http://maildesk.test/login')->assertOk();
 
@@ -115,7 +117,8 @@ class WorkspaceSwitchTest extends TestCase
         ]);
 
         $user = User::factory()->create();
-        Organization::factory()->create(['subdomain' => 'acme']);
+        $org = Organization::factory()->create(['subdomain' => 'acme']);
+        $org->users()->attach($user->id, ['role' => 'owner']);
 
         $this->get('http://acme.maildesk.test/login')->assertOk();
 

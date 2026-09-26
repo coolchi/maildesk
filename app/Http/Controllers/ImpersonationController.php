@@ -6,6 +6,7 @@ use App\Models\Organization;
 use App\Models\User;
 use App\Services\Impersonation\ImpersonationDenied;
 use App\Services\Impersonation\ImpersonationService;
+use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -23,6 +24,28 @@ class ImpersonationController extends Controller
         ]);
 
         $organization = Organization::query()->findOrFail($validated['organization_id']);
+
+        try {
+            $url = $this->impersonation->start($request, $request->user(), $user, $organization, $validated['reason']);
+        } catch (ImpersonationDenied $e) {
+            $this->impersonation->recordDenied($request, $request->user(), $user, $organization, $e->getMessage());
+
+            return back()->withErrors(['user' => $e->getMessage()])->with('error', $e->getMessage());
+        }
+
+        return $this->navigate($request, $url);
+    }
+
+    /**
+     * Workspace owner/admin "log in as" a teammate in the current organization.
+     */
+    public function startWorkspace(Request $request, User $user): RedirectResponse|SymfonyResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:10', 'max:500'],
+        ]);
 
         try {
             $url = $this->impersonation->start($request, $request->user(), $user, $organization, $validated['reason']);

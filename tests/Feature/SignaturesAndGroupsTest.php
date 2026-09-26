@@ -148,6 +148,60 @@ class SignaturesAndGroupsTest extends TestCase
         $this->assertStringNotContainsString('Ade', $reply->html_body);
     }
 
+    public function test_mailbox_signature_applies_when_workspace_signature_is_disabled(): void
+    {
+        [$user, $org] = $this->member();
+        $this->enableSignature($org, extra: ['enabled' => false]);
+        [$thread, , $mailbox] = $this->thread($org);
+        $mailbox->update(['signature' => '<p>Desk only</p>']);
+
+        $this->as($user, $org)->post(route('inbox.reply', $thread->id), ['html' => '<p>Ok</p>'])
+            ->assertSessionHas('success');
+
+        $reply = Message::query()->where('direction', 'outbound')->firstOrFail();
+        $this->assertStringContainsString('data-maildesk-signature', $reply->html_body);
+        $this->assertStringContainsString('Desk only', $reply->html_body);
+        $this->assertStringNotContainsString('Ade', $reply->html_body);
+    }
+
+    public function test_mailbox_member_can_edit_own_signature_but_not_settings(): void
+    {
+        $user = User::factory()->create(['email' => 'desk@acme.test']);
+        $provider = MailProvider::query()->where('key', 'resend')->first()
+            ?? MailProvider::factory()->create(['key' => 'resend', 'driver' => 'resend', 'status' => 'active']);
+        $org = Organization::factory()->create([
+            'mail_provider_id' => $provider->id,
+            'default_provider' => 'resend',
+        ]);
+        $org->users()->attach($user->id, ['role' => 'member']);
+        Domain::factory()->verified()->create(['organization_id' => $org->id, 'name' => 'acme.test']);
+        $mailbox = Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'user_id' => $user->id,
+            'email' => 'desk@acme.test',
+            'inbox' => true,
+            'status' => 'active',
+        ]);
+
+        $this->as($user, $org)
+            ->get(route('mailbox.signature'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Mailbox/Signature')
+                ->where('mailbox.email', 'desk@acme.test'));
+
+        $this->as($user, $org)
+            ->put(route('mailbox.signature.update'), [
+                'signature' => '<p>My name<script>x</script></p>',
+            ])
+            ->assertSessionHas('success');
+
+        $this->assertStringContainsString('My name', (string) $mailbox->fresh()->signature);
+        $this->assertStringNotContainsString('script', (string) $mailbox->fresh()->signature);
+
+        $this->as($user, $org)->get(route('settings', 'signature'))->assertForbidden();
+    }
+
     public function test_disabled_signature_is_not_added(): void
     {
         [$user, $org] = $this->member();

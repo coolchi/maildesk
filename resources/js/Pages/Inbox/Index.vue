@@ -9,6 +9,7 @@ import RowActions from '@/Components/RowActions.vue';
 import AttachmentList from '@/Components/AttachmentList.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import { useNotifications } from '@/composables/useNotifications';
+import { useInboxPageLive } from '@/composables/useInboxLive';
 import { useToast } from '@/composables/useToast';
 import {
     Archive,
@@ -24,16 +25,16 @@ import {
     Search,
     X,
     Send,
-    Star,
-    Trash2,
 } from '@lucide/vue';
 
 const props = defineProps({
     signatureEnabled: { type: Boolean, default: false },
+    folder: { type: String, default: 'inbox' },
     threads: { type: Array, default: () => [] },
 });
 
 const { markThreadRead, setInboxUnread } = useNotifications();
+useInboxPageLive();
 const toast = useToast();
 const search = ref('');
 const threads = ref(props.threads.map((t) => ({ ...t })));
@@ -80,15 +81,36 @@ const active = computed(
     () => threads.value.find((t) => t.id === activeId.value) ?? null,
 );
 
+const markThreadAsRead = (thread) => {
+    if (!thread?.unread) {
+        return;
+    }
+    thread.unread = false;
+    markThreadRead(thread.id);
+    persistRead(thread, true);
+    syncInboxBadge();
+};
+
 const selectThread = (thread) => {
     activeId.value = thread.id;
-    if (thread.unread) {
-        thread.unread = false;
-        markThreadRead(thread.id);
-        persistRead(thread, true);
-        syncInboxBadge();
-    }
 };
+
+// Mark read once the detail pane is showing this thread's body (including the
+// auto-selected first thread on load) — not merely on list click.
+watch(
+    () => [activeId.value, active.value?.messages?.length ?? 0],
+    () => {
+        const thread = active.value;
+        if (!thread?.unread) {
+            return;
+        }
+        if (!(thread.messages?.length > 0 || thread.snippet)) {
+            return;
+        }
+        markThreadAsRead(thread);
+    },
+    { immediate: true },
+);
 
 const threadActions = (thread) => [
     {
@@ -96,9 +118,11 @@ const threadActions = (thread) => [
         label: thread.unread ? 'Mark as read' : 'Mark as unread',
         icon: thread.unread ? MailOpen : Mail,
     },
-    { id: 'star', label: 'Star conversation', icon: Star },
-    { id: 'archive', label: 'Archive', icon: Archive },
-    { id: 'delete', label: 'Delete', icon: Trash2, danger: true },
+    {
+        id: 'archive',
+        label: props.folder === 'archive' ? 'Move to inbox' : 'Archive',
+        icon: Archive,
+    },
 ];
 
 const onThreadAction = (thread, item) => {
@@ -108,22 +132,27 @@ const onThreadAction = (thread, item) => {
         persistRead(thread, !thread.unread);
         syncInboxBadge();
         toast.success(thread.unread ? 'Marked unread.' : 'Marked read.');
-    } else if (item.id === 'star') {
-        toast.success('Starred.');
     } else if (item.id === 'archive') {
-        threads.value = threads.value.filter((t) => t.id !== thread.id);
-        if (activeId.value === thread.id) {
-            activeId.value = threads.value[0]?.id ?? null;
-        }
-        syncInboxBadge();
-        toast.success('Archived.');
-    } else if (item.id === 'delete') {
-        threads.value = threads.value.filter((t) => t.id !== thread.id);
-        if (activeId.value === thread.id) {
-            activeId.value = threads.value[0]?.id ?? null;
-        }
-        syncInboxBadge();
-        toast.info('Conversation deleted.');
+        router.post(
+            route('inbox.archive', thread.id),
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    threads.value = threads.value.filter((t) => t.id !== thread.id);
+                    if (activeId.value === thread.id) {
+                        activeId.value = threads.value[0]?.id ?? null;
+                    }
+                    syncInboxBadge();
+                    toast.success(
+                        props.folder === 'archive'
+                            ? 'Moved to inbox.'
+                            : 'Archived.',
+                    );
+                },
+                onError: () => toast.error('Could not update conversation.'),
+            },
+        );
     }
 };
 
@@ -352,15 +381,13 @@ const sendReply = () => {
         },
     );
 };
-
-// Threads are marked read only when the user opens one (selectThread), not on page load.
 </script>
 
 <template>
-    <Head title="Inbox" />
+    <Head :title="folder === 'archive' ? 'Archive' : 'Inbox'" />
 
     <AppLayout>
-        <PageHeader title="Inbox" />
+        <PageHeader :title="folder === 'archive' ? 'Archive' : 'Inbox'" />
 
         <div
             class="md-card grid overflow-hidden lg:h-[calc(100vh-15rem)] lg:min-h-[540px] lg:grid-cols-[340px_1fr]"

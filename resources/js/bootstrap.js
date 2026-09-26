@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
+import './echo';
 
 window.axios = axios;
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';

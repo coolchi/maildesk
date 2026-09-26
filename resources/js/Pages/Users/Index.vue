@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { computed, onMounted, ref, watch } from 'vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
@@ -9,7 +9,9 @@ import Modal from '@/Components/Modal.vue';
 import RowActions from '@/Components/RowActions.vue';
 import { useToast } from '@/composables/useToast';
 import {
+    Check,
     Inbox,
+    LogIn,
     Mail,
     Megaphone,
     Pencil,
@@ -19,13 +21,16 @@ import {
     Send,
     Trash2,
     UserCog,
+    X,
 } from '@lucide/vue';
 
 const props = defineProps({
     users: { type: Array, default: () => [] },
     domainOptions: { type: Array, default: () => [] },
+    canImpersonateTeam: { type: Boolean, default: false },
 });
 
+const page = usePage();
 const toast = useToast();
 const search = ref('');
 const roleFilter = ref('all');
@@ -44,6 +49,21 @@ const showDelete = ref(false);
 const editing = ref(null);
 const deleteTarget = ref(null);
 
+const showImpersonate = ref(false);
+const impersonating = ref(false);
+const impersonateErrors = ref({});
+const impersonateForm = ref({ userId: null, reason: '' });
+const impersonateTarget = ref(null);
+
+const reasonLength = computed(() => impersonateForm.value.reason.trim().length);
+const canStartImpersonation = computed(
+    () =>
+        !!impersonateForm.value.userId &&
+        reasonLength.value >= 10 &&
+        reasonLength.value <= 500 &&
+        !impersonating.value,
+);
+
 const domains = computed(() =>
     props.domainOptions.length
         ? props.domainOptions
@@ -59,6 +79,8 @@ const blankForm = () => ({
     transactional: false,
     marketing: false,
     limit: 1000,
+    password: '',
+    password_confirmation: '',
 });
 
 const form = ref(blankForm());
@@ -80,6 +102,7 @@ const filtered = computed(() => {
 const stats = computed(() => ({
     total: users.value.length,
     active: users.value.filter((u) => u.status === 'active').length,
+    pending: users.value.filter((u) => u.status === 'pending').length,
     inactive: users.value.filter((u) => u.status === 'inactive').length,
 }));
 
@@ -101,9 +124,49 @@ const openEdit = (user) => {
         transactional: user.transactional,
         marketing: user.marketing,
         limit: user.usage?.limit ?? 1000,
+        password: '',
+        password_confirmation: '',
     };
     showForm.value = true;
 };
+
+const openImpersonate = (user) => {
+    if (!user?.can_impersonate || !user.user_id) return;
+    impersonateTarget.value = user;
+    impersonateForm.value = { userId: user.user_id, reason: '' };
+    impersonateErrors.value = {};
+    showImpersonate.value = true;
+};
+
+const startImpersonation = () => {
+    if (!canStartImpersonation.value) return;
+    router.post(
+        route('team.impersonate', impersonateForm.value.userId),
+        { reason: impersonateForm.value.reason.trim() },
+        {
+            preserveScroll: true,
+            onStart: () => {
+                impersonating.value = true;
+            },
+            onFinish: () => {
+                impersonating.value = false;
+            },
+            onError: (errors) => {
+                impersonateErrors.value = errors;
+                toast.error(
+                    errors.user ||
+                        errors.reason ||
+                        'Could not start session.',
+                );
+            },
+        },
+    );
+};
+
+onMounted(() => {
+    const error = page.props.flash?.error;
+    if (error && /impersonat|log in as/i.test(error)) toast.error(error);
+});
 
 const saveUser = () => {
     const local = form.value.local.trim().toLowerCase();
@@ -116,28 +179,45 @@ const saveUser = () => {
         toast.error('Assign at least inbox, transactional, or marketing.');
         return;
     }
+    if (!editing.value && !form.value.password) {
+        toast.error('Password is required.');
+        return;
+    }
+    if (
+        form.value.password &&
+        form.value.password !== form.value.password_confirmation
+    ) {
+        toast.error('Password confirmation does not match.');
+        return;
+    }
 
     if (editing.value) {
-        router.put(
-            route('users.update', editing.value.id),
-            {
-                name,
-                role: form.value.role,
-                inbox: form.value.inbox,
-                transactional: form.value.transactional,
-                marketing: form.value.marketing,
-                limit: Number(form.value.limit) || 0,
+        const payload = {
+            name,
+            role: form.value.role,
+            inbox: form.value.inbox,
+            transactional: form.value.transactional,
+            marketing: form.value.marketing,
+            limit: Number(form.value.limit) || 0,
+        };
+        if (form.value.password) {
+            payload.password = form.value.password;
+            payload.password_confirmation = form.value.password_confirmation;
+        }
+        router.put(route('users.update', editing.value.id), payload, {
+            preserveScroll: true,
+            onSuccess: () => {
+                showForm.value = false;
+                toast.success('User updated.');
             },
-            {
-                preserveScroll: true,
-                onSuccess: () => {
-                    showForm.value = false;
-                    toast.success('User updated.');
-                },
-                onError: (errors) =>
-                    toast.error(errors.local || errors.name || 'Could not update.'),
-            },
-        );
+            onError: (errors) =>
+                toast.error(
+                    errors.local ||
+                        errors.password ||
+                        errors.name ||
+                        'Could not update.',
+                ),
+        });
         return;
     }
 
@@ -152,6 +232,8 @@ const saveUser = () => {
             transactional: form.value.transactional,
             marketing: form.value.marketing,
             limit: Number(form.value.limit) || 0,
+            password: form.value.password,
+            password_confirmation: form.value.password_confirmation,
         },
         {
             preserveScroll: true,
@@ -160,12 +242,18 @@ const saveUser = () => {
                 toast.success(`Created ${local}@${form.value.domain}`);
             },
             onError: (errors) =>
-                toast.error(errors.local || errors.domain || 'Could not create.'),
+                toast.error(
+                    errors.local ||
+                        errors.domain ||
+                        errors.password ||
+                        'Could not create.',
+                ),
         },
     );
 };
 
 const toggleStatus = (user) => {
+    if (user.status === 'pending') return;
     router.put(
         route('users.update', user.id),
         {
@@ -183,6 +271,30 @@ const toggleStatus = (user) => {
     );
 };
 
+const approveUser = (user) => {
+    router.post(
+        route('users.approve', user.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: () => toast.success(`${user.email} approved.`),
+            onError: () => toast.error('Could not approve user.'),
+        },
+    );
+};
+
+const rejectUser = (user) => {
+    router.post(
+        route('users.reject', user.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: () => toast.info('Registration rejected.'),
+            onError: () => toast.error('Could not reject registration.'),
+        },
+    );
+};
+
 const askDelete = (user) => {
     deleteTarget.value = user;
     showDelete.value = true;
@@ -194,24 +306,40 @@ const confirmDelete = () => {
         onSuccess: () => {
             showDelete.value = false;
             deleteTarget.value = null;
-            toast.info('Mailbox user deleted.');
+            toast.info('User deleted.');
         },
     });
 };
 
-const actionsFor = (user) => [
-    { id: 'edit', label: 'Edit', icon: Pencil },
-    {
-        id: 'toggle',
-        label: user.status === 'active' ? 'Deactivate' : 'Activate',
-        icon: Power,
-    },
-    { id: 'delete', label: 'Delete', icon: Trash2, danger: true },
-];
+const actionsFor = (user) => {
+    if (user.status === 'pending') {
+        return [
+            { id: 'approve', label: 'Approve', icon: Check },
+            { id: 'reject', label: 'Reject', icon: X, danger: true },
+        ];
+    }
+
+    const items = [
+        { id: 'edit', label: 'Edit', icon: Pencil },
+        {
+            id: 'toggle',
+            label: user.status === 'active' ? 'Deactivate' : 'Activate',
+            icon: Power,
+        },
+    ];
+    if (user.can_impersonate) {
+        items.push({ id: 'impersonate', label: 'Log in as', icon: LogIn });
+    }
+    items.push({ id: 'delete', label: 'Delete', icon: Trash2, danger: true });
+    return items;
+};
 
 const onAction = (user, item) => {
     if (item.id === 'edit') openEdit(user);
     else if (item.id === 'toggle') toggleStatus(user);
+    else if (item.id === 'approve') approveUser(user);
+    else if (item.id === 'reject') rejectUser(user);
+    else if (item.id === 'impersonate') openImpersonate(user);
     else if (item.id === 'delete') askDelete(user);
 };
 
@@ -221,7 +349,7 @@ const usagePct = (u) => {
 };
 
 const roleHint = {
-    admin: 'Full workspace control',
+    admin: 'Mailbox role label',
     developer: 'API & transactional focus',
     staff: 'Inbox & assigned products',
 };
@@ -233,7 +361,7 @@ const roleHint = {
     <AppLayout>
         <PageHeader
             title="Users"
-            description="Mailbox addresses for staff, developers, and admins. Inbox is shared; transactional and marketing depend on assignment."
+            description="Sign-in accounts with a mailbox address. Product access is set with Inbox, Transactional, and Marketing. Pending registrations appear here for approval."
         >
             <template #actions>
                 <button type="button" class="md-btn-solid" @click="openCreate">
@@ -243,7 +371,7 @@ const roleHint = {
             </template>
         </PageHeader>
 
-        <div class="mb-6 grid gap-3 sm:grid-cols-3">
+        <div class="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div class="md-card px-4 py-3">
                 <div class="text-xs uppercase tracking-wide text-zinc-500">
                     Users
@@ -258,6 +386,14 @@ const roleHint = {
                 </div>
                 <div class="mt-1 text-2xl font-semibold text-emerald-400">
                     {{ stats.active }}
+                </div>
+            </div>
+            <div class="md-card px-4 py-3">
+                <div class="text-xs uppercase tracking-wide text-zinc-500">
+                    Pending
+                </div>
+                <div class="mt-1 text-2xl font-semibold text-amber-300">
+                    {{ stats.pending }}
                 </div>
             </div>
             <div class="md-card px-4 py-3">
@@ -291,6 +427,7 @@ const roleHint = {
             <select v-model="statusFilter" class="md-input w-full lg:w-40">
                 <option value="all">All statuses</option>
                 <option value="active">Active</option>
+                <option value="pending">Pending</option>
                 <option value="inactive">Inactive</option>
             </select>
         </div>
@@ -311,7 +448,7 @@ const roleHint = {
             </template>
         </EmptyState>
 
-        <div v-else class="md-table-wrap">
+        <div v-else class="md-table-wrap overflow-x-auto">
             <table class="min-w-full text-left text-sm">
                 <thead
                     class="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500"
@@ -322,7 +459,9 @@ const roleHint = {
                         <th class="px-4 py-3 font-medium">Access</th>
                         <th class="px-4 py-3 font-medium">Usage</th>
                         <th class="px-4 py-3 font-medium">Status</th>
-                        <th class="px-4 py-3 font-medium">Last active</th>
+                        <th class="whitespace-nowrap px-4 py-3 font-medium">
+                            Last active
+                        </th>
                         <th class="w-12 px-4 py-3" />
                     </tr>
                 </thead>
@@ -331,10 +470,13 @@ const roleHint = {
                         v-for="user in filtered"
                         :key="user.id"
                         class="hover:bg-white/[0.03]"
-                        :class="{ 'opacity-60': user.status === 'inactive' }"
+                        :class="{
+                            'opacity-60': user.status === 'inactive',
+                            'bg-amber-400/[0.03]': user.status === 'pending',
+                        }"
                     >
                         <td class="px-4 py-3.5">
-                            <div class="flex items-center gap-3">
+                            <div class="flex min-w-[12rem] items-center gap-3">
                                 <span
                                     class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 text-xs font-semibold text-cyan-300"
                                 >
@@ -418,7 +560,9 @@ const roleHint = {
                         <td class="px-4 py-3.5">
                             <StatusBadge :status="user.status" />
                         </td>
-                        <td class="px-4 py-3.5 text-zinc-500">
+                        <td
+                            class="whitespace-nowrap px-4 py-3.5 text-zinc-500"
+                        >
                             {{ user.last_active }}
                         </td>
                         <td class="px-4 py-3.5 text-right">
@@ -446,7 +590,7 @@ const roleHint = {
         <Modal
             :show="showForm"
             :title="editing ? 'Edit user' : 'Add user'"
-            description="Create a custom mailbox address and assign product access."
+            description="Create a login email (mailbox address), password, and product access."
             max-width="lg"
             @close="showForm = false"
         >
@@ -464,16 +608,21 @@ const roleHint = {
 
                 <div>
                     <label class="mb-1.5 block text-xs text-zinc-500"
-                        >Email address</label
+                        >Login email</label
                     >
                     <div class="flex gap-2">
                         <input
                             v-model="form.local"
                             class="md-input"
                             placeholder="hello"
+                            :disabled="!!editing"
                         />
                         <span class="flex items-center text-zinc-500">@</span>
-                        <select v-model="form.domain" class="md-input">
+                        <select
+                            v-model="form.domain"
+                            class="md-input"
+                            :disabled="!!editing"
+                        >
                             <option
                                 v-for="d in domains"
                                 :key="d"
@@ -481,8 +630,38 @@ const roleHint = {
                             >
                                 {{ d }}
                             </option>
-                            <option value="deskky.com">deskky.com</option>
                         </select>
+                    </div>
+                </div>
+
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <div>
+                        <label class="mb-1.5 block text-xs text-zinc-500"
+                            >Password
+                            <span v-if="editing" class="text-zinc-600"
+                                >(optional)</span
+                            ></label
+                        >
+                        <input
+                            v-model="form.password"
+                            type="password"
+                            class="md-input"
+                            :placeholder="
+                                editing ? 'Leave blank to keep' : 'Required'
+                            "
+                            autocomplete="new-password"
+                        />
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-xs text-zinc-500"
+                            >Confirm password</label
+                        >
+                        <input
+                            v-model="form.password_confirmation"
+                            type="password"
+                            class="md-input"
+                            autocomplete="new-password"
+                        />
                     </div>
                 </div>
 
@@ -620,6 +799,81 @@ const roleHint = {
                     @click="confirmDelete"
                 >
                     Delete user
+                </button>
+            </template>
+        </Modal>
+
+        <Modal
+            :show="showImpersonate"
+            title="Log in as user"
+            :description="
+                impersonateTarget
+                    ? `View the workspace as ${impersonateTarget.email} (read-only).`
+                    : 'View the workspace as this user (read-only).'
+            "
+            @close="showImpersonate = false"
+        >
+            <div class="space-y-4">
+                <div
+                    v-if="impersonateTarget"
+                    class="rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 py-2.5"
+                >
+                    <div class="text-sm font-medium text-white">
+                        {{ impersonateTarget.name }}
+                    </div>
+                    <div class="font-mono text-xs text-zinc-400">
+                        {{ impersonateTarget.email }}
+                    </div>
+                </div>
+                <p v-if="impersonateErrors.user" class="text-xs text-rose-300">
+                    {{ impersonateErrors.user }}
+                </p>
+                <div>
+                    <label
+                        for="user-impersonate-reason"
+                        class="mb-1.5 block text-xs text-zinc-500"
+                        >Reason (required, logged)</label
+                    >
+                    <textarea
+                        id="user-impersonate-reason"
+                        v-model="impersonateForm.reason"
+                        rows="3"
+                        maxlength="500"
+                        class="md-input"
+                        placeholder="e.g. Helping with inbox setup — checking what they see"
+                    />
+                    <div class="mt-1 flex justify-between text-[11px]">
+                        <span class="text-rose-300">{{
+                            impersonateErrors.reason || ''
+                        }}</span>
+                        <span
+                            class="tabular-nums"
+                            :class="
+                                reasonLength && reasonLength < 10
+                                    ? 'text-amber-300'
+                                    : 'text-zinc-500'
+                            "
+                            >{{ reasonLength }}/500 · min 10</span
+                        >
+                    </div>
+                </div>
+            </div>
+            <template #footer>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    @click="showImpersonate = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-solid"
+                    :disabled="!canStartImpersonation"
+                    @click="startImpersonation"
+                >
+                    <LogIn :size="14" />
+                    Log in as {{ impersonateTarget?.email || 'user' }}
                 </button>
             </template>
         </Modal>

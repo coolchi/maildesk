@@ -18,6 +18,7 @@ import { useComposeModal } from '@/composables/useComposeModal';
 import { useOnboarding } from '@/composables/useOnboarding';
 import { useCommandPalette } from '@/composables/useCommandPalette';
 import { useNotifications } from '@/composables/useNotifications';
+import { useInboxLive } from '@/composables/useInboxLive';
 import { useTheme } from '@/composables/useTheme';
 import { useToast } from '@/composables/useToast';
 import {
@@ -29,6 +30,7 @@ import {
     Users,
     UsersRound,
     UserCog,
+    User,
     BarChart3,
     Globe,
     ScrollText,
@@ -53,6 +55,9 @@ import {
     Shield,
     Send,
     MailX,
+    Archive,
+    FilePenLine,
+    PenLine,
 } from '@lucide/vue';
 
 const page = usePage();
@@ -71,6 +76,7 @@ const { open: openCompose } = useComposeModal();
 const { open: openOnboarding } = useOnboarding();
 const { open: openCommandPalette } = useCommandPalette();
 const { inboxUnread } = useNotifications();
+const { liveConnected } = useInboxLive();
 const { theme, setTheme } = useTheme();
 const toast = useToast();
 
@@ -90,45 +96,60 @@ const colorMap = {
     amber: 'bg-amber-400/20 text-amber-300',
 };
 
-const navGroups = [
-    {
-        label: 'Mail',
-        items: [
-            { name: 'Emails', route: 'emails', icon: Mail },
-            { name: 'Inbox', route: 'inbox', icon: Inbox },
-            { name: 'Sent', route: 'sent', icon: Send },
-            { name: 'Bounced', route: 'bounced', icon: MailX },
-            { name: 'Groups', route: 'groups', icon: UsersRound },
-            { name: 'Users', route: 'users', icon: UserCog },
-        ],
-    },
-    {
-        label: 'Engage',
-        items: [
-            { name: 'Broadcasts', route: 'broadcasts', icon: Megaphone },
-            { name: 'Automations', route: 'automations', icon: Workflow },
-            { name: 'Templates', route: 'templates', icon: LayoutTemplate },
-            { name: 'Audience', route: 'audience', icon: Users },
-        ],
-    },
-    {
-        label: 'Deliverability',
-        items: [
-            { name: 'Metrics', route: 'metrics', icon: BarChart3 },
-            { name: 'Domains', route: 'domains', icon: Globe },
-            { name: 'Logs', route: 'logs', icon: ScrollText },
-        ],
-    },
-    {
-        label: 'Developers',
-        items: [
-            { name: 'API Keys', route: 'api-keys', icon: KeyRound },
-            { name: 'Webhooks', route: 'webhooks', icon: Webhook },
-            { name: 'Settings', route: 'settings', params: 'usage', icon: Settings },
-            { name: 'Help', route: 'help', icon: HelpCircle },
-        ],
-    },
-];
+const navGroups = computed(() => {
+    const abilities = page.props.auth?.abilities || {};
+    const groups = [
+        {
+            label: 'Mail',
+            items: [
+                { name: 'Emails', route: 'emails', icon: Mail, ability: 'manage' },
+                { name: 'Inbox', route: 'inbox', icon: Inbox, ability: 'inbox' },
+                { name: 'Sent', route: 'sent', icon: Send, ability: 'inbox' },
+                { name: 'Drafts', route: 'drafts', icon: FilePenLine, ability: 'mail' },
+                { name: 'Archive', route: 'archive', icon: Archive, ability: 'inbox' },
+                { name: 'Bounced', route: 'bounced', icon: MailX, ability: 'manage' },
+                { name: 'Signature', route: 'mailbox.signature', icon: PenLine, ability: 'inbox' },
+                { name: 'Profile', route: 'profile.edit', icon: User },
+                { name: 'Groups', route: 'groups', icon: UsersRound, ability: 'manage' },
+                { name: 'Users', route: 'users', icon: UserCog, ability: 'manage' },
+            ],
+        },
+        {
+            label: 'Engage',
+            items: [
+                { name: 'Broadcasts', route: 'broadcasts', icon: Megaphone, ability: 'marketing' },
+                { name: 'Automations', route: 'automations', icon: Workflow, ability: 'marketing' },
+                { name: 'Templates', route: 'templates', icon: LayoutTemplate, ability: 'marketing' },
+                { name: 'Audience', route: 'audience', icon: Users, ability: 'marketing' },
+            ],
+        },
+        {
+            label: 'Deliverability',
+            items: [
+                { name: 'Metrics', route: 'metrics', icon: BarChart3, ability: 'manage' },
+                { name: 'Domains', route: 'domains', icon: Globe, ability: 'manage' },
+                { name: 'Logs', route: 'logs', icon: ScrollText, ability: 'manage' },
+            ],
+        },
+        {
+            label: 'Developers',
+            items: [
+                { name: 'API Keys', route: 'api-keys', icon: KeyRound, ability: 'manage' },
+                { name: 'Webhooks', route: 'webhooks', icon: Webhook, ability: 'manage' },
+                { name: 'Settings', route: 'settings', params: 'usage', icon: Settings, ability: 'manage' },
+            ],
+        },
+    ];
+
+    return groups
+        .map((group) => ({
+            ...group,
+            items: group.items.filter(
+                (item) => !item.ability || abilities[item.ability],
+            ),
+        }))
+        .filter((group) => group.items.length > 0);
+});
 
 const navHref = (item) => {
     if (!item.route) return '#';
@@ -138,7 +159,7 @@ const navHref = (item) => {
 
 const pageTitle = computed(() => {
     const path = page.url.split('?')[0];
-    for (const group of navGroups) {
+    for (const group of navGroups.value) {
         for (const item of group.items) {
             if (!item.route) continue;
             if (item.route === 'settings' && path.startsWith('/settings')) {
@@ -155,9 +176,14 @@ const pageTitle = computed(() => {
         }
     }
     if (path.startsWith('/docs')) return 'Docs';
+    if (path.startsWith('/help')) return 'Help';
     if (path.startsWith('/profile')) return 'Profile';
     return 'MailDesk';
 });
+
+const abilities = computed(() => page.props.auth?.abilities || {});
+const canCompose = computed(() => Boolean(abilities.value.mail));
+const canManage = computed(() => Boolean(abilities.value.manage));
 
 const onNavAction = (item) => {
     mobileOpen.value = false;
@@ -166,6 +192,10 @@ const onNavAction = (item) => {
             toast.error(
                 'This workspace has no active mail provider. Reassign it in SaaS Admin.',
             );
+            return;
+        }
+        if (!canCompose.value) {
+            toast.error('You do not have permission to compose mail.');
             return;
         }
         openCompose();
@@ -250,9 +280,22 @@ const createTeam = () => {
                 <X v-else :size="18" class="animate-fade-in" />
             </button>
             <div class="font-semibold tracking-tight">MailDesk</div>
-            <Link :href="route('docs')" class="text-zinc-400 hover:text-cyan-300">
-                <BookOpen :size="18" />
-            </Link>
+            <div class="flex items-center gap-2">
+                <span
+                    v-if="liveConnected"
+                    class="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300"
+                    title="Inbox updates over WebSocket"
+                >
+                    <span
+                        class="h-1.5 w-1.5 rounded-full bg-emerald-400"
+                        aria-hidden="true"
+                    />
+                    Live
+                </span>
+                <Link :href="route('docs')" class="text-zinc-400 hover:text-cyan-300">
+                    <BookOpen :size="18" />
+                </Link>
+            </div>
         </div>
 
         <div class="lg:flex lg:items-start">
@@ -539,6 +582,14 @@ const createTeam = () => {
                                 </button>
                             </div>
                             <div class="border-t border-zinc-900 py-1">
+                                <Link
+                                    :href="route('profile.edit')"
+                                    class="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-zinc-900 hover:text-white"
+                                    @click="accountOpen = false"
+                                >
+                                    <User :size="13" class="text-zinc-500" />
+                                    Profile
+                                </Link>
                                 <button
                                     type="button"
                                     class="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-rose-400 transition hover:bg-zinc-900 hover:text-rose-300"
@@ -596,6 +647,24 @@ const createTeam = () => {
                         <span class="font-medium text-zinc-200">{{ pageTitle }}</span>
                     </div>
                     <div class="flex items-center gap-2">
+                        <span
+                            v-if="liveConnected"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
+                            title="Inbox updates over WebSocket"
+                        >
+                            <span
+                                class="relative flex h-1.5 w-1.5"
+                                aria-hidden="true"
+                            >
+                                <span
+                                    class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60"
+                                />
+                                <span
+                                    class="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400"
+                                />
+                            </span>
+                            Live
+                        </span>
                         <button
                             type="button"
                             class="group inline-flex items-center gap-2 rounded-full border border-zinc-800 px-3 py-1.5 text-sm text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200"
@@ -610,6 +679,7 @@ const createTeam = () => {
                         </button>
                         <NotificationsMenu />
                         <Link
+                            v-if="canManage"
                             :href="route('docs')"
                             class="group inline-flex items-center gap-1.5 rounded-full border border-zinc-800 px-3 py-1.5 text-sm text-zinc-300 transition hover:border-cyan-400/40 hover:text-cyan-300"
                         >
@@ -619,17 +689,16 @@ const createTeam = () => {
                             />
                             Docs
                         </Link>
-                        <button
-                            type="button"
+                        <Link
+                            :href="route('help')"
                             class="group inline-flex items-center gap-1.5 rounded-full border border-zinc-800 px-3 py-1.5 text-sm text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200"
-                            @click="toast.info('Support chat coming soon')"
                         >
                             <HelpCircle
                                 :size="14"
                                 class="transition group-hover:rotate-12"
                             />
-                            Need help?
-                        </button>
+                            Help
+                        </Link>
                     </div>
                 </header>
 
@@ -673,7 +742,7 @@ const createTeam = () => {
         <ToastContainer />
         <PlansModal />
         <ComposeModal />
-        <FloatingComposeButton />
+        <FloatingComposeButton v-if="canCompose" />
         <CommandPalette />
         <OnboardingModal />
     </div>

@@ -1,15 +1,19 @@
  <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { Link, usePage } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import { mockPlans } from '@/data/mock';
 import { usePlansModal } from '@/composables/usePlansModal';
+import { useToast } from '@/composables/useToast';
 import { Check, X } from '@lucide/vue';
 
 const { state, close } = usePlansModal();
 const page = usePage();
+const toast = useToast();
 
 const mode = ref('marketing');
 const volumeIndex = ref(1);
+const currency = ref('NGN');
+const paying = ref(null);
 
 watch(
     () => state.open,
@@ -17,6 +21,9 @@ watch(
         if (open) {
             mode.value = state.mode || 'marketing';
             volumeIndex.value = 1;
+            currency.value =
+                page.props.plans?.default_currency === 'USD' ? 'USD' : 'NGN';
+            paying.value = null;
             document.body.style.overflow = 'hidden';
         } else {
             document.body.style.overflow = '';
@@ -42,14 +49,83 @@ const sharedPlans = computed(() => page.props.plans || null);
 const config = computed(
     () => sharedPlans.value?.[mode.value] || mockPlans[mode.value],
 );
+const currencies = computed(
+    () => sharedPlans.value?.currencies || ['USD', 'NGN'],
+);
+const checkout = computed(() => sharedPlans.value?.checkout || null);
 const volumeLabel = computed(() => config.value.labels[volumeIndex.value]);
 
-const freePrice = computed(() => config.value.prices.free[volumeIndex.value]);
-const proPrice = computed(() => config.value.prices.pro[volumeIndex.value]);
+const priceBucket = computed(() => {
+    const prices = config.value.prices || {};
+    const key = currency.value.toLowerCase();
+    if (prices[key]?.free && prices[key]?.pro) {
+        return prices[key];
+    }
+    // Legacy single-currency mock shape (prices.free / prices.pro).
+    return prices;
+});
+
+const freePrice = computed(
+    () => priceBucket.value.free?.[volumeIndex.value] ?? null,
+);
+const proPrice = computed(
+    () => priceBucket.value.pro?.[volumeIndex.value] ?? null,
+);
+
+const planKeys = computed(
+    () =>
+        config.value.keys || {
+            free: null,
+            pro: null,
+            enterprise: null,
+        },
+);
 
 const formatPrice = (n) => {
     if (n === null || n === undefined) return null;
+    if (currency.value === 'NGN') {
+        return n === 0
+            ? '₦0'
+            : `₦${Number(n).toLocaleString('en-NG')}`;
+    }
     return n === 0 ? '$0' : `$${n}`;
+};
+
+const payDisabledReason = (tier) => {
+    if (!checkout.value?.configured) {
+        return 'Payments are not configured';
+    }
+    if (!checkout.value?.can_manage) {
+        return 'Only owners and admins can pay';
+    }
+    if (!planKeys.value[tier]) {
+        return 'Plan unavailable';
+    }
+    return null;
+};
+
+const startCheckout = (tier) => {
+    const reason = payDisabledReason(tier);
+    const key = planKeys.value[tier];
+    if (reason || !key || paying.value) {
+        if (reason) {
+            toast.error(reason);
+        }
+        return;
+    }
+
+    paying.value = tier;
+    router.post(
+        route('billing.monipay.initialize'),
+        { plan: key },
+        {
+            onError: (errors) =>
+                toast.error(errors.plan || 'Could not start the payment.'),
+            onFinish: () => {
+                paying.value = null;
+            },
+        },
+    );
 };
 
 const marketingFeatures = {
@@ -180,6 +256,24 @@ const metricLabel = computed(() =>
                                     Choose transactional or marketing volume for
                                     your workspace.
                                 </p>
+                                <div
+                                    class="mt-4 inline-flex rounded-full border border-zinc-800 bg-black p-1"
+                                >
+                                    <button
+                                        v-for="code in currencies"
+                                        :key="code"
+                                        type="button"
+                                        class="rounded-full px-3.5 py-1.5 text-xs font-medium transition"
+                                        :class="
+                                            currency === code
+                                                ? 'bg-zinc-800 text-white'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        "
+                                        @click="currency = code"
+                                    >
+                                        {{ code === 'NGN' ? '₦ NGN' : '$ USD' }}
+                                    </button>
+                                </div>
                             </div>
 
                             <div class="mb-8 flex justify-center">
@@ -381,16 +475,27 @@ const metricLabel = computed(() =>
                                             {{ f.label }}
                                         </li>
                                     </ul>
+                                    <button
+                                        v-if="proPrice !== null"
+                                        type="button"
+                                        class="md-btn-primary mt-6 w-full"
+                                        :disabled="paying !== null"
+                                        :title="payDisabledReason('pro') || ''"
+                                        @click="startCheckout('pro')"
+                                    >
+                                        {{
+                                            paying === 'pro'
+                                                ? 'Redirecting…'
+                                                : 'Upgrade'
+                                        }}
+                                    </button>
                                     <Link
+                                        v-else
                                         :href="route('settings', 'billing')"
                                         class="md-btn-primary mt-6 w-full text-center"
                                         @click="close"
                                     >
-                                        {{
-                                            proPrice === null
-                                                ? 'Contact sales'
-                                                : 'Upgrade'
-                                        }}
+                                        Contact sales
                                     </Link>
                                 </div>
 
@@ -430,7 +535,25 @@ const metricLabel = computed(() =>
                                             {{ f.label }}
                                         </li>
                                     </ul>
+                                    <button
+                                        v-if="planKeys.enterprise"
+                                        type="button"
+                                        class="md-btn-ghost mt-6 w-full"
+                                        :disabled="paying !== null"
+                                        :title="
+                                            payDisabledReason('enterprise') ||
+                                            ''
+                                        "
+                                        @click="startCheckout('enterprise')"
+                                    >
+                                        {{
+                                            paying === 'enterprise'
+                                                ? 'Redirecting…'
+                                                : 'Upgrade'
+                                        }}
+                                    </button>
                                     <Link
+                                        v-else
                                         :href="route('settings', 'billing')"
                                         class="md-btn-ghost mt-6 w-full text-center"
                                         @click="close"

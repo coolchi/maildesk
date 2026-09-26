@@ -6,6 +6,7 @@ use App\Http\Middleware\ImpersonationGuard;
 use App\Models\Domain;
 use App\Models\ImpersonationAction;
 use App\Models\ImpersonationLog;
+use App\Models\Mailbox;
 use App\Models\Organization;
 use App\Models\Thread;
 use App\Models\User;
@@ -86,7 +87,7 @@ class ImpersonationTest extends TestCase
             ->withHeader('User-Agent', 'PHPUnit Browser')
             ->start($admin, $target, $org);
 
-        $response->assertRedirect('http://acme.maildesk.test/emails');
+        $response->assertRedirect('http://acme.maildesk.test/inbox');
         $response->assertCookieMissing(Auth::guard('web')->getRecallerName());
         $this->assertSame($target->id, Auth::id());
         $this->assertNotSame($oldId, session()->getId());
@@ -113,7 +114,7 @@ class ImpersonationTest extends TestCase
         $this->withHeader('X-Inertia', 'true')
             ->start($admin, $target, $org)
             ->assertStatus(409)
-            ->assertHeader('X-Inertia-Location', 'http://acme.maildesk.test/emails');
+            ->assertHeader('X-Inertia-Location', 'http://acme.maildesk.test/inbox');
     }
 
     public function test_reason_is_required_and_bounded(): void
@@ -152,7 +153,7 @@ class ImpersonationTest extends TestCase
         $this->actingAs($admin)
             ->from($accountUrl)
             ->post(route('admin.impersonate', $target), ['organization_id' => $org->id, 'reason' => self::REASON])
-            ->assertRedirect('http://acme.maildesk.test/emails');
+            ->assertRedirect('http://acme.maildesk.test/inbox');
     }
 
     public function test_get_is_not_allowed(): void
@@ -372,6 +373,7 @@ class ImpersonationTest extends TestCase
                 ->where('impersonation.user.name', 'Tom Owner')
                 ->where('impersonation.user.email', 'tom@acme.test')
                 ->where('impersonation.impersonator.name', 'Ada Admin')
+                ->where('impersonation.return_label', 'Return to admin')
                 ->where('impersonation.expires_at', now()->addMinutes(30)->toIso8601String())
                 ->etc());
     }
@@ -622,6 +624,178 @@ class ImpersonationTest extends TestCase
         $this->assertSame('127.0.0.1', $log->ip);
         $this->assertNotNull($log->ended_at);
         $this->assertSame($admin->id, Auth::id());
+    }
+
+    public function test_workspace_owner_can_impersonate_teammate(): void
+    {
+        $owner = User::factory()->create(['name' => 'Olivia Owner']);
+        $member = User::factory()->create(['name' => 'Mia Member', 'email' => 'mia@acme.test']);
+        $org = Organization::factory()->create(['subdomain' => 'acme']);
+        $org->users()->attach($owner->id, ['role' => 'owner']);
+        $org->users()->attach($member->id, ['role' => 'member']);
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'user_id' => $member->id,
+            'email' => 'mia@acme.test',
+            'inbox' => true,
+            'transactional' => true,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($owner)
+            ->withSession([
+                'current_organization_id' => $org->id,
+                'auth.password_confirmed_at' => time(),
+            ])
+            ->from(route('users'))
+            ->post(route('team.impersonate', $member), ['reason' => self::REASON])
+            ->assertRedirect('http://acme.maildesk.test/inbox');
+
+        $this->assertSame($member->id, Auth::id());
+        $this->assertSame($owner->id, session('impersonator_id'));
+        $this->assertSame($org->id, session('current_organization_id'));
+
+        $log = $this->log();
+        $this->assertSame($owner->id, $log->admin_id);
+        $this->assertSame($member->id, $log->user_id);
+        $this->assertSame($org->id, $log->organization_id);
+        $this->assertNull($log->ended_at);
+
+        $this->get(route('emails'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('impersonation.active', true)
+                ->where('impersonation.return_label', 'Return to workspace')
+                ->etc());
+
+        $this->post(route('impersonate.leave'))
+            ->assertRedirect('http://acme.maildesk.test/settings/team');
+
+        $this->assertSame($owner->id, Auth::id());
+        $this->assertNull(session('impersonator_id'));
+        $this->assertSame($org->id, session('current_organization_id'));
+        $this->assertSame('left', $this->log()->end_reason);
+    }
+
+    public function test_workspace_admin_cannot_impersonate_owner_or_other_admin(): void
+    {
+        $owner = User::factory()->create();
+        $admin = User::factory()->create();
+        $otherAdmin = User::factory()->create();
+        $member = User::factory()->create(['email' => 'member@acme.test']);
+        $org = Organization::factory()->create(['subdomain' => 'acme']);
+        $org->users()->attach($owner->id, ['role' => 'owner']);
+        $org->users()->attach($admin->id, ['role' => 'admin']);
+        $org->users()->attach($otherAdmin->id, ['role' => 'admin']);
+        $org->users()->attach($member->id, ['role' => 'member']);
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'user_id' => $member->id,
+            'email' => 'member@acme.test',
+            'inbox' => true,
+            'status' => 'active',
+        ]);
+
+        $session = [
+            'current_organization_id' => $org->id,
+            'auth.password_confirmed_at' => time(),
+        ];
+
+        $this->actingAs($admin)
+            ->withSession($session)
+            ->from(route('users'))
+            ->post(route('team.impersonate', $owner), ['reason' => self::REASON])
+            ->assertSessionHasErrors('user');
+
+        $this->assertSame($admin->id, Auth::id());
+        $this->assertSame('denied', $this->log()->end_reason);
+        $this->assertSame('Admins can only log in as members.', $this->log()->denied_reason);
+
+        $this->actingAs($admin)
+            ->withSession($session)
+            ->from(route('users'))
+            ->post(route('team.impersonate', $otherAdmin), ['reason' => self::REASON])
+            ->assertSessionHasErrors('user');
+
+        $this->actingAs($admin)
+            ->withSession($session)
+            ->from(route('users'))
+            ->post(route('team.impersonate', $member), ['reason' => self::REASON])
+            ->assertRedirect('http://acme.maildesk.test/inbox');
+
+        $this->assertSame($member->id, Auth::id());
+    }
+
+    public function test_workspace_member_cannot_impersonate(): void
+    {
+        $owner = User::factory()->create();
+        $member = User::factory()->create();
+        $teammate = User::factory()->create();
+        $org = Organization::factory()->create(['subdomain' => 'acme']);
+        $org->users()->attach($owner->id, ['role' => 'owner']);
+        $org->users()->attach($member->id, ['role' => 'member']);
+        $org->users()->attach($teammate->id, ['role' => 'member']);
+
+        $this->actingAs($member)
+            ->withSession([
+                'current_organization_id' => $org->id,
+                'auth.password_confirmed_at' => time(),
+            ])
+            ->from(route('users'))
+            ->post(route('team.impersonate', $teammate), ['reason' => self::REASON])
+            ->assertForbidden();
+
+        $this->assertSame($member->id, Auth::id());
+        $this->assertNull(session('impersonator_id'));
+    }
+
+    public function test_settings_team_page_lists_accounts_for_owners_and_hides_login_as_for_members(): void
+    {
+        $owner = User::factory()->create(['name' => 'Olivia Owner']);
+        $member = User::factory()->create(['name' => 'Mia Member', 'email' => 'mia@acme.test']);
+        $org = Organization::factory()->create();
+        $org->users()->attach($owner->id, ['role' => 'owner']);
+        $org->users()->attach($member->id, ['role' => 'member']);
+
+        $this->actingAs($owner)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('settings', 'team'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Settings/Index')
+                ->where('tab', 'team')
+                ->where('canImpersonateTeam', true)
+                ->has('team', 2)
+                ->where('team.0.id', $owner->id)
+                ->where('team.1.id', $member->id)
+                ->where('team.1.email', 'mia@acme.test'));
+
+        $this->actingAs($member)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('settings', 'team'))
+            ->assertForbidden();
+    }
+
+    public function test_cannot_impersonate_user_outside_current_workspace(): void
+    {
+        $owner = User::factory()->create();
+        $outsider = User::factory()->create();
+        $org = Organization::factory()->create(['subdomain' => 'acme']);
+        $other = Organization::factory()->create(['subdomain' => 'other']);
+        $org->users()->attach($owner->id, ['role' => 'owner']);
+        $other->users()->attach($outsider->id, ['role' => 'owner']);
+
+        $this->actingAs($owner)
+            ->withSession([
+                'current_organization_id' => $org->id,
+                'auth.password_confirmed_at' => time(),
+            ])
+            ->from(route('users'))
+            ->post(route('team.impersonate', $outsider), ['reason' => self::REASON])
+            ->assertSessionHasErrors('user');
+
+        $this->assertSame('This user is not a member of this workspace.', $this->log()->denied_reason);
+        $this->assertSame($owner->id, Auth::id());
     }
 
     public function test_denied_attempt_on_suspended_account_is_audited(): void

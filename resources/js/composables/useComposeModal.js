@@ -24,6 +24,7 @@ export const composeDraft = {
     form: ref(null),
     attachments: ref([]),
     pristine: ref(''),
+    draftId: ref(null),
 };
 
 export function useComposeModal() {
@@ -31,6 +32,7 @@ export function useComposeModal() {
         state,
         open: (defaults = null) => {
             state.defaults = defaults;
+            composeDraft.draftId.value = defaults?.draft_id ?? null;
             state.minimized = false;
             state.expanded = false;
             state.open = true;
@@ -41,6 +43,7 @@ export function useComposeModal() {
             state.minimized = false;
             state.expanded = false;
             state.defaults = null;
+            composeDraft.draftId.value = null;
         },
         toggleMinimized: () => {
             state.minimized = !state.minimized;

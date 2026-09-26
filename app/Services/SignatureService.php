@@ -34,27 +34,26 @@ class SignatureService
 
     /**
      * The cleaned signature HTML for a from address, or null when there is none.
-     * A mailbox's own signature wins over the organization's.
+     * A mailbox's own signature always applies; otherwise the workspace signature
+     * is used when it is enabled.
      */
     public function resolve(Organization $organization, string $fromEmail): ?string
     {
-        $settings = $this->settings($organization);
-        if (! $settings['enabled']) {
-            return null;
-        }
-
         $mailbox = Mailbox::query()
             ->where('organization_id', $organization->id)
             ->whereRaw('lower(email) = ?', [Str::lower(trim($fromEmail))])
             ->first();
 
-        $html = $this->isBlank($mailbox?->signature) ? $settings['html'] : (string) $mailbox->signature;
+        if ($mailbox && ! $this->isBlank($mailbox->signature)) {
+            return trim((string) EmailHtmlSanitizer::clean((string) $mailbox->signature));
+        }
 
-        if ($this->isBlank($html)) {
+        $settings = $this->settings($organization);
+        if (! $settings['enabled'] || $this->isBlank($settings['html'])) {
             return null;
         }
 
-        return trim((string) EmailHtmlSanitizer::clean($html));
+        return trim((string) EmailHtmlSanitizer::clean($settings['html']));
     }
 
     /**

@@ -474,7 +474,10 @@ class MonipayBillingTest extends TestCase
                 ->where('payments.can_manage', true)
                 ->where('payments.payments.0.reference', 'md_visible_ref')
                 ->where('payments.payments.0.amount_formatted', '₦5,000.00')
-                ->where('payments.plans.0.key', 'tx_pro'));
+                ->where('payments.plans.0.key', 'tx_pro')
+                ->where('plans.checkout.configured', true)
+                ->where('plans.checkout.can_manage', true)
+                ->where('plans.transactional.keys.pro', 'tx_pro'));
 
         foreach (['settings/billing', 'settings/usage', 'emails'] as $path) {
             $html = $this->as($user, $org)->get('/'.$path)->assertOk()->getContent();

@@ -7,21 +7,21 @@ use App\Models\ImpersonationLog;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\TenantResolver;
+use App\Services\WorkspaceAccess;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 /**
- * Read-only "log in as" for platform admins.
+ * Read-only "log in as" for platform admins and workspace owners/admins.
  *
- * The admin's own session is replaced by one authenticated as the target
- * (without a remember cookie). The admin id, audit log id and start time are
+ * The actor's session is replaced by one authenticated as the target
+ * (without a remember cookie). The actor id, audit log id and start time are
  * kept in the session so ImpersonationGuard can enforce read-only access and
- * the TTL, and so leaving/logging out restores the admin.
+ * the TTL, and so leaving restores the actor.
  */
 class ImpersonationService
 {
@@ -31,7 +31,7 @@ class ImpersonationService
 
     public const SESSION_STARTED = 'impersonation_started_at';
 
-    public function __construct(public TenantResolver $tenants) {}
+    public function __construct(public TenantResolver $tenants, public WorkspaceAccess $workspace) {}
 
     public function ttlMinutes(): int
     {
@@ -84,17 +84,13 @@ class ImpersonationService
      *
      * @throws ImpersonationDenied
      */
-    public function start(Request $request, User $admin, User $target, Organization $organization, string $reason): string
+    public function start(Request $request, User $actor, User $target, Organization $organization, string $reason): string
     {
-        if (! $admin->isPlatformAdmin()) {
-            throw new ImpersonationDenied('Only platform admins can log in as another user.');
-        }
-
         if ($this->isImpersonating($request)) {
-            throw new ImpersonationDenied('You are already impersonating a user. Return to admin first.');
+            throw new ImpersonationDenied('You are already viewing as another user. Exit that session first.');
         }
 
-        if ($target->is($admin)) {
+        if ($target->is($actor)) {
             throw new ImpersonationDenied('You cannot log in as yourself.');
         }
 
@@ -102,18 +98,12 @@ class ImpersonationService
             throw new ImpersonationDenied('Platform admins cannot be impersonated.');
         }
 
-        if (! $target->organizations()->exists()) {
-            throw new ImpersonationDenied('This user does not belong to any account.');
-        }
+        $this->assertActorMayImpersonate($actor, $target, $organization);
 
-        if (! $target->organizations()->whereKey($organization->id)->exists()) {
-            throw new ImpersonationDenied('This user is not a member of this account.');
-        }
-
-        $this->closeStaleLogs($admin->id);
+        $this->closeStaleLogs($actor->id);
 
         $log = ImpersonationLog::query()->create([
-            'admin_id' => $admin->id,
+            'admin_id' => $actor->id,
             'user_id' => $target->id,
             'organization_id' => $organization->id,
             'reason' => $reason,
@@ -124,26 +114,62 @@ class ImpersonationService
 
         $session = $request->session();
 
-        // Fresh session for the impersonated identity: drops the admin's
+        // Fresh session for the impersonated identity: drops the actor's
         // password confirmation, intended URLs, flashes, etc.
         $session->invalidate();
         Auth::guard('web')->login($target, false);
         $session->regenerateToken();
 
         $session->put([
-            self::SESSION_IMPERSONATOR => $admin->id,
+            self::SESSION_IMPERSONATOR => $actor->id,
             self::SESSION_LOG => $log->id,
             self::SESSION_STARTED => now()->getTimestamp(),
             'current_organization_id' => $organization->id,
         ]);
         $session->save();
 
-        return $this->tenants->workspaceUrl($organization, '/emails');
+        $home = $this->workspace->homeRoute($target, $organization);
+        $path = match ($home) {
+            'profile.edit' => '/profile',
+            'settings' => '/settings/usage',
+            default => '/'.$home,
+        };
+
+        return $this->tenants->workspaceUrl($organization, $path);
     }
 
     /**
-     * End the current impersonation, restore the admin (when still a valid
-     * platform admin) and return the URL to send the browser to.
+     * @throws ImpersonationDenied
+     */
+    public function assertActorMayImpersonate(User $actor, User $target, Organization $organization): void
+    {
+        if ($actor->isPlatformAdmin()) {
+            if (! $target->organizations()->whereKey($organization->id)->exists()) {
+                throw new ImpersonationDenied('This user is not a member of this account.');
+            }
+
+            return;
+        }
+
+        $actorRole = $organization->users()->whereKey($actor->id)->first()?->pivot?->role;
+        $targetRole = $organization->users()->whereKey($target->id)->first()?->pivot?->role;
+
+        if (! in_array($actorRole, ['owner', 'admin'], true)) {
+            throw new ImpersonationDenied('Only workspace owners and admins can log in as another user.');
+        }
+
+        if ($targetRole === null) {
+            throw new ImpersonationDenied('This user is not a member of this workspace.');
+        }
+
+        if ($actorRole === 'admin' && in_array($targetRole, ['owner', 'admin'], true)) {
+            throw new ImpersonationDenied('Admins can only log in as members.');
+        }
+    }
+
+    /**
+     * End the current impersonation, restore the actor when possible, and
+     * return the URL to send the browser to.
      *
      * Never calls Auth::logout(): that would cycle the impersonated user's
      * remember_token and sign them out of their other remembered devices.
@@ -151,35 +177,65 @@ class ImpersonationService
     public function stop(Request $request, string $endReason): string
     {
         $log = $this->currentLog($request);
-        $adminId = $this->impersonatorId($request);
+        $actorId = $this->impersonatorId($request);
 
         if ($log && $log->isOpen()) {
             $log->forceFill(['ended_at' => now(), 'end_reason' => $endReason])->save();
         }
 
-        $admin = $adminId ? User::query()->find($adminId) : null;
+        $actor = $actorId ? User::query()->find($actorId) : null;
         $session = $request->session();
         $guard = Auth::guard('web');
 
-        if ($admin && $admin->isPlatformAdmin()) {
-            // Flushing the session drops the impersonated identity from this
-            // browser only; the admin's own remember cookie is left intact.
+        if ($actor && $this->actorMayBeRestored($actor, $log?->organization_id)) {
             $session->invalidate();
-            $guard->login($admin, false);
+            $guard->login($actor, false);
             $session->regenerateToken();
             $session->save();
 
-            return $this->adminReturnUrl($log?->organization_id);
+            if ($actor->isPlatformAdmin()) {
+                return $this->adminReturnUrl($log?->organization_id);
+            }
+
+            $organization = Organization::query()->find($log->organization_id);
+            $session->put('current_organization_id', $organization->id);
+            $session->save();
+
+            return $this->tenants->workspaceUrl($organization, '/settings/team');
         }
 
-        // Impersonator deleted or demoted: sign this browser out entirely
-        // (current device only, the target's remember_token is untouched).
+        // Impersonator deleted, demoted, or removed from the workspace:
+        // sign this browser out entirely (current device only; the target's
+        // remember_token is untouched).
         $guard->logoutCurrentDevice();
         $session->invalidate();
         $session->regenerateToken();
         $session->save();
 
         return $this->centralUrl(route('login', absolute: false));
+    }
+
+    /**
+     * Whether the actor can safely resume their own session after stopping.
+     */
+    protected function actorMayBeRestored(User $actor, ?int $organizationId): bool
+    {
+        if ($actor->isPlatformAdmin()) {
+            return true;
+        }
+
+        if (! $organizationId) {
+            return false;
+        }
+
+        $role = Organization::query()->find($organizationId)
+            ?->users()
+            ->whereKey($actor->id)
+            ->first()
+            ?->pivot
+            ?->role;
+
+        return in_array($role, ['owner', 'admin'], true);
     }
 
     /**
@@ -256,23 +312,29 @@ class ImpersonationService
     }
 
     /**
-     * Members of an account the admin may pick in the "Log in as" modal,
-     * owners first.
+     * Members of an account the actor may pick in the "Log in as" modal,
+     * owners first. Workspace admins only see members as eligible.
      *
      * @return list<array<string, mixed>>
      */
-    public function candidatesFor(Organization $organization, ?User $admin): array
+    public function candidatesFor(Organization $organization, ?User $actor): array
     {
         $rank = ['owner' => 0, 'admin' => 1, 'member' => 2];
+        $actorRole = null;
+
+        if ($actor && ! $actor->isPlatformAdmin()) {
+            $actorRole = $organization->users()->whereKey($actor->id)->first()?->pivot?->role;
+        }
 
         return $organization->users()
             ->orderBy('users.name')
             ->get()
             ->sortBy(fn (User $user) => $rank[$user->pivot->role] ?? 3)
-            ->map(function (User $user) use ($admin) {
+            ->map(function (User $user) use ($actor, $actorRole) {
                 $disabledReason = match (true) {
-                    $admin !== null && $user->is($admin) => 'This is you',
+                    $actor !== null && $user->is($actor) => 'This is you',
                     $user->isPlatformAdmin() => 'Platform admin',
+                    $actorRole === 'admin' && in_array($user->pivot->role, ['owner', 'admin'], true) => 'Admins can only log in as members',
                     default => null,
                 };
 
@@ -319,7 +381,10 @@ class ImpersonationService
             return null;
         }
 
-        $impersonator = DB::table('users')->where('id', $this->impersonatorId($request))->value('name');
+        $impersonatorId = $this->impersonatorId($request);
+        $impersonator = $impersonatorId
+            ? User::query()->find($impersonatorId, ['id', 'name', 'is_platform_admin'])
+            : null;
 
         return [
             'active' => true,
@@ -327,7 +392,8 @@ class ImpersonationService
                 'name' => $request->user()->name,
                 'email' => $request->user()->email,
             ],
-            'impersonator' => ['name' => $impersonator],
+            'impersonator' => ['name' => $impersonator?->name],
+            'return_label' => $impersonator?->isPlatformAdmin() ? 'Return to admin' : 'Return to workspace',
             'expires_at' => $this->expiresAt($request)?->toIso8601String(),
         ];
     }

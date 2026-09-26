@@ -6,9 +6,13 @@ use App\Mail\MailManager;
 use App\Models\Organization;
 use App\Models\ProviderConfig;
 use App\Services\Billing\BillingService;
+use App\Services\Impersonation\ImpersonationService;
 use App\Services\SignatureService;
+use App\Services\TenantResolver;
+use App\Services\WorkspaceAccess;
 use App\Support\CurrentOrganization;
 use App\Support\EmailHtmlSanitizer;
+use App\Support\UserRegistrationSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -112,6 +116,7 @@ class SettingsController extends Controller
                 ],
                 'documents' => $settings['documents'] ?? [],
                 'signature' => app(SignatureService::class)->settings($organization),
+                'user_registration' => UserRegistrationSettings::for($organization),
             ],
             'smtp' => $this->smtpSettings($request, $organization),
             'mailboxes' => $organization->mailboxes()
@@ -125,7 +130,26 @@ class SettingsController extends Controller
                 ])
                 ->values()
                 ->all(),
+            'joinUrl' => app(TenantResolver::class)->workspaceUrl($organization, '/join'),
+            ...$this->teamImpersonationProps($request, $organization),
         ]);
+    }
+
+    /**
+     * @return array{team: list<array<string, mixed>>, canImpersonateTeam: bool}
+     */
+    protected function teamImpersonationProps(Request $request, Organization $organization): array
+    {
+        $actor = $request->user();
+        $actorRole = $organization->users()->whereKey($actor->id)->first()?->pivot?->role;
+        $canImpersonateTeam = in_array($actorRole, ['owner', 'admin'], true);
+
+        return [
+            'canImpersonateTeam' => $canImpersonateTeam,
+            'team' => $canImpersonateTeam
+                ? app(ImpersonationService::class)->candidatesFor($organization, $actor)
+                : [],
+        ];
     }
 
     public function update(Request $request): RedirectResponse
@@ -152,7 +176,22 @@ class SettingsController extends Controller
             'mailbox_signatures' => ['sometimes', 'array'],
             'mailbox_signatures.*.id' => ['required', 'integer'],
             'mailbox_signatures.*.signature' => ['nullable', 'string', 'max:20000'],
+            'user_registration' => ['sometimes', 'array'],
+            'user_registration.enabled' => ['sometimes', 'boolean'],
+            'user_registration.approval' => ['sometimes', Rule::in(['auto', 'manual'])],
+            'user_registration.default_role' => ['sometimes', Rule::in(['admin', 'developer', 'staff'])],
+            'user_registration.default_inbox' => ['sometimes', 'boolean'],
+            'user_registration.default_transactional' => ['sometimes', 'boolean'],
+            'user_registration.default_marketing' => ['sometimes', 'boolean'],
         ]);
+
+        if (array_key_exists('user_registration', $validated)) {
+            abort_unless(
+                app(WorkspaceAccess::class)->isTeam($request->user(), $organization),
+                403,
+                'Only workspace owners and admins can change user registration settings.',
+            );
+        }
 
         $settings = $organization->settings ?? [];
 
@@ -172,6 +211,12 @@ class SettingsController extends Controller
             // Stored cleaned so what you see in settings is what recipients get.
             $signature['html'] = (string) (EmailHtmlSanitizer::clean($signature['html'] ?? '') ?? '');
             $settings['signature'] = $signature;
+        }
+
+        if (array_key_exists('user_registration', $validated)) {
+            $settings['user_registration'] = UserRegistrationSettings::normalize(
+                array_merge(UserRegistrationSettings::for($organization), $validated['user_registration']),
+            );
         }
 
         foreach ($validated['mailbox_signatures'] ?? [] as $row) {

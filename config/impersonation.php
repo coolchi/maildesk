@@ -4,12 +4,13 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Platform admin "log in as" (impersonation)
+    | "Log in as" (impersonation)
     |--------------------------------------------------------------------------
     |
-    | Impersonation sessions are strictly read-only and end automatically
-    | after `ttl_minutes`. Starting one requires the admin to have confirmed
-    | their password within `password_timeout_seconds`.
+    | Used by platform admins and workspace owners/admins. Sessions are
+    | strictly read-only and end automatically after `ttl_minutes`. Starting
+    | one requires the actor to have confirmed their password within
+    | `password_timeout_seconds`.
     |
     */
 

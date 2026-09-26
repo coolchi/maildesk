@@ -87,7 +87,7 @@ onUnmounted(() => {
             @click="leave"
         >
             <LogOut :size="13" />
-            Return to admin
+            {{ state.return_label || 'Return' }}
         </button>
     </div>
 </template>

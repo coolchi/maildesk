@@ -146,22 +146,29 @@ class DomainVerifier
         if (blank($domain->provider_domain_id)) {
             $remote = $this->resend->register($domain->name, $domain->organization?->region);
             $domain->forceFill(['provider_domain_id' => (string) $remote['id']])->save();
+        } else {
+            $remote = $this->resend->get((string) $domain->provider_domain_id);
         }
 
-        $remote = $this->resend->get((string) $domain->provider_domain_id);
-
-        if ($remote === null) {
+        if (($remote ?? null) === null) {
             // The stored id no longer exists on this Resend account (deleted or
-            // re-created elsewhere). Adopt the live domain with the same name.
+            // re-created elsewhere). Adopt the live domain with the same name,
+            // or register a fresh one if Resend has nothing for this name.
             $existing = $this->resend->findByName($domain->name);
 
             if ($existing !== null) {
                 $domain->forceFill(['provider_domain_id' => (string) $existing['id']])->save();
                 $remote = $this->resend->get((string) $existing['id']) ?? $existing;
+            } else {
+                $remote = $this->resend->register($domain->name, $domain->organization?->region);
+                $domain->forceFill(['provider_domain_id' => (string) $remote['id']])->save();
             }
         }
 
-        $this->resend->triggerVerify((string) $domain->provider_domain_id);
+        if (filled($domain->provider_domain_id)) {
+            $this->resend->triggerVerify((string) $domain->provider_domain_id);
+        }
+
         $remote ??= [];
 
         $dns['provider'] = [
@@ -256,11 +263,33 @@ class DomainVerifier
             ];
         }
 
+        $issuedKeys = collect($rows)
+            ->map(fn (array $row) => (string) ($row['key'] ?? ''))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
         foreach ([...self::REQUIRED, ...self::RECOMMENDED] as $key) {
+            // Do not invent a failing SPF check when the provider never issued
+            // an SPF TXT (modern Resend setups use return-path CNAMEs instead).
+            if ($key === 'spf' && ! in_array('spf', $issuedKeys, true)) {
+                continue;
+            }
+
             $checks[$key] ??= false;
         }
 
-        $required = self::REQUIRED;
+        $required = [];
+
+        foreach (self::REQUIRED as $key) {
+            if ($key === 'spf' && ! in_array('spf', $issuedKeys, true)) {
+                // Return-path CNAME / bounce MX replaces classic SPF for Resend.
+                continue;
+            }
+
+            $required[] = $key;
+        }
 
         // Every other record the provider issued is needed to send, except
         // receiving MX (inbound only) and DMARC (recommended).
@@ -272,10 +301,10 @@ class DomainVerifier
             }
         }
 
-        if (array_key_exists('mx', $checks)) {
+        if (array_key_exists('mx', $checks) && in_array('mx', $issuedKeys, true)) {
             // Resend issued a return-path MX; sending needs it.
             $required[] = 'mx';
-        } else {
+        } elseif (! array_key_exists('mx', $checks)) {
             // Informational: does the domain receive mail at all?
             $mx = $this->dns->mx($domain);
             $checks['mx'] = $mx !== [];
@@ -285,6 +314,8 @@ class DomainVerifier
                 'found' => array_map(fn ($r) => "{$r['priority']} {$r['host']}", $mx),
             ];
         }
+
+        $required = array_values(array_unique($required));
 
         return [$checks, $results, $required];
     }

@@ -3,8 +3,11 @@
 namespace App\Http\Middleware;
 
 use App\Models\Organization;
+use App\Services\Billing\BillingService;
 use App\Services\Impersonation\ImpersonationService;
 use App\Services\TenantResolver;
+use App\Services\WorkspaceAccess;
+use App\Support\InboxSyncState;
 use App\Support\PlansCatalog;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -51,20 +54,32 @@ class HandleInertiaRequests extends Middleware
 
         $sendingFrom = [];
         if ($organization) {
-            $verifiedDomains = $organization->domains()
-                ->where('status', 'verified')
-                ->orderBy('name')
-                ->pluck('name');
+            $restricted = $user
+                ? app(WorkspaceAccess::class)->sendingFromAddresses($user, $organization)
+                : null;
 
-            $sendingFrom = $verifiedDomains
-                ->flatMap(fn (string $name) => [
-                    "hello@{$name}",
-                    "support@{$name}",
-                    "noreply@{$name}",
-                ])
-                ->values()
-                ->all();
+            if ($restricted !== null) {
+                $sendingFrom = $restricted;
+            } else {
+                $verifiedDomains = $organization->domains()
+                    ->where('status', 'verified')
+                    ->orderBy('name')
+                    ->pluck('name');
+
+                $sendingFrom = $verifiedDomains
+                    ->flatMap(fn (string $name) => [
+                        "hello@{$name}",
+                        "support@{$name}",
+                        "noreply@{$name}",
+                    ])
+                    ->values()
+                    ->all();
+            }
         }
+
+        $mailboxId = ($user && $organization)
+            ? app(WorkspaceAccess::class)->scopedMailboxId($user, $organization)
+            : null;
 
         return [
             ...parent::share($request),
@@ -78,6 +93,8 @@ class HandleInertiaRequests extends Middleware
                         'is_platform_admin' => $user->isPlatformAdmin(),
                     ]
                     : null,
+                'abilities' => fn () => app(WorkspaceAccess::class)->abilities($user, $organization),
+                'mailbox_id' => $mailboxId,
             ],
             'tenant' => [
                 'current' => $organization?->toWorkspaceArray(),
@@ -93,12 +110,33 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                'draft_id' => fn () => $request->session()->get('draft_id'),
                 'plain_api_key' => fn () => $request->session()->get('plain_api_key'),
                 'plain_webhook_secret' => fn () => $request->session()->get('plain_webhook_secret'),
             ],
-            'plans' => fn () => PlansCatalog::forModal(),
+            'plans' => function () use ($user, $organization) {
+                $catalog = PlansCatalog::forModal();
+                $billing = app(BillingService::class);
+
+                $catalog['checkout'] = [
+                    'configured' => $billing->isConfigured(),
+                    'can_manage' => $organization
+                        ? $billing->canManageBilling($user, $organization)
+                        : false,
+                ];
+
+                return $catalog;
+            },
             'onboarding' => fn () => $organization ? $this->onboarding($organization) : null,
             'impersonation' => fn () => app(ImpersonationService::class)->sharedState($request),
+            'inbox_unread' => fn () => $organization
+                ? InboxSyncState::for($organization, $mailboxId)['unread']
+                : 0,
+            'broadcasting' => fn () => [
+                'enabled' => config('broadcasting.default') === 'reverb'
+                    && filled(config('broadcasting.connections.reverb.key')),
+                'driver' => config('broadcasting.default'),
+            ],
         ];
     }
 

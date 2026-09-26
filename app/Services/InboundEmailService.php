@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\InboxUpdated;
 use App\Jobs\DispatchWebhook;
 use App\Mail\DTO\InboundEmail;
 use App\Models\Attachment;
@@ -93,6 +94,8 @@ class InboundEmailService
             'subject' => $message->subject,
             'status' => $message->status,
         ]);
+
+        InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
 
         // Mail to a group address (staff@...) is copied to each member via the queue.
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());

@@ -64,7 +64,7 @@ class TenantResolutionTest extends TestCase
                 ->where('tenant.can_send', true));
     }
 
-    public function test_non_member_is_forbidden_on_tenant_host(): void
+    public function test_non_member_is_sent_to_login_on_tenant_host(): void
     {
         config([
             'maildesk.base_domain' => 'maildesk.test',
@@ -77,7 +77,9 @@ class TenantResolutionTest extends TestCase
 
         $this->actingAs($outsider)
             ->get('http://acme.maildesk.test/emails')
-            ->assertForbidden();
+            ->assertRedirect(route('login'));
+
+        $this->assertGuest();
     }
 
     public function test_central_host_uses_session_workspace(): void

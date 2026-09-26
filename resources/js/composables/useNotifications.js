@@ -1,9 +1,9 @@
 import { computed, reactive } from 'vue';
-import { mockNotifications, mockThreads } from '@/data/mock';
+import { mockNotifications } from '@/data/mock';
 
 const state = reactive({
     items: mockNotifications.map((n) => ({ ...n })),
-    inboxUnread: mockThreads.filter((t) => t.unread).length,
+    inboxUnread: 0,
 });
 
 export function useNotifications() {
@@ -31,7 +31,7 @@ export function useNotifications() {
     };
 
     const setInboxUnread = (count) => {
-        state.inboxUnread = Math.max(0, count);
+        state.inboxUnread = Math.max(0, Number(count) || 0);
     };
 
     return {

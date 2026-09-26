@@ -15,6 +15,7 @@ class Mailbox extends Model
 
     protected $fillable = [
         'organization_id',
+        'user_id',
         'domain_id',
         'email',
         'display_name',
@@ -43,6 +44,11 @@ class Mailbox extends Model
         return $this->belongsTo(Organization::class);
     }
 
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
     public function domain(): BelongsTo
     {
         return $this->belongsTo(Domain::class);
@@ -61,7 +67,7 @@ class Mailbox extends Model
     /**
      * @return array<string, mixed>
      */
-    public function toWorkspaceArray(): array
+    public function toWorkspaceArray(?User $actor = null, bool $actorIsTeam = false): array
     {
         $sent = $this->relationLoaded('messages')
             ? $this->messages->where('direction', 'outbound')->count()
@@ -70,8 +76,15 @@ class Mailbox extends Model
             ? $this->messages->where('direction', 'inbound')->count()
             : $this->messages()->where('direction', 'inbound')->count();
 
+        $canImpersonate = $actorIsTeam
+            && $this->user_id
+            && $this->status === 'active'
+            && $actor
+            && (int) $this->user_id !== (int) $actor->id;
+
         return [
             'id' => $this->id,
+            'user_id' => $this->user_id,
             'name' => $this->display_name ?: $this->email,
             'email' => $this->email,
             'role' => $this->role ?: 'staff',
@@ -79,6 +92,8 @@ class Mailbox extends Model
             'inbox' => (bool) $this->inbox,
             'transactional' => (bool) $this->transactional,
             'marketing' => (bool) $this->marketing,
+            'has_login' => $this->user_id !== null,
+            'can_impersonate' => $canImpersonate,
             'usage' => [
                 'sent' => $sent,
                 'limit' => $this->send_limit ?? 0,

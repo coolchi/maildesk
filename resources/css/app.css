@@ -85,7 +85,7 @@
     }
 
     .md-table-wrap {
-        @apply overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950;
+        @apply overflow-x-auto rounded-xl border border-zinc-800/80 bg-zinc-950;
     }
 
     .md-input {

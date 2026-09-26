@@ -31,6 +31,8 @@ const toast = useToast();
 const editorRef = ref(null);
 const fileInput = ref(null);
 const sending = ref(false);
+const savingDraft = ref(false);
+const draftId = composeDraft.draftId;
 
 const fromOptions = computed(() => {
     if (sendingFrom.value.length) {
@@ -213,6 +215,42 @@ const fileIcon = (att) => {
     return File;
 };
 
+const saveDraft = () => {
+    savingDraft.value = true;
+    const data = {
+        from: form.value.from,
+        to: form.value.to.trim() || null,
+        cc: form.value.cc.trim() || null,
+        bcc: (form.value.bcc || '').trim() || null,
+        subject: form.value.subject.trim() || null,
+        html: form.value.html,
+        thread_id: state.defaults?.thread_id ?? null,
+    };
+
+    const opts = {
+        preserveScroll: true,
+        preserveState: true,
+        onFinish: () => {
+            savingDraft.value = false;
+        },
+        onSuccess: (response) => {
+            const id = response.props.flash?.draft_id;
+            if (id) {
+                draftId.value = id;
+            }
+            pristine.value = snapshot();
+            toast.success('Draft saved.');
+        },
+        onError: () => toast.error('Could not save draft.'),
+    };
+
+    if (draftId.value) {
+        router.put(route('drafts.update', draftId.value), data, opts);
+    } else {
+        router.post(route('drafts.store'), data, opts);
+    }
+};
+
 const submit = () => {
     if (!canSend.value) {
         toast.error(
@@ -248,6 +286,10 @@ const submit = () => {
         schedule: form.value.schedule,
         schedule_at: form.value.schedule ? form.value.scheduleAt : null,
     };
+
+    if (draftId.value) {
+        data.draft_id = draftId.value;
+    }
 
     const fileList = attachments.value.map((a) => a.file).filter(Boolean);
     if (fileList.length) {
@@ -696,6 +738,14 @@ const submit = () => {
                                     Attach
                                 </button>
                                 <div class="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        class="md-btn-ghost"
+                                        :disabled="savingDraft"
+                                        @click="saveDraft"
+                                    >
+                                        {{ savingDraft ? 'Saving…' : 'Save draft' }}
+                                    </button>
                                     <button
                                         type="button"
                                         class="md-btn-ghost"

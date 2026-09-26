@@ -10,6 +10,7 @@
         "ezyang/htmlpurifier": "^4.18",
         "inertiajs/inertia-laravel": "^2.0",
         "laravel/framework": "^13.17",
+        "laravel/reverb": "^1.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "resend/resend-php": "^1.13",

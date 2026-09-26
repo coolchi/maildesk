@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { computed, onMounted, ref } from 'vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import { useTenant } from '@/composables/useTenant';
@@ -11,6 +11,7 @@ import {
     Download,
     ExternalLink,
     Eye,
+    Users,
 } from '@lucide/vue';
 import RowActions from '@/Components/RowActions.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
@@ -46,8 +47,21 @@ const props = defineProps({
         type: Object,
         default: null,
     },
+    team: {
+        type: Array,
+        default: () => [],
+    },
+    canImpersonateTeam: {
+        type: Boolean,
+        default: false,
+    },
+    joinUrl: {
+        type: String,
+        default: '',
+    },
 });
 
+const page = usePage();
 const toast = useToast();
 const { theme } = useTheme();
 const { open: openPlans } = usePlansModal();
@@ -80,6 +94,8 @@ const usageData = computed(() => props.usage || mockUsageFallback);
 const tabs = [
     'usage',
     'billing',
+    'team',
+    'users',
     'smtp',
     'signature',
     'unsubscribe',
@@ -90,6 +106,7 @@ const tabLabel = (t) => {
     if (t === 'unsubscribe') return 'Unsubscribe page';
     if (t === 'smtp') return 'SMTP';
     if (t === 'signature') return 'Signature';
+    if (t === 'users') return 'Users';
     return t.charAt(0).toUpperCase() + t.slice(1);
 };
 
@@ -97,6 +114,49 @@ const pageTitle = computed(() => {
     const label = tabLabel(props.tab);
     return `Settings · ${label}`;
 });
+
+onMounted(() => {
+    const error = page.props.flash?.error;
+    if (error && /impersonat|log in as/i.test(error)) toast.error(error);
+});
+
+const registration = ref({
+    enabled: Boolean(props.settings?.user_registration?.enabled),
+    approval: props.settings?.user_registration?.approval || 'auto',
+    default_role: props.settings?.user_registration?.default_role || 'staff',
+    default_inbox: props.settings?.user_registration?.default_inbox ?? true,
+    default_transactional:
+        props.settings?.user_registration?.default_transactional ?? false,
+    default_marketing:
+        props.settings?.user_registration?.default_marketing ?? false,
+});
+const registrationSaving = ref(false);
+
+const saveRegistration = () => {
+    registrationSaving.value = true;
+    router.put(
+        route('settings.update'),
+        { user_registration: registration.value },
+        {
+            preserveScroll: true,
+            onSuccess: () => toast.success('User registration settings saved.'),
+            onError: () => toast.error('Could not save settings.'),
+            onFinish: () => {
+                registrationSaving.value = false;
+            },
+        },
+    );
+};
+
+const copyJoinUrl = async () => {
+    if (!props.joinUrl) return;
+    try {
+        await navigator.clipboard.writeText(props.joinUrl);
+        toast.success('Join link copied.');
+    } catch {
+        toast.error('Could not copy link.');
+    }
+};
 
 // Workspace SMTP server. The saved password is never sent to the browser;
 // the server only tells us whether one exists (has_password).
@@ -214,7 +274,7 @@ const nigeriaStates = ['Ogun State', 'Lagos', 'Abuja', 'Rivers', 'Kano'];
 
 const subscriptionActions = [
     { id: 'change', label: 'Change plan' },
-    { id: 'upgrade', label: 'Upgrade / renew with Monipay' },
+    { id: 'history', label: 'Payment history' },
     { id: 'cancel', label: 'Cancel subscription', danger: true },
 ];
 
@@ -331,7 +391,7 @@ const saveAddress = () => toast.success('Billing address saved.');
 
 const onSubscriptionAction = (item) => {
     if (item.id === 'change') openPlans('transactional');
-    else if (item.id === 'upgrade')
+    else if (item.id === 'history')
         document
             .getElementById('monipay-upgrade')
             ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -500,15 +560,15 @@ const downloadInvoice = (inv) => {
 
             <section class="grid gap-6 py-8 lg:grid-cols-[240px_1fr]">
                 <div>
-                    <h3 class="text-base font-medium text-white">Users</h3>
+                    <h3 class="text-base font-medium text-white">Mailboxes</h3>
                     <p class="mt-1 text-sm text-zinc-500">
-                        Mailbox seats for staff, developers, and owners.
+                        Addresses for staff, developers, and owners.
                     </p>
                     <Link
                         :href="route('users')"
                         class="md-btn-solid mt-4 inline-flex"
                     >
-                        Manage users
+                        Manage mailboxes
                     </Link>
                 </div>
                 <div class="flex items-center justify-between">
@@ -524,6 +584,255 @@ const downloadInvoice = (inv) => {
                     >
                         {{ usageData.team.plan }}
                     </span>
+                </div>
+            </section>
+        </div>
+
+        <!-- Team accounts -->
+        <div
+            v-else-if="tab === 'team'"
+            class="mx-auto max-w-3xl space-y-6"
+            data-testid="team-members"
+        >
+            <section class="md-card overflow-hidden">
+                <div
+                    class="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4"
+                >
+                    <div class="flex items-start gap-3">
+                        <div
+                            class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-400/20 bg-cyan-400/10 text-cyan-300"
+                        >
+                            <Users :size="16" />
+                        </div>
+                        <div>
+                            <h2 class="text-base font-medium text-white">
+                                Team accounts
+                            </h2>
+                            <p class="mt-1 text-sm text-zinc-500">
+                                Workspace owners and admins. Mailbox sign-in
+                                users are managed under Users — including Log in
+                                as.
+                            </p>
+                        </div>
+                    </div>
+                    <Link
+                        :href="route('users')"
+                        class="md-btn-solid shrink-0 text-xs"
+                    >
+                        Manage users
+                    </Link>
+                </div>
+
+                <div
+                    v-if="!team.length"
+                    class="px-5 py-8 text-center text-sm text-zinc-500"
+                >
+                    No team accounts yet.
+                </div>
+
+                <div v-else class="divide-y divide-zinc-800/80">
+                    <div
+                        v-for="member in team"
+                        :key="member.id"
+                        class="flex items-center gap-3 px-5 py-3.5"
+                    >
+                        <div
+                            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium text-zinc-300"
+                        >
+                            {{ member.name.slice(0, 1).toUpperCase() }}
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="truncate text-sm font-medium text-white">
+                                {{ member.name }}
+                                <span
+                                    class="ml-1.5 text-xs font-normal capitalize text-zinc-500"
+                                    >{{ member.role }}</span
+                                >
+                            </div>
+                            <div
+                                class="truncate font-mono text-xs text-zinc-400"
+                            >
+                                {{ member.email }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <p class="text-xs text-zinc-600">
+                To create a sign-in mailbox user or Log in as them, open
+                <Link
+                    :href="route('users')"
+                    class="text-cyan-400 hover:text-cyan-300"
+                    >Users</Link
+                >.
+            </p>
+        </div>
+
+        <!-- User registration -->
+        <div
+            v-else-if="tab === 'users'"
+            class="mx-auto max-w-3xl space-y-6"
+            data-testid="user-registration-settings"
+        >
+            <section class="md-card overflow-hidden">
+                <div
+                    class="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4"
+                >
+                    <div class="flex items-start gap-3">
+                        <div
+                            class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-400/20 bg-cyan-400/10 text-cyan-300"
+                        >
+                            <Users :size="16" />
+                        </div>
+                        <div>
+                            <h2 class="text-base font-medium text-white">
+                                User registration
+                            </h2>
+                            <p class="mt-1 text-sm text-zinc-500">
+                                Let students and staff create their own mailbox
+                                sign-in accounts on this workspace.
+                            </p>
+                        </div>
+                    </div>
+                    <Link
+                        :href="route('users')"
+                        class="md-btn-solid shrink-0 text-xs"
+                    >
+                        Pending users
+                    </Link>
+                </div>
+
+                <div class="space-y-5 px-5 py-5">
+                    <label class="flex items-start gap-3">
+                        <input
+                            v-model="registration.enabled"
+                            type="checkbox"
+                            class="mt-1 rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                            data-testid="registration-enabled"
+                        />
+                        <span>
+                            <span class="block text-sm font-medium text-white"
+                                >Allow user registration</span
+                            >
+                            <span class="mt-0.5 block text-xs text-zinc-500"
+                                >Shows a public /join page on this
+                                workspace.</span
+                            >
+                        </span>
+                    </label>
+
+                    <div v-if="registration.enabled" class="space-y-5 border-t border-zinc-800 pt-5">
+                        <div>
+                            <label
+                                class="mb-1.5 block text-xs text-zinc-500"
+                                for="registration-approval"
+                                >Approval</label
+                            >
+                            <select
+                                id="registration-approval"
+                                v-model="registration.approval"
+                                class="md-input"
+                                data-testid="registration-approval"
+                            >
+                                <option value="auto">Auto-approve</option>
+                                <option value="manual">Require approval</option>
+                            </select>
+                            <p class="mt-1.5 text-xs text-zinc-600">
+                                {{
+                                    registration.approval === 'manual'
+                                        ? 'New accounts stay pending until you approve them on Users.'
+                                        : 'New accounts can sign in immediately.'
+                                }}
+                            </p>
+                        </div>
+
+                        <div>
+                            <label
+                                class="mb-1.5 block text-xs text-zinc-500"
+                                for="registration-role"
+                                >Default role</label
+                            >
+                            <select
+                                id="registration-role"
+                                v-model="registration.default_role"
+                                class="md-input"
+                            >
+                                <option value="staff">Staff</option>
+                                <option value="developer">Developer</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <div class="mb-2 text-xs text-zinc-500">
+                                Default product access
+                            </div>
+                            <div class="flex flex-wrap gap-4">
+                                <label class="flex items-center gap-2 text-sm text-zinc-300">
+                                    <input
+                                        v-model="registration.default_inbox"
+                                        type="checkbox"
+                                        class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                                    />
+                                    Inbox
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-zinc-300">
+                                    <input
+                                        v-model="
+                                            registration.default_transactional
+                                        "
+                                        type="checkbox"
+                                        class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                                    />
+                                    Transactional
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-zinc-300">
+                                    <input
+                                        v-model="registration.default_marketing"
+                                        type="checkbox"
+                                        class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                                    />
+                                    Marketing
+                                </label>
+                            </div>
+                        </div>
+
+                        <div v-if="joinUrl">
+                            <div class="mb-1.5 text-xs text-zinc-500">
+                                Join link
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <code
+                                    class="min-w-0 flex-1 truncate rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs text-cyan-300"
+                                    >{{ joinUrl }}</code
+                                >
+                                <button
+                                    type="button"
+                                    class="md-btn-ghost text-xs"
+                                    @click="copyJoinUrl"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-zinc-800 pt-4">
+                        <button
+                            type="button"
+                            class="md-btn-solid"
+                            data-testid="registration-save"
+                            :disabled="registrationSaving"
+                            @click="saveRegistration"
+                        >
+                            {{
+                                registrationSaving
+                                    ? 'Saving…'
+                                    : 'Save registration settings'
+                            }}
+                        </button>
+                    </div>
                 </div>
             </section>
         </div>
@@ -589,7 +898,7 @@ const downloadInvoice = (inv) => {
                 </ul>
             </section>
 
-            <!-- Plan upgrades (Monipay) + payment history — full width -->
+            <!-- Payment history (plan pay starts from View plans → Monipay) -->
             <MonipayUpgrade :payments="payments" class="lg:col-span-2" />
 
             <!-- Left: email + payment -->

@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\MailDraft;
 use App\Models\Message;
 use App\Services\EmailService;
+use App\Services\WorkspaceAccess;
 use App\Support\AddressList;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
@@ -15,11 +17,14 @@ use Inertia\Response;
 
 class EmailController extends Controller
 {
+    public function __construct(public WorkspaceAccess $access) {}
+
     public function index(Request $request): Response
     {
         $organization = CurrentOrganization::from($request);
+        $user = $request->user();
 
-        $messages = $organization->messages()
+        $messages = $this->access->scopeMailData($organization->messages(), $user, $organization)
             ->latest()
             ->limit(100)
             ->get()
@@ -28,13 +33,14 @@ class EmailController extends Controller
             ->all();
 
         $since = now()->subDays(15);
-        $outbound = $organization->messages()->where('direction', 'outbound');
+        $outbound = $this->access->scopeMailData($organization->messages(), $user, $organization)
+            ->where('direction', 'outbound');
 
         $stats = [
             'sent' => (clone $outbound)->where('created_at', '>=', $since)->count(),
             'delivered' => (clone $outbound)->where('status', 'delivered')->where('created_at', '>=', $since)->count(),
             'bounced' => (clone $outbound)->where('status', 'bounced')->where('created_at', '>=', $since)->count(),
-            'received' => $organization->messages()
+            'received' => $this->access->scopeMailData($organization->messages(), $user, $organization)
                 ->where('direction', 'inbound')
                 ->where('created_at', '>=', $since)
                 ->count(),
@@ -49,6 +55,7 @@ class EmailController extends Controller
     public function sent(Request $request): Response
     {
         $organization = CurrentOrganization::from($request);
+        $user = $request->user();
 
         $groups = [
             'delivered' => ['delivered'],
@@ -62,7 +69,8 @@ class EmailController extends Controller
             : 'all';
         $search = trim($request->string('q')->toString());
 
-        $base = fn () => $organization->messages()->where('direction', 'outbound');
+        $base = fn () => $this->access->scopeMailData($organization->messages(), $user, $organization)
+            ->where('direction', 'outbound');
 
         $query = $base()
             ->when($filter !== 'all', fn ($q) => $q->whereIn('status', $groups[$filter]))
@@ -108,7 +116,7 @@ class EmailController extends Controller
         $organization->loadMissing('mailProvider');
 
         /** @var Message $message */
-        $message = $organization->messages()
+        $message = $this->access->scopeMailData($organization->messages(), $request->user(), $organization)
             ->where('uuid', $id)
             ->where('direction', 'outbound')
             ->firstOrFail();
@@ -135,7 +143,7 @@ class EmailController extends Controller
         $organization = CurrentOrganization::from($request);
 
         /** @var Message $message */
-        $message = $organization->messages()
+        $message = $this->access->scopeMailData($organization->messages(), $request->user(), $organization)
             ->where('uuid', $id)
             ->firstOrFail();
 
@@ -148,6 +156,7 @@ class EmailController extends Controller
     {
         $organization = CurrentOrganization::from($request);
         $organization->loadMissing('mailProvider');
+        $user = $request->user();
 
         if (! $organization->mailProvider || $organization->mailProvider->status !== 'active') {
             return back()->with('error', 'Cannot send — this workspace has no active mail provider.');
@@ -168,10 +177,17 @@ class EmailController extends Controller
             'schedule_at' => ['nullable', 'date', 'after:now'],
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*' => ['file', 'max:10240'],
+            'draft_id' => ['nullable', 'integer'],
         ]);
 
         $fromEmail = $this->extractEmail($validated['from']);
         $domainName = Str::after($fromEmail, '@');
+
+        if (! $this->access->maySendAs($user, $organization, $fromEmail)) {
+            return back()->withErrors([
+                'from' => 'You can only send from your mailbox address.',
+            ]);
+        }
 
         $hasVerifiedDomains = $organization->domains()->where('status', 'verified')->exists();
         $verified = $organization->domains()
@@ -223,6 +239,17 @@ class EmailController extends Controller
         }
 
         $message = $emails->send($organization, $payload, $files);
+
+        if (
+            ! empty($validated['draft_id'])
+            && ! in_array($message->status, ['failed', 'suppressed'], true)
+        ) {
+            MailDraft::query()
+                ->where('organization_id', $organization->id)
+                ->where('user_id', $user->id)
+                ->whereKey($validated['draft_id'])
+                ->delete();
+        }
 
         if ($request->boolean('stay')) {
             return $this->stayResponse($message);

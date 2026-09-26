@@ -1,5 +1,10 @@
 <?php
 
+use App\Http\Controllers\Admin\AccountLifecycleController;
+use App\Http\Controllers\Admin\AccountUserController;
+use App\Http\Controllers\Admin\PlanController;
+use App\Http\Controllers\Admin\PlatformSettingsController;
+use App\Http\Controllers\Admin\RevenueController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\AttachmentController;
@@ -18,15 +23,19 @@ use App\Http\Controllers\ImpersonationController;
 use App\Http\Controllers\InboxController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\MailboxController;
+use App\Http\Controllers\MailboxSignatureController;
+use App\Http\Controllers\MailDraftController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SuppressionController;
 use App\Http\Controllers\TemplateController;
+use App\Http\Controllers\TenantRegistrationController;
 use App\Http\Controllers\UnsubscribeController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WorkspaceController;
 use App\Http\Middleware\RequireFreshPassword;
+use App\Services\PlatformSettings;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -34,7 +43,7 @@ use Inertia\Inertia;
 Route::get('/', function () {
     return Inertia::render('Welcome', [
         'canLogin' => Route::has('login'),
-        'canRegister' => Route::has('register') && app(\App\Services\PlatformSettings::class)->signupOpen(),
+        'canRegister' => Route::has('register') && app(PlatformSettings::class)->signupOpen(),
         'laravelVersion' => Application::VERSION,
         'phpVersion' => PHP_VERSION,
     ]);
@@ -45,6 +54,14 @@ Route::get('/unsubscribe/{recipient}', [UnsubscribeController::class, 'show'])
     ->whereNumber('recipient')->middleware('signed:relative')->name('unsubscribe.show');
 Route::post('/unsubscribe/{recipient}', [UnsubscribeController::class, 'store'])
     ->whereNumber('recipient')->middleware(['signed:relative', 'throttle:30,1'])->name('unsubscribe.store');
+
+// Workspace student/staff self-registration (tenant host only; gated in controller).
+// Not behind `guest`: an authenticated user from another workspace must be able to
+// reach /join so we can sign them out and show the registration form.
+Route::get('/join', [TenantRegistrationController::class, 'create'])->name('tenant.join');
+Route::post('/join', [TenantRegistrationController::class, 'store'])
+    ->middleware('throttle:10,1')
+    ->name('tenant.join.store');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/workspaces', [WorkspaceController::class, 'store'])->name('workspaces.store');
@@ -59,11 +76,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/attachments', [AttachmentController::class, 'store'])->name('attachments.store');
     Route::get('/attachments/{attachment}/download', [AttachmentController::class, 'download'])->whereNumber('attachment')->name('attachments.download');
     Route::get('/inbox', [InboxController::class, 'index'])->name('inbox');
+    Route::get('/inbox/sync', [InboxController::class, 'sync'])->middleware('throttle:60,1')->name('inbox.sync');
     Route::get('/inbox/{thread}', [InboxController::class, 'show'])->whereNumber('thread')->name('inbox.show');
     Route::patch('/inbox/{thread}/read', [InboxController::class, 'markRead'])->whereNumber('thread')->name('inbox.read');
+    Route::post('/inbox/{thread}/archive', [InboxController::class, 'toggleArchive'])->whereNumber('thread')->name('inbox.archive');
     Route::post('/inbox/{thread}/reply', [InboxController::class, 'reply'])->whereNumber('thread')->name('inbox.reply');
     Route::post('/inbox/{thread}/forward', [InboxController::class, 'forward'])->whereNumber('thread')->name('inbox.forward');
+    Route::get('/archive', [InboxController::class, 'archiveIndex'])->name('archive');
     Route::get('/sent', [EmailController::class, 'sent'])->name('sent');
+    Route::get('/drafts', [MailDraftController::class, 'index'])->name('drafts');
+    Route::post('/drafts', [MailDraftController::class, 'store'])->name('drafts.store');
+    Route::put('/drafts/{draft}', [MailDraftController::class, 'update'])->whereNumber('draft')->name('drafts.update');
+    Route::delete('/drafts/{draft}', [MailDraftController::class, 'destroy'])->whereNumber('draft')->name('drafts.destroy');
+    Route::get('/mailbox/signature', [MailboxSignatureController::class, 'edit'])->name('mailbox.signature');
+    Route::put('/mailbox/signature', [MailboxSignatureController::class, 'update'])->name('mailbox.signature.update');
     Route::get('/bounced', [BounceController::class, 'index'])->name('bounced');
     Route::get('/compose', [DashboardController::class, 'compose'])->name('compose');
     Route::get('/broadcasts', [BroadcastController::class, 'index'])->name('broadcasts');
@@ -90,6 +116,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/users', [MailboxController::class, 'store'])->name('users.store');
     Route::put('/users/{mailbox}', [MailboxController::class, 'update'])->name('users.update');
     Route::delete('/users/{mailbox}', [MailboxController::class, 'destroy'])->name('users.destroy');
+    Route::post('/users/{mailbox}/approve', [MailboxController::class, 'approve'])->name('users.approve');
+    Route::post('/users/{mailbox}/reject', [MailboxController::class, 'reject'])->name('users.reject');
+    Route::post('/team/{user}/impersonate', [ImpersonationController::class, 'startWorkspace'])
+        ->middleware([RequireFreshPassword::class, 'throttle:10,1'])
+        ->name('team.impersonate');
     Route::get('/metrics', [MetricsController::class, 'index'])->name('metrics');
     Route::get('/domains', [DomainController::class, 'index'])->name('domains');
     Route::post('/domains', [DomainController::class, 'store'])->name('domains.store');
@@ -128,7 +159,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/help', [HelpController::class, 'index'])->name('help');
     Route::redirect('/settings', '/settings/usage');
     Route::get('/settings/{tab}', [SettingsController::class, 'show'])
-        ->whereIn('tab', ['usage', 'billing', 'smtp', 'unsubscribe', 'documents', 'signature'])
+        ->whereIn('tab', ['usage', 'billing', 'team', 'users', 'smtp', 'unsubscribe', 'documents', 'signature'])
         ->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     Route::put('/settings/smtp', [SettingsController::class, 'updateSmtp'])->name('settings.smtp.update');
@@ -157,17 +188,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/subdomains/{organizationHost}/verify', [AdminController::class, 'verifyHost'])->name('subdomains.verify');
 
         // Account lifecycle + membership management (admin panel gap fixes).
-        Route::delete('/accounts/{organization}', [\App\Http\Controllers\Admin\AccountLifecycleController::class, 'destroy'])->name('accounts.destroy');
-        Route::get('/accounts/{organization}/users', [\App\Http\Controllers\Admin\AccountUserController::class, 'index'])->name('accounts.users');
-        Route::post('/accounts/{organization}/users', [\App\Http\Controllers\Admin\AccountUserController::class, 'store'])->name('accounts.users.store');
-        Route::put('/accounts/{organization}/users/{user}', [\App\Http\Controllers\Admin\AccountUserController::class, 'update'])->name('accounts.users.update');
-        Route::delete('/accounts/{organization}/users/{user}', [\App\Http\Controllers\Admin\AccountUserController::class, 'destroy'])->name('accounts.users.destroy');
-        Route::delete('/plans/{plan}', [\App\Http\Controllers\Admin\PlanController::class, 'destroy'])->name('plans.destroy');
-        Route::get('/revenue', [\App\Http\Controllers\Admin\RevenueController::class, 'index'])->name('revenue');
+        Route::delete('/accounts/{organization}', [AccountLifecycleController::class, 'destroy'])->name('accounts.destroy');
+        Route::get('/accounts/{organization}/users', [AccountUserController::class, 'index'])->name('accounts.users');
+        Route::post('/accounts/{organization}/users', [AccountUserController::class, 'store'])->name('accounts.users.store');
+        Route::put('/accounts/{organization}/users/{user}', [AccountUserController::class, 'update'])->name('accounts.users.update');
+        Route::delete('/accounts/{organization}/users/{user}', [AccountUserController::class, 'destroy'])->name('accounts.users.destroy');
+        Route::delete('/plans/{plan}', [PlanController::class, 'destroy'])->name('plans.destroy');
+        Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue');
         Route::post('/providers/{mailProvider}/test', [AdminController::class, 'testProvider'])
             ->middleware('throttle:10,1')->name('providers.test');
-        Route::get('/settings', [\App\Http\Controllers\Admin\PlatformSettingsController::class, 'index'])->name('settings');
-        Route::put('/settings', [\App\Http\Controllers\Admin\PlatformSettingsController::class, 'update'])->name('settings.update');
+        Route::get('/settings', [PlatformSettingsController::class, 'index'])->name('settings');
+        Route::put('/settings', [PlatformSettingsController::class, 'update'])->name('settings.update');
         Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])
             ->middleware([RequireFreshPassword::class, 'throttle:10,1'])->name('impersonate');
     });

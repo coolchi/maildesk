@@ -3,6 +3,8 @@
 namespace App\Http\Middleware;
 
 use App\Models\ImpersonationLog;
+use App\Models\User;
+use App\Services\Impersonation\ImpersonationDenied;
 use App\Services\Impersonation\ImpersonationService;
 use Closure;
 use Illuminate\Http\Request;
@@ -12,7 +14,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Enforces read-only, time-boxed impersonation and audits every request
- * made while a platform admin is logged in as another user.
+ * made while an authorized actor is logged in as another user.
  *
  * Registered in the web group just before IdentifyTenant so expiry/revocation
  * is handled before tenant resolution and even tenant 403s are audited.
@@ -51,16 +53,18 @@ class ImpersonationGuard
 
     protected function endReason(Request $request, ?ImpersonationLog $log): ?string
     {
-        $admin = $log?->admin;
+        $actor = $log?->admin;
         $user = $request->user();
 
         if ($log === null || $user === null || (int) $log->user_id !== (int) $user->id) {
             return 'revoked';
         }
 
-        if ($admin === null
-            || ! $admin->isPlatformAdmin()
-            || (int) $admin->id !== (int) $this->impersonation->impersonatorId($request)) {
+        if ($actor === null || (int) $actor->id !== (int) $this->impersonation->impersonatorId($request)) {
+            return 'revoked';
+        }
+
+        if (! $this->actorStillAuthorized($actor, $user, $log)) {
             return 'revoked';
         }
 
@@ -69,6 +73,23 @@ class ImpersonationGuard
         }
 
         return null;
+    }
+
+    protected function actorStillAuthorized(User $actor, User $target, ImpersonationLog $log): bool
+    {
+        $organization = $log->organization;
+
+        if ($organization === null) {
+            return false;
+        }
+
+        try {
+            $this->impersonation->assertActorMayImpersonate($actor, $target, $organization);
+        } catch (ImpersonationDenied) {
+            return false;
+        }
+
+        return true;
     }
 
     protected function end(Request $request, ?ImpersonationLog $log, string $reason): Response

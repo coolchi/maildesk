@@ -201,6 +201,92 @@ class DomainVerificationTest extends TestCase
         $this->assertContains('resend._domainkey.in.acme.test', $dkimRow['hosts']);
     }
 
+    public function test_resend_cname_return_path_without_spf_txt_still_verifies(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'in.desk.test',
+            'provider_domain_id' => 'dom_cname',
+        ]);
+
+        $records = [
+            ['record' => 'DKIM', 'name' => 'resend._domainkey.in', 'type' => 'TXT', 'value' => self::DKIM],
+            ['record' => 'SPF', 'name' => 'rsend.in', 'type' => 'CNAME', 'value' => 'rsend-euw1.forge.rmta.net'],
+            ['record' => 'SPF', 'name' => 'send.in', 'type' => 'CNAME', 'value' => 'send.forge.rmta.net'],
+            ['record' => 'Receiving', 'name' => 'in', 'type' => 'MX', 'value' => 'inbound-smtp.eu-west-1.amazonaws.com', 'priority' => 10],
+        ];
+
+        Http::fake([
+            'api.resend.com/domains/dom_cname/verify' => Http::response(['id' => 'dom_cname']),
+            'api.resend.com/domains/dom_cname' => Http::response([
+                'id' => 'dom_cname',
+                'name' => 'in.desk.test',
+                'status' => 'verified',
+                'region' => 'eu-west-1',
+                'records' => $records,
+            ]),
+        ]);
+
+        $this->dns->txt['resend._domainkey.in.desk.test'] = [self::DKIM];
+        $this->dns->cname['rsend.in.desk.test'] = ['rsend-euw1.forge.rmta.net'];
+        $this->dns->cname['send.in.desk.test'] = ['send.forge.rmta.net'];
+        $this->dns->mx['in.desk.test'] = [['host' => 'inbound-smtp.eu-west-1.amazonaws.com', 'priority' => 10]];
+        $this->dns->txt['_dmarc.in.desk.test'] = ['v=DMARC1; p=none;'];
+
+        $this->verify($user, $org, $domain)->assertSessionHas('success');
+
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $this->assertSame(['dkim', 'return_path'], $domain->dns_records['required']);
+        $this->assertArrayNotHasKey('spf', $domain->dns_records['checks']);
+        $this->assertTrue($domain->dns_records['checks']['return_path']);
+        $this->assertSame('verified', $domain->dns_records['provider']['status']);
+    }
+
+    public function test_deleted_resend_domain_id_is_replaced_by_recreated_domain(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'recreated.test',
+            'provider_domain_id' => 'dom_old',
+        ]);
+
+        Http::fake(function (HttpRequest $r) {
+            return match (true) {
+                $r->method() === 'GET' && str_ends_with($r->url(), '/domains/dom_old') => Http::response(['message' => 'Not found'], 404),
+                $r->method() === 'GET' && $r->url() === 'https://api.resend.com/domains' => Http::response([
+                    'data' => [['id' => 'dom_new', 'name' => 'recreated.test', 'status' => 'verified']],
+                ]),
+                $r->method() === 'GET' && str_ends_with($r->url(), '/domains/dom_new') => Http::response([
+                    'id' => 'dom_new',
+                    'name' => 'recreated.test',
+                    'status' => 'verified',
+                    'records' => [
+                        ['record' => 'DKIM', 'name' => 'resend._domainkey', 'type' => 'TXT', 'value' => self::DKIM],
+                        ['record' => 'SPF', 'name' => 'send', 'type' => 'TXT', 'value' => '"v=spf1 include:amazonses.com ~all"'],
+                    ],
+                ]),
+                str_ends_with($r->url(), '/verify') => Http::response(['id' => 'dom_new']),
+                default => Http::response(['message' => 'unexpected '.$r->url()], 500),
+            };
+        });
+
+        $this->dns->txt['resend._domainkey.recreated.test'] = [self::DKIM];
+        $this->dns->txt['send.recreated.test'] = ['v=spf1 include:amazonses.com ~all'];
+        $this->dns->txt['_dmarc.recreated.test'] = ['v=DMARC1; p=none;'];
+
+        $this->verify($user, $org, $domain)->assertSessionHas('success');
+
+        $domain->refresh();
+        $this->assertSame('dom_new', $domain->provider_domain_id);
+        $this->assertSame('verified', $domain->status);
+        $this->assertSame('dom_new', $domain->dns_records['provider']['id']);
+    }
+
     public function test_resend_return_path_cname_is_listed_required_and_checked(): void
     {
         config(['maildesk.providers.resend.api_key' => 're_test_key']);

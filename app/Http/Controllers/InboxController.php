@@ -7,8 +7,10 @@ use App\Models\Thread;
 use App\Services\EmailService;
 use App\Services\Impersonation\ImpersonationService;
 use App\Services\SignatureService;
+use App\Services\WorkspaceAccess;
 use App\Support\AddressList;
 use App\Support\CurrentOrganization;
+use App\Support\InboxSyncState;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,11 +19,25 @@ use Inertia\Response;
 
 class InboxController extends Controller
 {
+    public function __construct(public WorkspaceAccess $access) {}
+
     public function index(Request $request): Response
     {
-        $organization = CurrentOrganization::from($request);
+        return $this->folder($request, archived: false);
+    }
 
-        $threads = $organization->threads()
+    public function archiveIndex(Request $request): Response
+    {
+        return $this->folder($request, archived: true);
+    }
+
+    protected function folder(Request $request, bool $archived): Response
+    {
+        $organization = CurrentOrganization::from($request);
+        $user = $request->user();
+
+        $threads = $this->access->scopeMailData($organization->threads(), $user, $organization)
+            ->where('is_archived', $archived)
             ->with(['mailbox', 'messages' => fn ($query) => $query->orderBy('created_at'), 'messages.attachments'])
             ->latest('last_message_at')
             ->limit(50)
@@ -31,9 +47,49 @@ class InboxController extends Controller
             ->all();
 
         return Inertia::render('Inbox/Index', [
+            'folder' => $archived ? 'archive' : 'inbox',
             'threads' => $threads,
-            'signatureEnabled' => app(SignatureService::class)->settings($organization)['enabled'],
+            'signatureEnabled' => app(SignatureService::class)->settings($organization)['enabled']
+                || filled($this->access->mailboxFor($user, $organization)?->signature),
         ]);
+    }
+
+    public function toggleArchive(Request $request, int $thread): RedirectResponse|JsonResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        /** @var Thread $model */
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
+            ->findOrFail($thread);
+
+        $model->forceFill(['is_archived' => ! $model->is_archived])->save();
+
+        $message = $model->is_archived ? 'Archived.' : 'Moved to inbox.';
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'id' => $model->id,
+                'is_archived' => $model->is_archived,
+                'inbox_unread' => InboxSyncState::for(
+                    $organization,
+                    $this->access->scopedMailboxId($request->user(), $organization),
+                )['unread'],
+            ]);
+        }
+
+        return back()->with('success', $message);
+    }
+
+    /**
+     * Lightweight poll for the sidebar badge and open-inbox refresh
+     * (fallback when the WebSocket is disconnected).
+     */
+    public function sync(Request $request): JsonResponse
+    {
+        $organization = CurrentOrganization::from($request);
+        $mailboxId = $this->access->scopedMailboxId($request->user(), $organization);
+
+        return response()->json(InboxSyncState::for($organization, $mailboxId));
     }
 
     public function show(Request $request, int $thread): Response
@@ -41,7 +97,7 @@ class InboxController extends Controller
         $organization = CurrentOrganization::from($request);
 
         /** @var Thread $model */
-        $model = $organization->threads()
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
             ->with(['mailbox', 'messages' => fn ($query) => $query->orderBy('created_at'), 'messages.attachments'])
             ->findOrFail($thread);
 
@@ -58,16 +114,20 @@ class InboxController extends Controller
     public function markRead(Request $request, int $thread): JsonResponse
     {
         $organization = CurrentOrganization::from($request);
+        $user = $request->user();
         $validated = $request->validate(['read' => ['required', 'boolean']]);
 
         /** @var Thread $model */
-        $model = $organization->threads()->findOrFail($thread);
+        $model = $this->access->scopeMailData($organization->threads(), $user, $organization)
+            ->findOrFail($thread);
         $model->forceFill(['is_read' => $validated['read']])->save();
+
+        $mailboxId = $this->access->scopedMailboxId($user, $organization);
 
         return response()->json([
             'id' => $model->id,
             'unread' => ! $model->is_read,
-            'inbox_unread' => $organization->threads()->where('is_read', false)->count(),
+            'inbox_unread' => InboxSyncState::for($organization, $mailboxId)['unread'],
         ]);
     }
 
@@ -80,7 +140,7 @@ class InboxController extends Controller
         $organization->loadMissing('mailProvider');
 
         /** @var Thread $model */
-        $model = $organization->threads()
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
             ->with(['mailbox', 'messages' => fn ($query) => $query->orderBy('created_at')])
             ->findOrFail($thread);
 
@@ -161,7 +221,7 @@ class InboxController extends Controller
         $organization->loadMissing('mailProvider');
 
         /** @var Thread $model */
-        $model = $organization->threads()
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
             ->with(['mailbox', 'messages' => fn ($query) => $query->orderBy('created_at'), 'messages.attachments'])
             ->findOrFail($thread);
 

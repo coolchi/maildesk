@@ -22,6 +22,7 @@ class Thread extends Model
         'last_message_at',
         'message_count',
         'is_read',
+        'is_archived',
     ];
 
     protected function casts(): array
@@ -29,6 +30,7 @@ class Thread extends Model
         return [
             'last_message_at' => 'datetime',
             'is_read' => 'boolean',
+            'is_archived' => 'boolean',
         ];
     }
 
@@ -73,7 +75,8 @@ class Thread extends Model
             'from' => $from,
             'to' => implode(', ', $recipients),
             'unread' => ! $this->is_read,
-            'label' => 'Inbox',
+            'is_archived' => (bool) $this->is_archived,
+            'label' => $this->is_archived ? 'Archive' : 'Inbox',
             'messages' => $messages->map(fn (Message $message) => [
                 'id' => $message->uuid,
                 'from' => $message->from_email,

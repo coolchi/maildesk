@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Message;
 use App\Models\Suppression;
+use App\Services\WorkspaceAccess;
 use App\Support\CurrentOrganization;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -17,16 +18,19 @@ use Inertia\Response;
  */
 class BounceController extends Controller
 {
+    public function __construct(public WorkspaceAccess $access) {}
+
     public function index(Request $request): Response
     {
         $organization = CurrentOrganization::from($request);
+        $user = $request->user();
 
         $type = in_array($request->string('type')->toString(), ['hard', 'soft'], true)
             ? $request->string('type')->toString()
             : 'all';
         $search = trim($request->string('q')->toString());
 
-        $base = fn (): Builder => $organization->messages()
+        $base = fn (): Builder => $this->access->scopeMailData($organization->messages(), $user, $organization)
             ->getQuery()
             ->where('direction', 'outbound')
             ->where(fn (Builder $q) => $q->where('status', 'bounced')->orWhereNotNull('meta->bounce'));

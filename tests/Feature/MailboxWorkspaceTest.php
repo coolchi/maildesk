@@ -40,6 +40,8 @@ class MailboxWorkspaceTest extends TestCase
                 'transactional' => false,
                 'marketing' => false,
                 'limit' => 500,
+                'password' => 'password',
+                'password_confirmation' => 'password',
             ])
             ->assertRedirect();
 
@@ -48,6 +50,7 @@ class MailboxWorkspaceTest extends TestCase
             'email' => 'support@acme.test',
             'role' => 'staff',
         ]);
+        $this->assertDatabaseHas('users', ['email' => 'support@acme.test']);
     }
 
     public function test_member_cannot_update_foreign_mailbox(): void

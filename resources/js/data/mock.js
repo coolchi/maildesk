@@ -782,17 +782,39 @@ export const mockPlans = {
     transactional: {
         volumes: [10000, 50000, 100000, 250000, 500000, 1000000],
         labels: ['10k', '50k', '100k', '250k', '500k', '1M+'],
+        keys: {
+            free: 'tx_free',
+            pro: 'tx_pro',
+            enterprise: 'tx_enterprise',
+        },
         prices: {
-            free: [0, 0, 0, 0, 0, 0],
-            pro: [0, 20, 35, 80, 160, null],
+            usd: {
+                free: [0, 0, 0, 0, 0, 0],
+                pro: [0, 20, 35, 80, 160, null],
+            },
+            ngn: {
+                free: [0, 0, 0, 0, 0, 0],
+                pro: [0, 15000, 15000, 45000, 45000, null],
+            },
         },
     },
     marketing: {
         volumes: [1000, 5000, 10000, 25000, 50000, 100000, 200000],
         labels: ['1,000', '5,000', '10,000', '25,000', '50,000', '100,000', '200,000+'],
+        keys: {
+            free: 'mkt_free',
+            pro: 'mkt_pro',
+            enterprise: 'mkt_enterprise',
+        },
         prices: {
-            free: [0, 0, 0, 0, 0, 0, 0],
-            pro: [20, 40, 70, 140, 250, 450, null],
+            usd: {
+                free: [0, 0, 0, 0, 0, 0, 0],
+                pro: [20, 40, 70, 140, 250, 450, null],
+            },
+            ngn: {
+                free: [0, 0, 0, 0, 0, 0, 0],
+                pro: [15000, 15000, 15000, 45000, 45000, 45000, null],
+            },
         },
     },
 };

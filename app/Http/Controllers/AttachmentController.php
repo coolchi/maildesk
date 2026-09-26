@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attachment;
+use App\Services\WorkspaceAccess;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +14,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttachmentController extends Controller
 {
+    public function __construct(public WorkspaceAccess $access) {}
+
     /**
      * Download (or, for raster images with ?inline=1, preview) a stored
      * attachment. Scoped to the current workspace.
@@ -20,10 +23,16 @@ class AttachmentController extends Controller
     public function download(Request $request, int $attachment): StreamedResponse
     {
         $organization = CurrentOrganization::from($request);
+        $mailboxId = $this->access->scopedMailboxId($request->user(), $organization);
 
         /** @var Attachment $model */
         $model = Attachment::query()
-            ->whereHas('message', fn ($q) => $q->where('organization_id', $organization->id))
+            ->whereHas('message', function ($q) use ($organization, $mailboxId) {
+                $q->where('organization_id', $organization->id);
+                if ($mailboxId !== null) {
+                    $q->where('mailbox_id', $mailboxId);
+                }
+            })
             ->findOrFail($attachment);
 
         $disk = Storage::disk($model->disk ?: 'local');

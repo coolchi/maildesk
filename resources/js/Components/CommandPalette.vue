@@ -4,18 +4,22 @@ import { router, usePage } from '@inertiajs/vue3';
 import { useCommandPalette } from '@/composables/useCommandPalette';
 import { useComposeModal } from '@/composables/useComposeModal';
 import {
+    Archive,
     BarChart3,
     BookOpen,
+    FilePenLine,
     Globe,
     Inbox,
     KeyRound,
     LayoutTemplate,
     Mail,
     Megaphone,
+    PenLine,
     PenSquare,
     Search,
     Settings,
     Shield,
+    User,
     Users,
     UsersRound,
     Webhook,
@@ -31,27 +35,34 @@ const query = ref('');
 const active = ref(0);
 
 const baseCommands = [
-    { name: 'Emails', route: 'emails', icon: Mail, group: 'Mail' },
-    { name: 'Inbox', route: 'inbox', icon: Inbox, group: 'Mail' },
-    { name: 'Compose', action: 'compose', icon: PenSquare, group: 'Mail' },
-    { name: 'Sent', route: 'sent', icon: Send, group: 'Mail' },
-    { name: 'Bounced', route: 'bounced', icon: MailX, group: 'Mail' },
-    { name: 'Groups', route: 'groups', icon: UsersRound, group: 'Mail' },
-    { name: 'Users', route: 'users', icon: Users, group: 'Mail' },
-    { name: 'Broadcasts', route: 'broadcasts', icon: Megaphone, group: 'Engage' },
-    { name: 'Automations', route: 'automations', icon: Workflow, group: 'Engage' },
-    { name: 'Templates', route: 'templates', icon: LayoutTemplate, group: 'Engage' },
-    { name: 'Audience', route: 'audience', icon: Users, group: 'Engage' },
-    { name: 'Metrics', route: 'metrics', icon: BarChart3, group: 'Ops' },
-    { name: 'Domains', route: 'domains', icon: Globe, group: 'Ops' },
-    { name: 'API Keys', route: 'api-keys', icon: KeyRound, group: 'Developers' },
-    { name: 'Webhooks', route: 'webhooks', icon: Webhook, group: 'Developers' },
-    { name: 'Docs', route: 'docs', icon: BookOpen, group: 'Developers' },
-    { name: 'Settings', route: 'settings', params: 'usage', icon: Settings, group: 'Developers' },
+    { name: 'Emails', route: 'emails', icon: Mail, group: 'Mail', ability: 'manage' },
+    { name: 'Inbox', route: 'inbox', icon: Inbox, group: 'Mail', ability: 'inbox' },
+    { name: 'Compose', action: 'compose', icon: PenSquare, group: 'Mail', ability: 'mail' },
+    { name: 'Sent', route: 'sent', icon: Send, group: 'Mail', ability: 'inbox' },
+    { name: 'Drafts', route: 'drafts', icon: FilePenLine, group: 'Mail', ability: 'mail' },
+    { name: 'Archive', route: 'archive', icon: Archive, group: 'Mail', ability: 'inbox' },
+    { name: 'Bounced', route: 'bounced', icon: MailX, group: 'Mail', ability: 'manage' },
+    { name: 'Signature', route: 'mailbox.signature', icon: PenLine, group: 'Mail', ability: 'inbox' },
+    { name: 'Profile', route: 'profile.edit', icon: User, group: 'Mail' },
+    { name: 'Groups', route: 'groups', icon: UsersRound, group: 'Mail', ability: 'manage' },
+    { name: 'Users', route: 'users', icon: Users, group: 'Mail', ability: 'manage' },
+    { name: 'Broadcasts', route: 'broadcasts', icon: Megaphone, group: 'Engage', ability: 'marketing' },
+    { name: 'Automations', route: 'automations', icon: Workflow, group: 'Engage', ability: 'marketing' },
+    { name: 'Templates', route: 'templates', icon: LayoutTemplate, group: 'Engage', ability: 'marketing' },
+    { name: 'Audience', route: 'audience', icon: Users, group: 'Engage', ability: 'marketing' },
+    { name: 'Metrics', route: 'metrics', icon: BarChart3, group: 'Ops', ability: 'manage' },
+    { name: 'Domains', route: 'domains', icon: Globe, group: 'Ops', ability: 'manage' },
+    { name: 'API Keys', route: 'api-keys', icon: KeyRound, group: 'Developers', ability: 'manage' },
+    { name: 'Webhooks', route: 'webhooks', icon: Webhook, group: 'Developers', ability: 'manage' },
+    { name: 'Docs', route: 'docs', icon: BookOpen, group: 'Developers', ability: 'manage' },
+    { name: 'Settings', route: 'settings', params: 'usage', icon: Settings, group: 'Developers', ability: 'manage' },
 ];
 
 const commands = computed(() => {
-    const list = [...baseCommands];
+    const abilities = page.props.auth?.abilities || {};
+    const list = baseCommands.filter(
+        (c) => !c.ability || abilities[c.ability],
+    );
     if (page.props.auth?.user?.is_platform_admin) {
         list.push({
             name: 'SaaS Admin',
