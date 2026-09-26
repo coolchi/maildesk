@@ -8,6 +8,7 @@ import StatusBadge from '@/Components/StatusBadge.vue';
 import Modal from '@/Components/Modal.vue';
 import RowActions from '@/Components/RowActions.vue';
 import { useToast } from '@/composables/useToast';
+import { useAiFeatures } from '@/composables/useAiFeatures';
 import {
     Ban,
     Code2,
@@ -17,6 +18,7 @@ import {
     Pencil,
     Plus,
     Search,
+    Sparkles,
     Tags,
     Trash2,
     Upload,
@@ -32,6 +34,7 @@ const props = defineProps({
 });
 
 const toast = useToast();
+const { nlSegments } = useAiFeatures();
 const tab = ref('contacts');
 const search = ref('');
 const statusFilter = ref('all');
@@ -51,6 +54,8 @@ const segmentName = ref('');
 const segmentDescription = ref('');
 const segmentStatusRule = ref('subscribed');
 const segmentDomain = ref('');
+const segmentPrompt = ref('');
+const generatingSegment = ref(false);
 const deleteTarget = ref(null);
 const deleteKind = ref('contact');
 
@@ -242,6 +247,43 @@ const segmentRulesPayload = () => {
         });
     }
     return rules;
+};
+
+const generateSegmentFromPrompt = async () => {
+    if (!nlSegments.value || generatingSegment.value || !segmentPrompt.value.trim()) {
+        return;
+    }
+
+    generatingSegment.value = true;
+    try {
+        const { data } = await window.axios.post(route('ai.segment'), {
+            prompt: segmentPrompt.value.trim(),
+        });
+        if (data.name) {
+            segmentName.value = data.name;
+        }
+        if (data.description) {
+            segmentDescription.value = data.description;
+        }
+        const statusRule = (data.rules || []).find(
+            (rule) => rule.field === 'meta.status' || rule.field === 'status',
+        );
+        const domainRule = (data.rules || []).find(
+            (rule) => rule.field === 'email_domain',
+        );
+        if (statusRule?.value) {
+            segmentStatusRule.value = statusRule.value;
+        }
+        segmentDomain.value = domainRule?.value || '';
+        toast.success('Segment rules filled from your description.');
+    } catch (error) {
+        toast.error(
+            error?.response?.data?.message ||
+                'Could not generate segment rules.',
+        );
+    } finally {
+        generatingSegment.value = false;
+    }
 };
 
 const addSegment = () => {
@@ -760,6 +802,28 @@ const deleteLabel = computed(() => {
             @close="showSegment = false"
         >
             <div class="space-y-3">
+                <div
+                    v-if="nlSegments"
+                    class="space-y-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3"
+                >
+                    <label class="block text-xs text-zinc-500">Describe with AI</label>
+                    <textarea
+                        v-model="segmentPrompt"
+                        class="md-input min-h-[72px]"
+                        placeholder="Subscribed contacts at acme.com"
+                        data-testid="segment-ai-prompt"
+                    />
+                    <button
+                        type="button"
+                        class="md-btn-ghost text-xs"
+                        data-testid="segment-ai-generate"
+                        :disabled="generatingSegment || !segmentPrompt.trim()"
+                        @click="generateSegmentFromPrompt"
+                    >
+                        <Sparkles :size="14" />
+                        {{ generatingSegment ? 'Generating…' : 'Fill rules with AI' }}
+                    </button>
+                </div>
                 <input
                     v-model="segmentName"
                     type="text"

@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\DetectWorkspaceAbuse;
 use App\Jobs\SendScheduledBroadcast;
 use App\Jobs\SendScheduledMessage;
 use Illuminate\Foundation\Inspiring;
@@ -22,3 +23,6 @@ Schedule::command('inbox:purge-trash')->dailyAt('03:40')->withoutOverlapping();
 
 // End free trials → past_due lockout until Monipay payment.
 Schedule::command('billing:expire-trials')->hourly()->withoutOverlapping();
+
+// Scan active workspaces for bounce/volume/webhook abuse signals.
+Schedule::job(new DetectWorkspaceAbuse)->hourly()->withoutOverlapping();

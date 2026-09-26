@@ -12,6 +12,7 @@ import { useNotifications } from '@/composables/useNotifications';
 import { useInboxPageLive } from '@/composables/useInboxLive';
 import { useToast } from '@/composables/useToast';
 import { useMobileChrome } from '@/composables/useMobileChrome';
+import { useAiFeatures } from '@/composables/useAiFeatures';
 import {
     Archive,
     ArrowLeft,
@@ -39,6 +40,8 @@ const props = defineProps({
     threads: { type: Array, default: () => [] },
     trashRetentionDays: { type: Number, default: 30 },
 });
+
+const { threadSummary } = useAiFeatures();
 
 const page = usePage();
 const { markThreadRead, setInboxUnread, inboxUnread } = useNotifications();
@@ -379,6 +382,7 @@ const onHeaderAction = (item) => {
 
 const sendingReply = ref(false);
 const suggestingReply = ref(false);
+const summarizingThread = ref(false);
 const replyCc = ref('');
 const replyBcc = ref('');
 const showCc = ref(false);
@@ -615,6 +619,35 @@ const suggestReply = async () => {
         toast.error(message);
     } finally {
         suggestingReply.value = false;
+    }
+};
+
+const summarizeThread = async () => {
+    if (!active.value || summarizingThread.value || !threadSummary.value) {
+        return;
+    }
+
+    summarizingThread.value = true;
+    try {
+        const { data } = await window.axios.post(route('inbox.summarize', active.value.id));
+        const index = threads.value.findIndex((row) => row.id === active.value.id);
+        if (index !== -1) {
+            const nextAi = {
+                ...(threads.value[index].ai || {}),
+                summary: data.summary,
+                action_items: data.action_items || [],
+            };
+            threads.value[index] = { ...threads.value[index], ai: nextAi };
+        }
+        toast.success('Thread summarized.');
+    } catch (error) {
+        toast.error(
+            error?.response?.data?.message ||
+                error?.response?.data?.error ||
+                'Could not summarize this thread.',
+        );
+    } finally {
+        summarizingThread.value = false;
     }
 };
 
@@ -909,7 +942,7 @@ const avatarTone = (thread) => {
                     </button>
                     <div class="min-w-0 flex-1 overflow-hidden py-0.5">
                         <h2
-                            class="line-clamp-2 break-words text-[17px] font-semibold leading-snug text-white lg:line-clamp-none lg:text-lg"
+                            class="break-words text-[17px] font-semibold leading-snug text-white lg:text-lg"
                         >
                             {{ active.subject }}
                         </h2>
@@ -937,36 +970,24 @@ const avatarTone = (thread) => {
                                 {{ active.ai.language }}
                             </span>
                         </div>
-                    </div>
-                    <div class="flex shrink-0 items-center gap-1.5 self-center lg:gap-2 lg:self-start">
-                        <template v-if="folder !== 'trash'">
-                            <button
-                                type="button"
-                                class="md-btn-ghost !px-2.5 !py-1.5 text-sm lg:!px-3"
-                                :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'reply' }"
-                                title="Reply (r)"
-                                data-testid="reply-toggle"
-                                @click="replyOpen && replyMode === 'reply' ? closeReply() : openReply()"
+                        <div
+                            v-if="active.ai?.summary"
+                            class="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-sm text-zinc-300"
+                            data-testid="thread-summary"
+                        >
+                            <p>{{ active.ai.summary }}</p>
+                            <ul
+                                v-if="active.ai.action_items?.length"
+                                class="mt-2 list-disc space-y-1 pl-4 text-xs text-zinc-400"
                             >
-                                <Reply :size="15" />
-                                <span class="hidden sm:inline">Reply</span>
-                            </button>
-                            <button
-                                type="button"
-                                class="md-btn-ghost !px-2.5 !py-1.5 text-sm lg:!px-3"
-                                :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'forward' }"
-                                title="Forward (f)"
-                                data-testid="forward-toggle"
-                                @click="replyOpen && replyMode === 'forward' ? closeReply() : openForward()"
-                            >
-                                <Forward :size="15" />
-                                <span class="hidden sm:inline">Forward</span>
-                            </button>
-                        </template>
-                        <RowActions
-                            :items="headerActions"
-                            @select="onHeaderAction"
-                        />
+                                <li
+                                    v-for="item in active.ai.action_items"
+                                    :key="item"
+                                >
+                                    {{ item }}
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
                 <div
@@ -1086,6 +1107,51 @@ const avatarTone = (thread) => {
                             </button>
                         </div>
                     </article>
+                </div>
+                <div
+                    class="flex shrink-0 flex-wrap items-center gap-2 border-t border-zinc-800 px-4 py-3"
+                    data-testid="inbox-thread-actions"
+                >
+                    <template v-if="folder !== 'trash'">
+                        <button
+                            v-if="threadSummary"
+                            type="button"
+                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                            title="Summarize with AI"
+                            data-testid="summarize-thread"
+                            :disabled="summarizingThread"
+                            @click="summarizeThread"
+                        >
+                            <Sparkles :size="16" :class="{ 'animate-pulse': summarizingThread }" />
+                            {{ summarizingThread ? 'Summarizing…' : 'Summarize' }}
+                        </button>
+                        <button
+                            type="button"
+                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                            :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'reply' }"
+                            title="Reply (r)"
+                            data-testid="reply-toggle"
+                            @click="replyOpen && replyMode === 'reply' ? closeReply() : openReply()"
+                        >
+                            <Reply :size="15" />
+                            Reply
+                        </button>
+                        <button
+                            type="button"
+                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                            :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'forward' }"
+                            title="Forward (f)"
+                            data-testid="forward-toggle"
+                            @click="replyOpen && replyMode === 'forward' ? closeReply() : openForward()"
+                        >
+                            <Forward :size="15" />
+                            Forward
+                        </button>
+                    </template>
+                    <RowActions
+                        :items="headerActions"
+                        @select="onHeaderAction"
+                    />
                 </div>
                 <div
                     v-if="replyOpen"

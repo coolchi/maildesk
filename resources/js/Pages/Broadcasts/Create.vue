@@ -5,7 +5,8 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
 import { useToast } from '@/composables/useToast';
-import { ArrowLeft, Send } from '@lucide/vue';
+import { useAiFeatures } from '@/composables/useAiFeatures';
+import { ArrowLeft, Send, Sparkles } from '@lucide/vue';
 
 const props = defineProps({
     segments: { type: Array, default: () => [] },
@@ -13,7 +14,10 @@ const props = defineProps({
 });
 
 const toast = useToast();
+const { broadcastAssist } = useAiFeatures();
 const step = ref(1);
+const assisting = ref(false);
+const subjectSuggestions = ref([]);
 
 const form = ref({
     name: '',
@@ -25,6 +29,7 @@ const form = ref({
     from: 'Acme <hello@acme.com>',
     html: '<h2>What\'s new</h2><p>Share your announcement here…</p>',
     schedule: 'now',
+    brief: '',
 });
 
 const segments = computed(() =>
@@ -48,6 +53,36 @@ const next = () => {
         return;
     }
     step.value += 1;
+};
+
+const runBroadcastAssist = async () => {
+    if (!broadcastAssist.value || assisting.value) {
+        return;
+    }
+
+    assisting.value = true;
+    try {
+        const { data } = await window.axios.post(route('ai.broadcast'), {
+            brief: form.value.brief || form.value.name,
+            subject: form.value.subject,
+            html: form.value.html,
+        });
+        subjectSuggestions.value = data.subjects || [];
+        if (data.subjects?.[0]) {
+            form.value.subject = data.subjects[0];
+        }
+        if (data.html) {
+            form.value.html = data.html;
+        }
+        toast.success('Campaign copy updated.');
+    } catch (error) {
+        toast.error(
+            error?.response?.data?.message ||
+                'Broadcast assist failed.',
+        );
+    } finally {
+        assisting.value = false;
+    }
 };
 
 const send = () => {
@@ -170,6 +205,29 @@ const send = () => {
 
         <!-- Step 2 -->
         <div v-else-if="step === 2" class="md-card max-w-3xl space-y-4 p-6">
+            <div
+                v-if="broadcastAssist"
+                class="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3"
+            >
+                <div class="mb-2 flex items-center justify-between gap-2">
+                    <label class="text-xs text-zinc-500">AI brief (optional)</label>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1 text-xs text-cyan-300 hover:text-cyan-200 disabled:opacity-50"
+                        data-testid="broadcast-ai-assist"
+                        :disabled="assisting"
+                        @click="runBroadcastAssist"
+                    >
+                        <Sparkles :size="12" />
+                        {{ assisting ? 'Writing…' : 'Improve with AI' }}
+                    </button>
+                </div>
+                <input
+                    v-model="form.brief"
+                    class="md-input"
+                    placeholder="Announce our spring sale with 20% off"
+                />
+            </div>
             <div class="grid gap-4 sm:grid-cols-2">
                 <div>
                     <label class="mb-1.5 block text-xs text-zinc-500">From</label>
@@ -184,6 +242,20 @@ const send = () => {
                         class="md-input"
                         placeholder="What's new this month"
                     />
+                    <div
+                        v-if="subjectSuggestions.length"
+                        class="mt-2 flex flex-wrap gap-1.5"
+                    >
+                        <button
+                            v-for="suggestion in subjectSuggestions"
+                            :key="suggestion"
+                            type="button"
+                            class="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-cyan-400/40 hover:text-cyan-200"
+                            @click="form.subject = suggestion"
+                        >
+                            {{ suggestion }}
+                        </button>
+                    </div>
                 </div>
             </div>
             <div>

@@ -5,12 +5,14 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import { useToast } from '@/composables/useToast';
+import { useAiFeatures } from '@/composables/useAiFeatures';
 import {
     ArrowLeft,
     Clock,
     Mail,
     Plus,
     Save,
+    Sparkles,
     Trash2,
     Zap,
 } from '@lucide/vue';
@@ -21,7 +23,10 @@ const props = defineProps({
 });
 
 const toast = useToast();
+const { automationSmartSteps } = useAiFeatures();
 const existing = computed(() => props.automation);
+const aiPrompt = ref('');
+const generating = ref(false);
 
 const name = ref(existing.value?.name || 'Untitled Automation');
 const status = ref(existing.value?.status || 'disabled');
@@ -58,6 +63,36 @@ const addEmail = () => {
         type: 'email',
         label: emailOptions[0] || 'Send email',
     });
+};
+
+const generateFromPrompt = async () => {
+    if (!automationSmartSteps.value || generating.value || !aiPrompt.value.trim()) {
+        return;
+    }
+
+    generating.value = true;
+    try {
+        const { data } = await window.axios.post(route('ai.automation'), {
+            prompt: aiPrompt.value.trim(),
+        });
+        if (data.name) {
+            name.value = data.name;
+        }
+        if (data.trigger) {
+            trigger.value = data.trigger;
+        }
+        if (data.steps?.length) {
+            steps.value = data.steps.map((step) => ({ ...step }));
+        }
+        toast.success('Workflow drafted from your description.');
+    } catch (error) {
+        toast.error(
+            error?.response?.data?.message ||
+                'Could not generate automation steps.',
+        );
+    } finally {
+        generating.value = false;
+    }
 };
 
 const removeStep = (index) => {
@@ -155,6 +190,27 @@ const stepIcon = (type) => {
                 <div class="rounded-lg border border-zinc-800 bg-black/40 p-3 text-xs text-zinc-500">
                     Fire this event from your API to start the workflow.
                     <code class="mt-2 block text-cyan-300">POST /events</code>
+                </div>
+                <div v-if="automationSmartSteps" class="space-y-2 border-t border-zinc-800 pt-4">
+                    <label class="mb-1.5 block text-xs text-zinc-500"
+                        >Describe with AI</label
+                    >
+                    <textarea
+                        v-model="aiPrompt"
+                        class="md-input min-h-[88px]"
+                        placeholder="When a contact is added, wait 1 hour, then send a welcome email"
+                        data-testid="automation-ai-prompt"
+                    />
+                    <button
+                        type="button"
+                        class="md-btn-ghost w-full justify-center text-xs"
+                        :disabled="generating || !aiPrompt.trim()"
+                        data-testid="automation-ai-generate"
+                        @click="generateFromPrompt"
+                    >
+                        <Sparkles :size="14" />
+                        {{ generating ? 'Generating…' : 'Generate steps' }}
+                    </button>
                 </div>
             </aside>
 

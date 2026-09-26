@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\PlatformSettingsController;
 use App\Http\Controllers\Admin\RevenueController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AiAssistController;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\AutomationController;
@@ -104,6 +105,31 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->whereNumber('thread')
         ->middleware('throttle:20,1')
         ->name('inbox.suggest-reply');
+    Route::post('/inbox/{thread}/summarize', [AiAssistController::class, 'summarizeThread'])
+        ->whereNumber('thread')
+        ->middleware('throttle:20,1')
+        ->name('inbox.summarize');
+    Route::post('/ai/compose', [AiAssistController::class, 'compose'])
+        ->middleware('throttle:30,1')
+        ->name('ai.compose');
+    Route::post('/ai/broadcast', [AiAssistController::class, 'broadcast'])
+        ->middleware('throttle:20,1')
+        ->name('ai.broadcast');
+    Route::post('/ai/automation', [AiAssistController::class, 'automation'])
+        ->middleware('throttle:20,1')
+        ->name('ai.automation');
+    Route::post('/ai/segment', [AiAssistController::class, 'segment'])
+        ->middleware('throttle:20,1')
+        ->name('ai.segment');
+    Route::post('/ai/bounce/{message}', [AiAssistController::class, 'bounce'])
+        ->middleware('throttle:20,1')
+        ->name('ai.bounce');
+    Route::post('/ai/help', [AiAssistController::class, 'help'])
+        ->middleware('throttle:20,1')
+        ->name('ai.help');
+    Route::post('/ai/abuse-scan', [AiAssistController::class, 'abuse'])
+        ->middleware('throttle:10,1')
+        ->name('ai.abuse');
     Route::post('/inbox/{thread}/forward', [InboxController::class, 'forward'])->whereNumber('thread')->name('inbox.forward');
     Route::get('/archive', [InboxController::class, 'archiveIndex'])->name('archive');
     Route::get('/trash', [InboxController::class, 'trashIndex'])->name('trash');

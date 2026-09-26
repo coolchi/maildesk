@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Ai\AiManager;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -280,6 +281,23 @@ class PlatformSettings
             'api_key_set' => $this->aiApiKeySet(),
             'features' => $features,
         ];
+    }
+
+    /**
+     * Effective per-feature flags for workspace UI (master + feature + provider configured).
+     *
+     * @return array<string, bool>
+     */
+    public function aiFeatureFlags(): array
+    {
+        $configured = app(AiManager::class)->configured();
+        $flags = [];
+
+        foreach (array_keys(self::AI_FEATURES) as $key) {
+            $flags[$key] = $configured && $this->aiFeatureEnabled($key);
+        }
+
+        return $flags;
     }
 
     protected function boolSetting(string $key, bool $default): bool

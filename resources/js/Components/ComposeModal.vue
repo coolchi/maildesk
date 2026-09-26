@@ -8,6 +8,7 @@ import {
 } from '@/composables/useComposeModal';
 import { useTenant } from '@/composables/useTenant';
 import { useToast } from '@/composables/useToast';
+import { useAiFeatures } from '@/composables/useAiFeatures';
 import {
     Calendar,
     Eye,
@@ -20,6 +21,7 @@ import {
     Paperclip,
     Plus,
     Send,
+    Sparkles,
     Tag,
     X,
 } from '@lucide/vue';
@@ -27,12 +29,15 @@ import {
 const { state, close, toggleMinimized, toggleExpanded } = useComposeModal();
 const { canSend, activeWorkspace, activeProviderHealth, sendingFrom } =
     useTenant();
+const { composeAssist } = useAiFeatures();
 const page = usePage();
 const toast = useToast();
 const editorRef = ref(null);
 const fileInput = ref(null);
 const sending = ref(false);
 const savingDraft = ref(false);
+const assisting = ref(false);
+const subjectSuggestions = ref([]);
 const draftId = composeDraft.draftId;
 const previewAttachment = ref(null);
 
@@ -223,6 +228,44 @@ const openAttachmentPreview = (att) => {
 
 const closeAttachmentPreview = () => {
     previewAttachment.value = null;
+};
+
+const runComposeAssist = async (action) => {
+    if (!composeAssist.value || assisting.value) {
+        return;
+    }
+
+    assisting.value = true;
+    subjectSuggestions.value = [];
+
+    try {
+        const { data } = await window.axios.post(route('ai.compose'), {
+            action,
+            html: form.value.html,
+            subject: form.value.subject,
+            tone: action === 'tone' ? 'friendly' : undefined,
+            language: action === 'translate' ? 'en' : undefined,
+        });
+
+        if (action === 'subject') {
+            subjectSuggestions.value = data.subjects || [];
+            if (data.subject) {
+                form.value.subject = data.subject;
+            }
+            toast.success('Subject suggestions ready.');
+        } else if (data.html) {
+            form.value.html = data.html;
+            toast.success('Draft updated.');
+        }
+    } catch (error) {
+        toast.error(
+            error?.response?.data?.message ||
+                error?.response?.data?.error ||
+                'Compose assist failed.',
+        );
+    } finally {
+        assisting.value = false;
+    }
 };
 
 const fileIcon = (att) => {
@@ -521,21 +564,79 @@ const submit = () => {
                                     </div>
                                 </div>
                                 <div>
-                                    <label
-                                        class="mb-1.5 block text-xs text-zinc-500"
-                                        >Subject</label
-                                    >
+                                    <div class="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                                        <label class="block text-xs text-zinc-500"
+                                            >Subject</label
+                                        >
+                                        <button
+                                            v-if="composeAssist"
+                                            type="button"
+                                            class="inline-flex items-center gap-1 text-xs text-cyan-300 hover:text-cyan-200 disabled:opacity-50"
+                                            data-testid="compose-ai-subject"
+                                            :disabled="assisting"
+                                            @click="runComposeAssist('subject')"
+                                        >
+                                            <Sparkles :size="12" />
+                                            Suggest subject
+                                        </button>
+                                    </div>
                                     <input
                                         v-model="form.subject"
                                         class="md-input"
                                         required
                                     />
+                                    <div
+                                        v-if="subjectSuggestions.length"
+                                        class="mt-2 flex flex-wrap gap-1.5"
+                                    >
+                                        <button
+                                            v-for="suggestion in subjectSuggestions"
+                                            :key="suggestion"
+                                            type="button"
+                                            class="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-cyan-400/40 hover:text-cyan-200"
+                                            @click="form.subject = suggestion"
+                                        >
+                                            {{ suggestion }}
+                                        </button>
+                                    </div>
                                 </div>
                                 <div>
-                                    <label
-                                        class="mb-1.5 block text-xs text-zinc-500"
-                                        >Body</label
-                                    >
+                                    <div class="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                                        <label class="block text-xs text-zinc-500"
+                                            >Body</label
+                                        >
+                                        <div
+                                            v-if="composeAssist"
+                                            class="flex flex-wrap gap-2"
+                                        >
+                                            <button
+                                                type="button"
+                                                class="inline-flex items-center gap-1 text-xs text-cyan-300 hover:text-cyan-200 disabled:opacity-50"
+                                                data-testid="compose-ai-rewrite"
+                                                :disabled="assisting"
+                                                @click="runComposeAssist('rewrite')"
+                                            >
+                                                <Sparkles :size="12" />
+                                                {{ assisting ? 'Working…' : 'Rewrite' }}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="text-xs text-zinc-400 hover:text-cyan-200 disabled:opacity-50"
+                                                :disabled="assisting"
+                                                @click="runComposeAssist('shorten')"
+                                            >
+                                                Shorten
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="text-xs text-zinc-400 hover:text-cyan-200 disabled:opacity-50"
+                                                :disabled="assisting"
+                                                @click="runComposeAssist('tone')"
+                                            >
+                                                Friendlier tone
+                                            </button>
+                                        </div>
+                                    </div>
                                     <WysiwygEditor
                                         ref="editorRef"
                                         v-model="form.html"

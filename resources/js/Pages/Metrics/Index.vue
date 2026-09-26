@@ -3,7 +3,9 @@ import { computed, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
-import { CircleHelp } from '@lucide/vue';
+import { useAiFeatures } from '@/composables/useAiFeatures';
+import { useToast } from '@/composables/useToast';
+import { CircleHelp, ShieldAlert, Sparkles } from '@lucide/vue';
 
 const props = defineProps({
     stats: {
@@ -37,6 +39,35 @@ const props = defineProps({
     tagOptions: { type: Array, default: () => [] },
     rangeOptions: { type: Array, default: () => [7, 15, 30, 90] },
 });
+
+const { abuseDetection } = useAiFeatures();
+const toast = useToast();
+const abuseResult = ref(null);
+const scanningAbuse = ref(false);
+
+const scanAbuse = async () => {
+    if (!abuseDetection.value || scanningAbuse.value) {
+        return;
+    }
+
+    scanningAbuse.value = true;
+    try {
+        const { data } = await window.axios.post(route('ai.abuse'));
+        abuseResult.value = data;
+        toast.success(
+            data.severity === 'ok'
+                ? 'No abuse signals detected.'
+                : 'Abuse signals updated.',
+        );
+    } catch (error) {
+        toast.error(
+            error?.response?.data?.message ||
+                'Abuse scan failed.',
+        );
+    } finally {
+        scanningAbuse.value = false;
+    }
+};
 
 const hover = ref(null);
 const eventFilter = ref('all');
@@ -135,8 +166,45 @@ const pct = (value) => (value === null || value === undefined ? null : `${value}
                         Last {{ r }} days
                     </option>
                 </select>
+                <button
+                    v-if="abuseDetection"
+                    type="button"
+                    class="md-btn-ghost"
+                    data-testid="metrics-abuse-scan"
+                    :disabled="scanningAbuse"
+                    @click="scanAbuse"
+                >
+                    <Sparkles :size="14" />
+                    {{ scanningAbuse ? 'Scanning…' : 'Abuse scan' }}
+                </button>
             </template>
         </PageHeader>
+
+        <div
+            v-if="abuseResult"
+            class="mb-4 rounded-xl border p-4 text-sm"
+            :class="
+                abuseResult.severity === 'ok'
+                    ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-200'
+                    : 'border-amber-500/30 bg-amber-500/5 text-amber-100'
+            "
+            data-testid="metrics-abuse-result"
+        >
+            <div class="flex items-start gap-2">
+                <ShieldAlert :size="16" class="mt-0.5 shrink-0" />
+                <div>
+                    <p class="font-medium">{{ abuseResult.summary }}</p>
+                    <ul
+                        v-if="abuseResult.flags?.length"
+                        class="mt-2 list-disc space-y-1 pl-4 text-xs opacity-90"
+                    >
+                        <li v-for="flag in abuseResult.flags" :key="flag.code">
+                            {{ flag.label }} — {{ flag.detail }}
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
 
         <div class="md-card p-5 sm:p-6">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

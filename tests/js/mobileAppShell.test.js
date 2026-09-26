@@ -90,6 +90,10 @@ describe('Mobile inbox experience', () => {
         expect(inbox).toContain('max-lg:fixed');
         expect(inbox).toContain('setHideMobileHeader');
         expect(inbox).toContain('data-testid="inbox-thread-toolbar"');
+        expect(inbox).toContain('data-testid="inbox-thread-actions"');
+        expect(inbox.indexOf('data-testid="thread-messages"')).toBeLessThan(
+            inbox.indexOf('data-testid="inbox-thread-actions"'),
+        );
     });
 
     it('keeps thread list text inside the row on narrow screens', () => {

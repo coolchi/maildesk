@@ -127,7 +127,7 @@ class Thread extends Model
     }
 
     /**
-     * @return array{priority: ?string, intent: ?string, language: ?string}|null
+     * @return array{priority: ?string, intent: ?string, language: ?string, summary: ?string, action_items: list<string>}|null
      */
     protected function aiWorkspacePayload(): ?array
     {
@@ -140,16 +140,31 @@ class Thread extends Model
         $priority = isset($ai['priority']) && is_string($ai['priority']) ? $ai['priority'] : null;
         $intent = isset($ai['intent']) && is_string($ai['intent']) ? $ai['intent'] : null;
         $language = isset($ai['language']) && is_string($ai['language']) ? $ai['language'] : null;
+        $summary = isset($ai['summary']) && is_string($ai['summary']) ? $ai['summary'] : null;
+        $actionItems = collect($ai['action_items'] ?? [])
+            ->filter(fn ($item) => is_string($item) && $item !== '')
+            ->values()
+            ->all();
 
-        if ($priority === null && $intent === null && $language === null) {
+        if ($priority === null && $intent === null && $language === null && $summary === null && $actionItems === []) {
             return null;
         }
 
-        return [
+        $payload = [
             'priority' => $priority,
             'intent' => $intent,
             'language' => $language,
         ];
+
+        if ($summary !== null) {
+            $payload['summary'] = $summary;
+        }
+
+        if ($actionItems !== []) {
+            $payload['action_items'] = $actionItems;
+        }
+
+        return $payload;
     }
 
     /**

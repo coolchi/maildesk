@@ -1,9 +1,11 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import { useOnboarding } from '@/composables/useOnboarding';
+import { useAiFeatures } from '@/composables/useAiFeatures';
+import { useToast } from '@/composables/useToast';
 import {
     BookOpen,
     Check,
@@ -12,6 +14,7 @@ import {
     KeyRound,
     LifeBuoy,
     Send,
+    Sparkles,
     Webhook,
 } from '@lucide/vue';
 
@@ -22,7 +25,34 @@ const props = defineProps({
 });
 
 const onboarding = useOnboarding();
+const { inAppHelp } = useAiFeatures();
+const toast = useToast();
 const isDone = (key) => Boolean(onboarding.steps.value?.[key]);
+const helpQuestion = ref('');
+const helpAnswer = ref('');
+const askingHelp = ref(false);
+
+const askHelp = async () => {
+    if (!inAppHelp.value || askingHelp.value || !helpQuestion.value.trim()) {
+        return;
+    }
+
+    askingHelp.value = true;
+    helpAnswer.value = '';
+    try {
+        const { data } = await window.axios.post(route('ai.help'), {
+            question: helpQuestion.value.trim(),
+        });
+        helpAnswer.value = data.answer || '';
+    } catch (error) {
+        toast.error(
+            error?.response?.data?.message ||
+                'Could not answer that question.',
+        );
+    } finally {
+        askingHelp.value = false;
+    }
+};
 
 // Mirrors the "Get started" checklist (ONBOARDING_STEPS in useOnboarding.js).
 const steps = [
@@ -200,6 +230,40 @@ const href = (item) =>
         </PageHeader>
 
         <div class="mx-auto grid max-w-5xl gap-4">
+            <section v-if="inAppHelp" class="md-card space-y-3 p-5">
+                <h2 class="flex items-center gap-2 text-sm font-medium text-white">
+                    <Sparkles :size="14" class="text-cyan-300" />
+                    Ask {{ appName }}
+                </h2>
+                <p class="text-sm text-zinc-400">
+                    Ask a setup question about domains, API keys, inbox, or sending.
+                </p>
+                <textarea
+                    v-model="helpQuestion"
+                    class="md-input min-h-[88px]"
+                    placeholder="How do I verify a domain?"
+                    data-testid="help-ai-question"
+                />
+                <div class="flex items-center gap-2">
+                    <button
+                        type="button"
+                        class="md-btn-primary"
+                        data-testid="help-ai-ask"
+                        :disabled="askingHelp || !helpQuestion.trim()"
+                        @click="askHelp"
+                    >
+                        {{ askingHelp ? 'Thinking…' : 'Ask AI' }}
+                    </button>
+                </div>
+                <p
+                    v-if="helpAnswer"
+                    class="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-sm leading-relaxed text-zinc-300"
+                    data-testid="help-ai-answer"
+                >
+                    {{ helpAnswer }}
+                </p>
+            </section>
+
             <!-- What MailDesk is -->
             <section class="md-card p-5">
                 <h2 class="text-sm font-medium text-white">

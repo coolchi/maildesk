@@ -4,6 +4,8 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
+import { useAiFeatures } from '@/composables/useAiFeatures';
+import { useToast } from '@/composables/useToast';
 import {
     AlertTriangle,
     Ban,
@@ -19,6 +21,7 @@ import {
     Send,
     ShieldAlert,
     ShieldCheck,
+    Sparkles,
     X,
 } from '@lucide/vue';
 
@@ -29,11 +32,38 @@ const props = defineProps({
     filters: { type: Object, default: () => ({ type: 'all', q: '' }) },
 });
 
+const { bounceExplanations } = useAiFeatures();
+const toast = useToast();
 const search = ref(props.filters.q || '');
 const selectedId = ref(null);
 const selected = computed(
     () => props.bounces.find((b) => b.id === selectedId.value) ?? null,
 );
+const explaining = ref(false);
+const explanation = ref(null);
+
+watch(selectedId, () => {
+    explanation.value = null;
+});
+
+const explainBounce = async () => {
+    if (!selected.value || !bounceExplanations.value || explaining.value) {
+        return;
+    }
+
+    explaining.value = true;
+    try {
+        const { data } = await window.axios.post(route('ai.bounce', selected.value.id));
+        explanation.value = data;
+    } catch (error) {
+        toast.error(
+            error?.response?.data?.message ||
+                'Could not explain this bounce.',
+        );
+    } finally {
+        explaining.value = false;
+    }
+};
 
 const tabs = [
     { key: 'all', label: 'All' },
@@ -278,10 +308,36 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
                         </div>
 
                         <div>
-                            <div class="mb-1.5 text-xs text-zinc-500">Reason</div>
+                            <div class="mb-1.5 flex items-center justify-between gap-2">
+                                <div class="text-xs text-zinc-500">Reason</div>
+                                <button
+                                    v-if="bounceExplanations"
+                                    type="button"
+                                    class="inline-flex items-center gap-1 text-xs text-cyan-300 hover:text-cyan-200 disabled:opacity-50"
+                                    data-testid="bounce-ai-explain"
+                                    :disabled="explaining"
+                                    @click="explainBounce"
+                                >
+                                    <Sparkles :size="12" />
+                                    {{ explaining ? 'Explaining…' : 'Explain with AI' }}
+                                </button>
+                            </div>
                             <p class="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-sm leading-relaxed text-zinc-300">
                                 {{ selected.reason }}
                             </p>
+                            <div
+                                v-if="explanation"
+                                class="mt-3 space-y-2 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 text-sm text-zinc-300"
+                                data-testid="bounce-ai-explanation"
+                            >
+                                <p>{{ explanation.explanation }}</p>
+                                <div v-if="explanation.fixes?.length">
+                                    <div class="mb-1 text-xs uppercase tracking-wide text-zinc-500">Fixes</div>
+                                    <ul class="list-disc space-y-1 pl-4 text-xs text-zinc-400">
+                                        <li v-for="fix in explanation.fixes" :key="fix">{{ fix }}</li>
+                                    </ul>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="rounded-lg border p-3 text-sm" :class="selected.suppressed ? 'border-cyan-500/30 bg-cyan-500/5' : 'border-zinc-800'">

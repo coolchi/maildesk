@@ -7,6 +7,7 @@ use App\Models\Organization;
 use App\Services\AccountAccess;
 use App\Services\Billing\BillingService;
 use App\Services\Impersonation\ImpersonationService;
+use App\Services\PlatformSettings;
 use App\Services\TenantResolver;
 use App\Services\WorkspaceAccess;
 use App\Support\InboxSyncState;
@@ -152,6 +153,10 @@ class HandleInertiaRequests extends Middleware
                 'enabled' => config('broadcasting.default') === 'reverb'
                     && filled(config('broadcasting.connections.reverb.key')),
                 'driver' => config('broadcasting.default'),
+            ],
+            'ai' => fn () => [
+                'enabled' => app(PlatformSettings::class)->aiEnabled(),
+                'features' => app(PlatformSettings::class)->aiFeatureFlags(),
             ],
         ];
     }
