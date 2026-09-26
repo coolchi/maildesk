@@ -20,6 +20,8 @@ class InboxController extends Controller
             ->latest('last_message_at')
             ->paginate(min((int) $request->integer('per_page', 25), 100));
 
+        $threads->getCollection()->each(fn (Thread $thread) => $thread->messages->each->makeHidden(EmailController::HIDDEN_FIELDS));
+
         return response()->json($threads);
     }
 
@@ -32,6 +34,8 @@ class InboxController extends Controller
         $model = $organization->threads()
             ->with(['messages' => fn ($q) => $q->orderBy('created_at')])
             ->findOrFail($thread);
+
+        $model->messages->each->makeHidden(EmailController::HIDDEN_FIELDS);
 
         return response()->json($model);
     }

@@ -9,6 +9,7 @@ use App\Models\Organization;
 use App\Models\User;
 use App\Models\Webhook;
 use App\Models\WebhookDelivery;
+use App\Services\Webhooks\WebhookHostResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -59,6 +60,13 @@ class WebhookDispatchTest extends TestCase
         Http::fake([
             'https://hooks.example.com/*' => Http::response('ok', 200),
         ]);
+        $this->app->instance(WebhookHostResolver::class, new class extends WebhookHostResolver
+        {
+            public function resolve(string $host): array
+            {
+                return ['93.184.216.34'];
+            }
+        });
 
         $org = Organization::factory()->create();
         $webhook = Webhook::factory()->create([

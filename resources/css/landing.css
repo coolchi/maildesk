@@ -1,0 +1,264 @@
+/*
+ * Public landing page only (imported by Pages/Welcome.vue).
+ * Every selector is scoped under .lp so tenant/admin pages are unaffected,
+ * and the page deliberately avoids the zinc/black utility classes that the
+ * global light-mode remaps in app.css override with !important.
+ *
+ * Contrast (WCAG 2.x, measured against the page/surface background):
+ *   dark : text #fafafa 20.1:1 · secondary #a1a1aa 8.2:1 · muted #8e8e98 6.5:1 · accent #67e8f9 14.5:1
+ *   light: text #09090b 19.1:1 · secondary #52525b 7.4:1 · muted #6b6b74 5.1:1 · accent #0e7490 5.4:1
+ *   primary button: dark #083344 on #22d3ee 7.4:1 · light white on #0e7490 5.4:1
+ */
+
+.lp {
+    --lp-bg: #000;
+    --lp-bg-alt: #060608;
+    --lp-surface: #0b0b0e;
+    --lp-surface-2: #121216;
+    --lp-border: rgb(255 255 255 / 0.08);
+    --lp-border-strong: rgb(255 255 255 / 0.14);
+    --lp-text: #fafafa;
+    --lp-text-2: #a1a1aa;
+    --lp-muted: #8e8e98;
+    --lp-accent: #22d3ee;
+    --lp-accent-text: #67e8f9;
+    --lp-accent-soft: rgb(34 211 238 / 0.1);
+    --lp-accent-border: rgb(34 211 238 / 0.3);
+    --lp-btn-bg: #22d3ee;
+    --lp-btn-bg-hover: #67e8f9;
+    --lp-btn-text: #083344;
+    --lp-ok: #34d399;
+    --lp-ok-soft: rgb(52 211 153 / 0.12);
+    --lp-code-bg: #07070a;
+    --lp-code-text: #d4d4d8;
+    --lp-code-key: #67e8f9;
+    --lp-code-str: #86efac;
+    --lp-shadow-card: 0 0 0 1px rgb(255 255 255 / 0.02);
+    --lp-shadow-card-hover: 0 12px 32px -16px rgb(34 211 238 / 0.25);
+    --lp-shadow-float: 0 30px 80px -30px rgb(34 211 238 / 0.28), 0 0 0 1px rgb(255 255 255 / 0.04);
+    --lp-glow: rgb(34 211 238 / 0.16);
+
+    background-color: var(--lp-bg);
+    color: var(--lp-text);
+}
+
+html.light .lp {
+    --lp-bg: #fafafa;
+    --lp-bg-alt: #f4f4f5;
+    --lp-surface: #ffffff;
+    --lp-surface-2: #f7f7f8;
+    --lp-border: #e4e4e7;
+    --lp-border-strong: #d4d4d8;
+    --lp-text: #09090b;
+    --lp-text-2: #52525b;
+    --lp-muted: #6b6b74;
+    --lp-accent: #0891b2;
+    --lp-accent-text: #0e7490;
+    --lp-accent-soft: rgb(8 145 178 / 0.08);
+    --lp-accent-border: rgb(8 145 178 / 0.28);
+    --lp-btn-bg: #0e7490;
+    --lp-btn-bg-hover: #155e75;
+    --lp-btn-text: #ffffff;
+    --lp-ok: #047857;
+    --lp-ok-soft: rgb(4 120 87 / 0.08);
+    --lp-code-bg: #0b0b0e;
+    --lp-code-text: #e4e4e7;
+    --lp-code-key: #67e8f9;
+    --lp-code-str: #86efac;
+    --lp-shadow-card: 0 1px 2px rgb(9 9 11 / 0.04), 0 1px 3px rgb(9 9 11 / 0.04);
+    --lp-shadow-card-hover: 0 14px 30px -14px rgb(9 9 11 / 0.18), 0 2px 6px rgb(9 9 11 / 0.04);
+    --lp-shadow-float: 0 32px 64px -28px rgb(9 9 11 / 0.28), 0 0 0 1px rgb(9 9 11 / 0.06);
+    --lp-glow: rgb(8 145 178 / 0.12);
+}
+
+.lp-text { color: var(--lp-text); }
+.lp-text-2 { color: var(--lp-text-2); }
+.lp-muted { color: var(--lp-muted); }
+.lp-accent { color: var(--lp-accent-text); }
+.lp-ok { color: var(--lp-ok); }
+
+.lp-bg-alt { background-color: var(--lp-bg-alt); }
+.lp-hairline { border-color: var(--lp-border); }
+
+.lp-glow {
+    background: radial-gradient(60% 55% at 50% 0%, var(--lp-glow), transparent 70%);
+}
+
+.lp-grid-bg {
+    background-image:
+        linear-gradient(to right, var(--lp-border) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--lp-border) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
+    opacity: 0.55;
+}
+
+/* Header */
+.lp-header {
+    background-color: color-mix(in srgb, var(--lp-bg) 78%, transparent);
+    border-bottom: 1px solid transparent;
+    backdrop-filter: saturate(1.4) blur(14px);
+    -webkit-backdrop-filter: saturate(1.4) blur(14px);
+}
+.lp-header.is-scrolled { border-bottom-color: var(--lp-border); }
+
+.lp-nav-link {
+    color: var(--lp-text-2);
+    transition: color 0.15s ease;
+}
+.lp-nav-link:hover { color: var(--lp-text); }
+
+.lp-logo {
+    background: var(--lp-accent-soft);
+    color: var(--lp-accent-text);
+    border: 1px solid var(--lp-accent-border);
+}
+
+/* Buttons */
+.lp-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    font-weight: 500;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    white-space: nowrap;
+}
+.lp-btn:focus-visible {
+    outline: 2px solid var(--lp-accent);
+    outline-offset: 2px;
+}
+.lp-btn-primary {
+    background-color: var(--lp-btn-bg);
+    color: var(--lp-btn-text);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+.lp-btn-primary:hover { background-color: var(--lp-btn-bg-hover); }
+.lp-btn-secondary {
+    background-color: var(--lp-surface);
+    color: var(--lp-text);
+    border: 1px solid var(--lp-border-strong);
+    box-shadow: var(--lp-shadow-card);
+}
+.lp-btn-secondary:hover {
+    border-color: var(--lp-accent-border);
+    background-color: var(--lp-surface-2);
+}
+.lp-icon-btn {
+    color: var(--lp-text-2);
+    border: 1px solid var(--lp-border);
+    background-color: var(--lp-surface);
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.lp-icon-btn:hover { color: var(--lp-text); border-color: var(--lp-border-strong); }
+
+/* Pills / eyebrows */
+.lp-pill {
+    color: var(--lp-accent-text);
+    background-color: var(--lp-accent-soft);
+    border: 1px solid var(--lp-accent-border);
+}
+.lp-eyebrow {
+    color: var(--lp-accent-text);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+/* Cards */
+.lp-card {
+    background-color: var(--lp-surface);
+    border: 1px solid var(--lp-border);
+    box-shadow: var(--lp-shadow-card);
+}
+.lp-card-hover {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+.lp-card-hover:hover {
+    border-color: var(--lp-accent-border);
+    box-shadow: var(--lp-shadow-card-hover);
+    transform: translateY(-2px);
+}
+.lp-icon-tile {
+    color: var(--lp-accent-text);
+    background-color: var(--lp-accent-soft);
+    border: 1px solid var(--lp-accent-border);
+}
+.lp-chip {
+    color: var(--lp-text-2);
+    background-color: var(--lp-surface);
+    border: 1px solid var(--lp-border);
+}
+.lp-step-num {
+    color: var(--lp-btn-text);
+    background-color: var(--lp-btn-bg);
+}
+
+/* Product preview */
+.lp-float { box-shadow: var(--lp-shadow-float); }
+.lp-preview {
+    background-color: var(--lp-surface);
+    border: 1px solid var(--lp-border-strong);
+}
+.lp-preview-side {
+    background-color: var(--lp-surface-2);
+    border-color: var(--lp-border);
+}
+.lp-preview-row { border-color: var(--lp-border); }
+.lp-preview-row.is-active { background-color: var(--lp-accent-soft); }
+.lp-preview-nav.is-active {
+    background-color: var(--lp-accent-soft);
+    color: var(--lp-accent-text);
+}
+.lp-badge-ok {
+    color: var(--lp-ok);
+    background-color: var(--lp-ok-soft);
+}
+.lp-badge-accent {
+    color: var(--lp-accent-text);
+    background-color: var(--lp-accent-soft);
+}
+.lp-dot-unread { background-color: var(--lp-accent); }
+
+/* Code */
+.lp-code {
+    background-color: var(--lp-code-bg);
+    color: var(--lp-code-text);
+    border: 1px solid var(--lp-border-strong);
+}
+.lp-code-bar { border-color: rgb(255 255 255 / 0.08); color: #a1a1aa; }
+.lp-code .k { color: var(--lp-code-key); }
+.lp-code .s { color: var(--lp-code-str); }
+.lp-code .c { color: #8e8e98; }
+
+/* FAQ */
+.lp-faq { border-color: var(--lp-border); }
+.lp-faq-q:hover { color: var(--lp-accent-text); }
+
+/* Closing CTA */
+.lp-cta {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--lp-accent-border);
+    background:
+        radial-gradient(80% 120% at 100% 0%, var(--lp-glow), transparent 60%),
+        radial-gradient(60% 100% at 0% 100%, var(--lp-accent-soft), transparent 60%),
+        var(--lp-surface);
+    box-shadow: var(--lp-shadow-card);
+}
+
+.lp-footer-link {
+    color: var(--lp-text-2);
+    transition: color 0.15s ease;
+}
+.lp-footer-link:hover { color: var(--lp-accent-text); }
+
+@media (prefers-reduced-motion: reduce) {
+    .lp *, .lp *::before, .lp *::after {
+        transition: none !important;
+    }
+    .lp-card-hover:hover { transform: none; }
+}

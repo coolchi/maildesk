@@ -1,48 +1,66 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
+import EmailFrame from '@/Components/EmailFrame.vue';
 import { useToast } from '@/composables/useToast';
 import {
     ArrowLeft,
     Copy,
     Megaphone,
     Pencil,
+    Send,
     Users,
 } from '@lucide/vue';
 
 const props = defineProps({
     id: { type: [String, Number], required: true },
     broadcast: { type: Object, required: true },
+    counts: { type: Object, default: () => ({}) },
+    recipients: { type: Array, default: () => [] },
 });
 
 const toast = useToast();
 
 const broadcast = computed(() => props.broadcast);
 
+const num = (v) => Number(v || 0).toLocaleString();
+const pct = (part, whole) =>
+    whole > 0 ? `${Math.round((part / whole) * 1000) / 10}%` : '—';
+
+const inFlight = computed(() =>
+    ['queued', 'sending'].includes(broadcast.value.status),
+);
+
 const metrics = computed(() => {
-    const b = broadcast.value;
-    const sent = b.status === 'sent';
+    const c = props.counts || {};
+    const sent = c.sent || 0;
     return [
-        {
-            label: 'Recipients',
-            value: Number(b.recipients || 0).toLocaleString(),
-        },
-        {
-            label: 'Open rate',
-            value: b.open_rate || '—',
-        },
-        {
-            label: 'Click rate',
-            value: sent ? '—' : '—',
-        },
-        {
-            label: 'Unsubscribes',
-            value: sent ? '—' : '—',
-        },
+        { label: 'Recipients', value: num(c.recipients), hint: c.skipped ? `${num(c.skipped)} skipped` : null },
+        { label: 'Sent', value: num(sent), hint: c.pending ? `${num(c.pending)} in queue` : (c.failed ? `${num(c.failed)} failed` : null) },
+        { label: 'Delivered', value: num(c.delivered), hint: sent ? pct(c.delivered, sent) : null },
+        { label: 'Opened', value: num(c.opened), hint: sent ? pct(c.opened, sent) : null },
+        { label: 'Bounced', value: num(c.bounced), hint: c.complained ? `${num(c.complained)} complaints` : null },
+        { label: 'Unsubscribed', value: num(c.unsubscribed), hint: null },
     ];
 });
+
+// While the queue works through a broadcast, refresh the counts.
+let timer = null;
+onMounted(() => {
+    timer = setInterval(() => {
+        if (inFlight.value) {
+            router.reload({ only: ['broadcast', 'counts', 'recipients'] });
+        }
+    }, 3000);
+});
+onBeforeUnmount(() => clearInterval(timer));
+
+const sendNow = () => {
+    if (!confirm(`Send "${props.broadcast.name}" to ${props.broadcast.audience}?`)) return;
+    router.post(route('broadcasts.send', props.broadcast.id), {}, { preserveScroll: true });
+};
 
 const goEdit = () => router.visit(route('broadcasts.create'));
 
@@ -98,6 +116,16 @@ const duplicate = () => {
                 </div>
             </div>
             <div class="flex flex-wrap gap-2">
+                <button
+                    v-if="broadcast.status === 'draft'"
+                    type="button"
+                    class="md-btn-primary"
+                    data-testid="broadcast-send"
+                    @click="sendNow"
+                >
+                    <Send :size="16" />
+                    Send now
+                </button>
                 <button type="button" class="md-btn-ghost" @click="duplicate">
                     <Copy :size="16" />
                     Duplicate
@@ -109,7 +137,7 @@ const duplicate = () => {
             </div>
         </div>
 
-        <div class="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="mb-6 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
             <div
                 v-for="m in metrics"
                 :key="m.label"
@@ -121,50 +149,30 @@ const duplicate = () => {
                 <div class="mt-1 text-2xl font-semibold tabular-nums text-white">
                     {{ m.value }}
                 </div>
+                <div class="mt-0.5 h-4 text-xs text-zinc-500">{{ m.hint }}</div>
             </div>
         </div>
 
         <div class="grid gap-6 lg:grid-cols-[1fr_320px]">
             <section class="md-card space-y-4 p-5">
                 <h2 class="text-sm font-medium text-white">Preview</h2>
-                <div
-                    class="overflow-hidden rounded-xl border border-zinc-800 bg-white"
-                >
-                    <div
-                        class="border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500"
-                    >
+                <div class="overflow-hidden rounded-xl border border-zinc-800">
+                    <div class="border-b border-zinc-800 px-4 py-3 text-xs text-zinc-500">
                         <div>
-                            <span class="text-zinc-400">From:</span>
-                            Acme &lt;hello@acme.com&gt;
+                            <span class="mr-1 text-zinc-600">From:</span>
+                            <span class="text-zinc-300">{{ broadcast.from || 'Default sender' }}</span>
                         </div>
                         <div class="mt-1">
-                            <span class="text-zinc-400">Subject:</span>
-                            {{ broadcast.name }}
+                            <span class="mr-1 text-zinc-600">Subject:</span>
+                            <span class="text-zinc-300">{{ broadcast.subject }}</span>
                         </div>
                     </div>
-                    <div class="space-y-3 p-6 text-sm leading-relaxed text-zinc-700">
-                        <p class="text-lg font-semibold text-zinc-900">
-                            {{ broadcast.name }}
-                        </p>
-                        <p>
-                            Hi there — here’s what’s new from Acme this month.
-                            We’re shipping deliverability improvements, inbox
-                            tools, and a cleaner API for your product emails.
-                        </p>
-                        <p>
-                            This is mock broadcast content so you can review the
-                            reading experience before wiring a real campaign
-                            editor.
-                        </p>
-                        <a
-                            href="#"
-                            class="inline-flex rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
-                            @click.prevent
-                        >
-                            Read the update
-                        </a>
-                    </div>
+                    <EmailFrame :html="broadcast.html || ''" :min-height="240" title="Broadcast preview" />
                 </div>
+                <p class="text-xs text-zinc-500">
+                    Each recipient gets a personal unsubscribe link in the footer
+                    (or wherever you put <code class="text-zinc-400">{{ '{' + '{unsubscribe_url}' + '}' }}</code>).
+                </p>
             </section>
 
             <aside class="space-y-4">
@@ -183,7 +191,7 @@ const duplicate = () => {
                         <div class="flex justify-between gap-3">
                             <dt class="text-zinc-500">Recipients</dt>
                             <dd class="tabular-nums text-zinc-200">
-                                {{ broadcast.recipients.toLocaleString() }}
+                                {{ num(counts.recipients ?? broadcast.recipients) }}
                             </dd>
                         </div>
                         <div class="flex justify-between gap-3">
@@ -197,6 +205,29 @@ const duplicate = () => {
                             <dd class="text-zinc-200">{{ broadcast.sent }}</dd>
                         </div>
                     </dl>
+                </section>
+
+                <section class="md-card p-5" data-testid="broadcast-recipients">
+                    <h2 class="mb-3 text-sm font-medium text-white">
+                        Recipients
+                        <span v-if="counts.recipients > recipients.length" class="font-normal text-zinc-500">
+                            (latest {{ recipients.length }})
+                        </span>
+                    </h2>
+                    <p v-if="!recipients.length" class="text-sm text-zinc-500">
+                        {{ broadcast.status === 'draft' ? 'Recipients are picked when you send.' : 'Preparing the recipient list…' }}
+                    </p>
+                    <ul v-else class="max-h-80 space-y-2 overflow-y-auto pr-1 text-sm">
+                        <li
+                            v-for="r in recipients"
+                            :key="r.id"
+                            class="flex items-center justify-between gap-3"
+                            :title="r.error || ''"
+                        >
+                            <span class="truncate text-zinc-300">{{ r.email }}</span>
+                            <StatusBadge :status="r.status" />
+                        </li>
+                    </ul>
                 </section>
             </aside>
         </div>

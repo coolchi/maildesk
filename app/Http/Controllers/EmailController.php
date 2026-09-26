@@ -192,6 +192,7 @@ class EmailController extends Controller
             'html' => $validated['html'] ?? null,
             'text' => $validated['text'] ?? strip_tags($validated['html'] ?? ''),
             'tags' => $validated['tags'] ?? null,
+            'signature' => $request->boolean('signature', true),
         ];
 
         if (! empty($validated['cc'])) {

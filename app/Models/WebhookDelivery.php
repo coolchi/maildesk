@@ -47,6 +47,7 @@ class WebhookDelivery extends Model
             'status' => $this->status,
             'response_status' => $this->response_status,
             'attempts' => $this->attempts,
+            'error' => $this->status === 'failed' ? mb_substr((string) $this->response_body, 0, 300) : null,
             'delivered_at' => ($this->delivered_at ?? $this->created_at)?->diffForHumans() ?? '',
             'payload' => $this->payload,
         ];

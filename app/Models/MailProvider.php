@@ -74,6 +74,19 @@ class MailProvider extends Model
     }
 
     /**
+     * What every tenant user may see about their workspace's provider: no config at all.
+     *
+     * @return array<string, mixed>
+     */
+    public function toTenantArray(): array
+    {
+        $data = $this->toAdminArray();
+        unset($data['config']);
+
+        return $data;
+    }
+
+    /**
      * Keep stored secret values for rows the admin form submitted blank.
      *
      * @param  array<int, array{key?: string, value?: ?string, secret?: bool}>  $rows
@@ -96,14 +109,26 @@ class MailProvider extends Model
         })->values()->all();
     }
 
-    /**
-     * @return array{mode:string,host:string,port:int,ports:list<int>,username:string,password:string,encryption:string,label:string,driver:string,apiBase:?string}|null
-     */
-    public function smtpCredentials(): ?array
+    public function isSmtp(): bool
     {
+        return $this->driver === 'smtp' || $this->type === 'smtp';
+    }
+
+    /**
+     * Non-secret description of a platform SMTP provider for tenant pages.
+     * Never includes the username or password (only whether one is set).
+     *
+     * @return array{mode:string,label:string,driver:string,host:string,port:int,encryption:string,has_password:bool}|null
+     */
+    public function smtpSummary(): ?array
+    {
+        if (! $this->isSmtp()) {
+            return null;
+        }
+
         $get = function (string $key): string {
             foreach ($this->config ?? [] as $row) {
-                if (($row['key'] ?? '') === $key) {
+                if (strtoupper((string) ($row['key'] ?? '')) === $key) {
                     return (string) ($row['value'] ?? '');
                 }
             }
@@ -111,32 +136,14 @@ class MailProvider extends Model
             return '';
         };
 
-        if ($this->driver === 'smtp' || $this->type === 'smtp') {
-            return [
-                'mode' => 'smtp',
-                'host' => $get('HOST') ?: 'smtp.example.com',
-                'port' => (int) ($get('PORT') ?: 587),
-                'ports' => [465, 587, 2587],
-                'username' => $get('USERNAME'),
-                'password' => $get('PASSWORD') ?: '••••••••',
-                'encryption' => $get('ENCRYPTION') ?: 'tls',
-                'label' => $this->name,
-                'driver' => $this->driver ?: 'smtp',
-                'apiBase' => null,
-            ];
-        }
-
         return [
-            'mode' => 'api-relay',
-            'host' => 'smtp.'.(string) config('maildesk.base_domain', 'maildesk.test'),
-            'port' => 465,
-            'ports' => [465, 587, 2587],
-            'username' => 'maildesk',
-            'password' => 'YOUR_API_KEY',
-            'encryption' => 'tls',
+            'mode' => 'platform-smtp',
             'label' => $this->name,
-            'driver' => $this->driver ?: 'api',
-            'apiBase' => $this->api_base,
+            'driver' => $this->driver ?: 'smtp',
+            'host' => $get('HOST'),
+            'port' => (int) ($get('PORT') ?: 587),
+            'encryption' => $get('ENCRYPTION') ?: 'tls',
+            'has_password' => $get('PASSWORD') !== '',
         ];
     }
 }

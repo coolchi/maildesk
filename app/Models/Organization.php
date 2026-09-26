@@ -99,6 +99,11 @@ class Organization extends Model
         return $this->hasMany(Domain::class);
     }
 
+    public function groupAddresses(): HasMany
+    {
+        return $this->hasMany(GroupAddress::class);
+    }
+
     public function mailboxes(): HasMany
     {
         return $this->hasMany(Mailbox::class);

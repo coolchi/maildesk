@@ -15,7 +15,9 @@ import {
     MoreHorizontal,
     Pencil,
     Plus,
+    RefreshCw,
     Search,
+    Ban,
     Trash2,
 } from '@lucide/vue';
 
@@ -36,11 +38,33 @@ const showCreate = ref(false);
 const showEdit = ref(false);
 const showReveal = ref(false);
 const showDelete = ref(false);
+const showRotate = ref(false);
+const rotateTarget = ref(null);
+const showRevoke = ref(false);
+const revokeTarget = ref(null);
 
 const form = ref({
     name: '',
     permission: 'Full access',
     domain: 'All domains',
+    expires_in_days: 0,
+    expires_at: '',
+});
+const expiryOptions = [
+    { value: 0, label: 'Never expires' },
+    { value: 30, label: '30 days' },
+    { value: 90, label: '90 days' },
+    { value: 365, label: '1 year' },
+    { value: 'custom', label: 'Custom date…' },
+];
+const isoDate = (d) => {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const minExpiryDate = computed(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return isoDate(d);
 });
 const editTarget = ref(null);
 const deleteTarget = ref(null);
@@ -115,6 +139,8 @@ const openCreate = () => {
         name: '',
         permission: 'Full access',
         domain: 'All domains',
+        expires_in_days: 0,
+        expires_at: '',
     };
     showCreate.value = true;
 };
@@ -124,6 +150,11 @@ const createKey = () => {
         toast.error('Enter a name for the API key.');
         return;
     }
+    const custom = form.value.expires_in_days === 'custom';
+    if (custom && !form.value.expires_at) {
+        toast.error('Pick an expiry date.');
+        return;
+    }
     saving.value = true;
     router.post(
         route('api-keys.store'),
@@ -131,6 +162,8 @@ const createKey = () => {
             name: form.value.name.trim(),
             permission: form.value.permission,
             domain: form.value.domain,
+            expires_in_days: custom ? 0 : form.value.expires_in_days,
+            expires_at: custom ? form.value.expires_at : null,
         },
         {
             onFinish: () => {
@@ -140,7 +173,11 @@ const createKey = () => {
                 showCreate.value = false;
             },
             onError: (errors) => {
-                toast.error(errors.name || 'Could not create API key.');
+                toast.error(
+                    errors.name ||
+                        errors.expires_at ||
+                        'Could not create API key.',
+                );
             },
         },
     );
@@ -201,6 +238,49 @@ const confirmDelete = () => {
             deleteTarget.value = null;
         },
     });
+};
+
+const askRotate = (key) => {
+    rotateTarget.value = key;
+    menuId.value = null;
+    showRotate.value = true;
+};
+
+const confirmRotate = () => {
+    if (!rotateTarget.value) return;
+    router.post(
+        route('api-keys.rotate', rotateTarget.value.id),
+        {},
+        {
+            onSuccess: () => {
+                showRotate.value = false;
+                rotateTarget.value = null;
+            },
+            onError: (errors) =>
+                toast.error(errors.api_key || 'Could not rotate the key.'),
+        },
+    );
+};
+
+const askRevoke = (key) => {
+    revokeTarget.value = key;
+    menuId.value = null;
+    showRevoke.value = true;
+};
+
+const confirmRevoke = () => {
+    if (!revokeTarget.value) return;
+    router.post(
+        route('api-keys.revoke', revokeTarget.value.id),
+        {},
+        {
+            onSuccess: () => {
+                showRevoke.value = false;
+                revokeTarget.value = null;
+            },
+            onError: () => toast.error('Could not revoke the key.'),
+        },
+    );
 };
 
 const exportCsv = () => {
@@ -295,6 +375,7 @@ const exportCsv = () => {
                             <th class="px-4 py-3 font-medium">Token</th>
                             <th class="px-4 py-3 font-medium">Permission</th>
                             <th class="px-4 py-3 font-medium">Last used</th>
+                            <th class="px-4 py-3 font-medium">Expires</th>
                             <th class="px-4 py-3 font-medium">Created</th>
                             <th class="w-12 px-4 py-3" />
                         </tr>
@@ -337,6 +418,36 @@ const exportCsv = () => {
                                 </span>
                                 <span v-else>{{ key.last_used }}</span>
                             </td>
+                            <td class="px-4 py-3.5">
+                                <span
+                                    v-if="key.revoked"
+                                    class="inline-flex items-center gap-1.5"
+                                    :title="`Revoked ${key.revoked_at}`"
+                                >
+                                    <span
+                                        class="rounded-full bg-zinc-500/15 px-2 py-0.5 text-xs text-zinc-300"
+                                        >Revoked</span
+                                    >
+                                    <span class="text-xs text-zinc-500">{{
+                                        key.revoked_at
+                                    }}</span>
+                                </span>
+                                <span
+                                    v-else-if="key.expired"
+                                    class="inline-flex items-center gap-1.5"
+                                >
+                                    <span
+                                        class="rounded-full bg-rose-500/10 px-2 py-0.5 text-xs text-rose-300"
+                                        >Expired</span
+                                    >
+                                    <span class="text-xs text-zinc-500">{{
+                                        key.expires
+                                    }}</span>
+                                </span>
+                                <span v-else class="text-zinc-500">{{
+                                    key.expires || 'Never'
+                                }}</span>
+                            </td>
                             <td class="px-4 py-3.5 text-zinc-500">
                                 {{ key.created }}
                             </td>
@@ -357,6 +468,7 @@ const exportCsv = () => {
                                     @click.stop
                                 >
                                     <button
+                                        v-if="!key.revoked"
                                         type="button"
                                         class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-900"
                                         @click="openEdit(key)"
@@ -366,6 +478,27 @@ const exportCsv = () => {
                                             class="text-zinc-500"
                                         />
                                         Edit API key
+                                    </button>
+                                    <button
+                                        v-if="!key.revoked"
+                                        type="button"
+                                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-900"
+                                        @click="askRotate(key)"
+                                    >
+                                        <RefreshCw
+                                            :size="14"
+                                            class="text-zinc-500"
+                                        />
+                                        Rotate API key
+                                    </button>
+                                    <button
+                                        v-if="!key.revoked"
+                                        type="button"
+                                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-amber-400 hover:bg-zinc-900"
+                                        @click="askRevoke(key)"
+                                    >
+                                        <Ban :size="14" />
+                                        Revoke API key
                                     </button>
                                     <button
                                         type="button"
@@ -437,6 +570,31 @@ const exportCsv = () => {
                             {{ d }}
                         </option>
                     </select>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500"
+                        >Expiration</label
+                    >
+                    <select
+                        v-model.number="form.expires_in_days"
+                        class="md-input"
+                    >
+                        <option
+                            v-for="o in expiryOptions"
+                            :key="o.value"
+                            :value="o.value"
+                        >
+                            {{ o.label }}
+                        </option>
+                    </select>
+                    <input
+                        v-if="form.expires_in_days === 'custom'"
+                        v-model="form.expires_at"
+                        type="date"
+                        :min="minExpiryDate"
+                        class="md-input mt-2"
+                        aria-label="Expiry date"
+                    />
                 </div>
             </div>
             <template #footer>
@@ -530,6 +688,70 @@ const exportCsv = () => {
                     @click="showReveal = false"
                 >
                     Done
+                </button>
+            </template>
+        </Modal>
+
+        <Modal
+            :show="showRotate"
+            title="Rotate API key?"
+            :description="
+                rotateTarget
+                    ? `A new secret with the same permissions replaces “${rotateTarget.name}”.`
+                    : ''
+            "
+            @close="showRotate = false"
+        >
+            <p class="text-sm text-zinc-400">
+                The current key stops working immediately. The new key is shown
+                once.
+            </p>
+            <template #footer>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    @click="showRotate = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-primary"
+                    @click="confirmRotate"
+                >
+                    Rotate key
+                </button>
+            </template>
+        </Modal>
+
+        <Modal
+            :show="showRevoke"
+            title="Revoke API key?"
+            :description="
+                revokeTarget
+                    ? `“${revokeTarget.name}” will stop working immediately.`
+                    : ''
+            "
+            @close="showRevoke = false"
+        >
+            <p class="text-sm text-zinc-400">
+                Requests using this key will return 401. The key stays in the
+                list as Revoked and can't be rotated or re-enabled.
+            </p>
+            <template #footer>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    @click="showRevoke = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn rounded-full bg-amber-500 px-3.5 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-400"
+                    @click="confirmRevoke"
+                >
+                    Revoke API key
                 </button>
             </template>
         </Modal>

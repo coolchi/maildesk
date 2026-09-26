@@ -4,14 +4,17 @@ namespace Tests\Feature;
 
 use App\Exceptions\AccountSuspendedException;
 use App\Models\ApiKey;
+use App\Models\Broadcast;
 use App\Models\Domain;
 use App\Models\MailProvider;
 use App\Models\Message;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\AccountAccess;
+use App\Services\BroadcastService;
 use App\Services\EmailService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -202,5 +205,60 @@ class AccountSuspensionTest extends TestCase
             ->assertSessionHas('error', AccountAccess::SUSPENDED_MESSAGE);
 
         $this->assertSame(0, Message::query()->count());
+    }
+
+    public function test_broadcast_queue_is_refused_for_suspended_account(): void
+    {
+        [, $org] = $this->member('suspended');
+        $broadcast = Broadcast::query()->create([
+            'organization_id' => $org->id,
+            'name' => 'Launch',
+            'subject' => 'We launched',
+            'html' => '<p>Hi</p>',
+            'status' => 'draft',
+        ]);
+
+        $this->expectException(AccountSuspendedException::class);
+        app(BroadcastService::class)->queue($broadcast, 'all', 'news@acme.test');
+    }
+
+    public function test_admin_cannot_start_impersonating_a_suspended_account(): void
+    {
+        $admin = User::factory()->platformAdmin()->create();
+        [$target, $org] = $this->member('suspended');
+
+        $this->actingAs($admin)
+            ->from(route('admin.accounts.show', $org))
+            ->withSession(['auth.password_confirmed_at' => time()])
+            ->post(route('admin.impersonate', $target), [
+                'organization_id' => $org->id,
+                'reason' => 'Investigating support ticket #1',
+            ])
+            ->assertRedirect(route('admin.accounts.show', $org))
+            ->assertSessionHasErrors('user');
+
+        $this->assertSame($admin->id, Auth::id());
+    }
+
+    public function test_open_impersonation_ends_when_account_is_suspended(): void
+    {
+        $admin = User::factory()->platformAdmin()->create();
+        [$target, $org] = $this->member();
+
+        $this->actingAs($admin)
+            ->from(route('admin.accounts.show', $org))
+            ->withSession(['auth.password_confirmed_at' => time()])
+            ->post(route('admin.impersonate', $target), [
+                'organization_id' => $org->id,
+                'reason' => 'Investigating support ticket #1',
+            ]);
+        $this->assertSame($target->id, Auth::id());
+
+        $org->update(['status' => 'suspended']);
+
+        $this->get('/emails')->assertRedirect();
+
+        $this->assertSame($admin->id, Auth::id());
+        $this->assertStringContainsString('Impersonation ended', (string) session('error'));
     }
 }

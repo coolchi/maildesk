@@ -90,6 +90,8 @@ class Thread extends Model
                     ? (data_get($message->meta, 'bounce.reason') ?? data_get($message->meta, 'error'))
                     : null,
                 'can_retry' => $message->direction === 'outbound' && $message->status === 'failed',
+                'fanout' => data_get($message->meta, 'group_fanout') ?: null,
+                'forwarded' => data_get($message->meta, 'forwarded_from') !== null,
                 'attachments' => ($message->relationLoaded('attachments') ? $message->attachments : $message->attachments()->get())
                     ->map(fn (Attachment $attachment) => $attachment->toWorkspaceArray())
                     ->values()

@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Throwable;
 
 /**
- * Resend email.delivered / email.bounced / email.complained / email.opened.
+ * Resend email.delivered / email.bounced / email.complained / email.opened / email.clicked.
  * Signed with the same Svix secret as inbound (RESEND_WEBHOOK_SECRET).
  */
 class ResendDeliveryEventDriver implements DeliveryEventDriver
@@ -19,6 +19,7 @@ class ResendDeliveryEventDriver implements DeliveryEventDriver
         'email.bounced' => DeliveryEvent::BOUNCED,
         'email.complained' => DeliveryEvent::COMPLAINED,
         'email.opened' => DeliveryEvent::OPENED,
+        'email.clicked' => DeliveryEvent::CLICKED,
     ];
 
     public function __construct(private readonly ResendInboundDriver $signature) {}
@@ -61,8 +62,9 @@ class ResendDeliveryEventDriver implements DeliveryEventDriver
             details: array_filter([
                 'bounce_sub_type' => $bounce['subType'] ?? null,
                 'subject' => $data['subject'] ?? null,
-                'ip' => $data['open']['ipAddress'] ?? null,
-                'user_agent' => $data['open']['userAgent'] ?? null,
+                'ip' => $data['open']['ipAddress'] ?? $data['click']['ipAddress'] ?? null,
+                'user_agent' => $data['open']['userAgent'] ?? $data['click']['userAgent'] ?? null,
+                'link' => $data['click']['link'] ?? null,
             ], fn ($value) => $value !== null),
         );
     }

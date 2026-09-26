@@ -11,6 +11,7 @@ export function useTenant() {
     const hostLocked = computed(() => Boolean(tenant.value.host_locked));
     const canSend = computed(() => Boolean(tenant.value.can_send));
     const sendingFrom = computed(() => tenant.value.sending_from || []);
+    // Non-secret summary of a platform SMTP provider (null otherwise); never has a password.
     const activeSmtp = computed(() => tenant.value.smtp || null);
     const activeProvider = computed(() => tenant.value.provider || null);
     const baseDomain = computed(() => tenant.value.base_domain || 'maildesk.test');

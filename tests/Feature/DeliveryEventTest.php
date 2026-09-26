@@ -181,11 +181,23 @@ class DeliveryEventTest extends TestCase
         $this->assertSame(1, $this->message->refresh()->meta['open_count']);
     }
 
+    public function test_clicked_event_counts_clicks_and_dispatches_email_clicked(): void
+    {
+        $this->event('email.clicked', ['click' => ['link' => 'https://acme.test/offer', 'ipAddress' => '203.0.113.9']])
+            ->assertOk()->assertJsonPath('status', 'processed');
+
+        $meta = $this->message->refresh()->meta;
+        $this->assertSame(1, $meta['click_count']);
+        $this->assertSame('https://acme.test/offer', collect($meta['events'])->last()['link']);
+        $this->assertSame('sent', $this->message->status);
+        Queue::assertPushed(DispatchWebhook::class, fn (DispatchWebhook $job) => $job->event === 'email.clicked');
+    }
+
     public function test_unknown_or_unhandled_events_are_ignored_safely(): void
     {
         $before = $this->message->fresh()->toArray();
 
-        $this->event('email.clicked')->assertOk()->assertJsonPath('status', 'ignored');
+        $this->event('email.delivery_delayed')->assertOk()->assertJsonPath('status', 'ignored');
         $this->event('contact.created')->assertOk()->assertJsonPath('status', 'ignored');
         $this->event('email.delivered', ['email_id' => 're_not_ours'])->assertOk()->assertJsonPath('status', 'ignored');
         $this->event('email.delivered', ['email_id' => null])->assertOk()->assertJsonPath('status', 'ignored');

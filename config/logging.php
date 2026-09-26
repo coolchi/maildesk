@@ -18,7 +18,9 @@ return [
     |
     */
 
-    'default' => env('LOG_CHANNEL', 'stack'),
+    // LOG_CHANNEL=null (as in phpunit.xml) makes env() return null; map it
+    // to the "null" channel so nothing falls back to the emergency log file.
+    'default' => env('LOG_CHANNEL', 'stack') ?? 'null',
 
     /*
     |--------------------------------------------------------------------------
@@ -54,7 +56,8 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            // Daily rotation by default; keep LOG_DAILY_DAYS files (default 14).
+            'channels' => explode(',', (string) env('LOG_STACK', 'daily')),
             'ignore_exceptions' => false,
         ],
 

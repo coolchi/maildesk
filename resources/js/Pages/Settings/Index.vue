@@ -8,13 +8,13 @@ import { usePlansModal } from '@/composables/usePlansModal';
 import { useToast } from '@/composables/useToast';
 import { useTheme } from '@/composables/useTheme';
 import {
-    CircleHelp,
-    Copy,
     Download,
     ExternalLink,
     Eye,
 } from '@lucide/vue';
 import RowActions from '@/Components/RowActions.vue';
+import WysiwygEditor from '@/Components/WysiwygEditor.vue';
+import EmailFrame from '@/Components/EmailFrame.vue';
 import MonipayUpgrade from '@/Components/Billing/MonipayUpgrade.vue';
 
 const props = defineProps({
@@ -37,6 +37,14 @@ const props = defineProps({
     settings: {
         type: Object,
         default: () => ({}),
+    },
+    mailboxes: {
+        type: Array,
+        default: () => [],
+    },
+    smtp: {
+        type: Object,
+        default: null,
     },
 });
 
@@ -73,6 +81,7 @@ const tabs = [
     'usage',
     'billing',
     'smtp',
+    'signature',
     'unsubscribe',
     'documents',
 ];
@@ -80,6 +89,7 @@ const tabs = [
 const tabLabel = (t) => {
     if (t === 'unsubscribe') return 'Unsubscribe page';
     if (t === 'smtp') return 'SMTP';
+    if (t === 'signature') return 'Signature';
     return t.charAt(0).toUpperCase() + t.slice(1);
 };
 
@@ -88,28 +98,53 @@ const pageTitle = computed(() => {
     return `Settings · ${label}`;
 });
 
-const smtp = computed(
-    () =>
-        activeSmtp.value || {
-            mode: 'api-relay',
-            host: 'smtp.maildesk.test',
-            port: 465,
-            ports: [465, 587, 2587],
-            username: 'maildesk',
-            password: 'YOUR_API_KEY',
-            label: 'Unavailable',
-            driver: 'none',
-            apiBase: null,
-        },
-);
+// Workspace SMTP server. The saved password is never sent to the browser;
+// the server only tells us whether one exists (has_password).
+const smtpSettings = computed(() => props.smtp || {});
+const smtpCanManage = computed(() => Boolean(smtpSettings.value.can_manage));
+const platformSmtp = computed(() => activeSmtp.value);
+const smtpForm = ref({
+    enabled: Boolean(props.smtp?.enabled),
+    host: props.smtp?.host || '',
+    port: props.smtp?.port || 587,
+    username: props.smtp?.username || '',
+    password: '',
+    clear_password: false,
+    encryption: props.smtp?.encryption || 'tls',
+});
+const smtpErrors = ref({});
+const smtpSaving = ref(false);
+const encryptionOptions = [
+    { value: 'tls', label: 'TLS (STARTTLS, usually port 587)' },
+    { value: 'ssl', label: 'SSL (implicit TLS, usually port 465)' },
+    { value: 'none', label: 'None (unencrypted, not recommended)' },
+];
 
-const copyValue = async (value, label = 'Value') => {
-    try {
-        await navigator.clipboard.writeText(value);
-        toast.success(`${label} copied.`);
-    } catch {
-        toast.error('Could not copy.');
-    }
+const saveSmtp = () => {
+    smtpSaving.value = true;
+    smtpErrors.value = {};
+    router.put(
+        route('settings.smtp.update'),
+        {
+            ...smtpForm.value,
+            port: smtpForm.value.port === '' ? null : Number(smtpForm.value.port),
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                smtpForm.value.password = '';
+                smtpForm.value.clear_password = false;
+                toast.success('SMTP settings saved.');
+            },
+            onError: (errors) => {
+                smtpErrors.value = errors;
+                toast.error('Could not save SMTP settings.');
+            },
+            onFinish: () => {
+                smtpSaving.value = false;
+            },
+        },
+    );
 };
 
 const settings = ref({
@@ -230,6 +265,63 @@ const saveUnsubscribe = () => {
             preserveScroll: true,
             onSuccess: () => toast.success('Unsubscribe page saved.'),
             onError: () => toast.error('Could not save settings.'),
+        },
+    );
+};
+
+const signature = ref({
+    enabled: props.settings?.signature?.enabled ?? false,
+    html: props.settings?.signature?.html || '',
+    api: props.settings?.signature?.api ?? false,
+    broadcasts: props.settings?.signature?.broadcasts ?? true,
+});
+const mailboxSignatures = ref(
+    (props.mailboxes || []).map((m) => ({
+        id: m.id,
+        email: m.email,
+        display_name: m.display_name,
+        signature: m.signature || '',
+        custom: !!m.signature,
+    })),
+);
+const previewMailbox = ref('');
+const signatureSaving = ref(false);
+
+const signaturePreviewHtml = computed(() => {
+    const override = mailboxSignatures.value.find(
+        (m) => String(m.id) === String(previewMailbox.value) && m.custom,
+    );
+    const sig = override?.signature || signature.value.html;
+    const body =
+        '<p style="font-family:system-ui,sans-serif;font-size:14px;color:#18181b">Hi Sam,</p>' +
+        '<p style="font-family:system-ui,sans-serif;font-size:14px;color:#18181b">Thanks for getting in touch. Your order has shipped and should arrive on Tuesday.</p>';
+    if (!signature.value.enabled || !sig || sig === '<p></p>') return body;
+    return (
+        body +
+        '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e4e4e7;color:#52525b;font-size:13px;font-family:system-ui,sans-serif">' +
+        sig +
+        '</div>'
+    );
+});
+
+const saveSignature = () => {
+    signatureSaving.value = true;
+    router.put(
+        route('settings.update'),
+        {
+            signature: signature.value,
+            mailbox_signatures: mailboxSignatures.value.map((m) => ({
+                id: m.id,
+                signature: m.custom ? m.signature : '',
+            })),
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => toast.success('Signature saved.'),
+            onError: () => toast.error('Could not save the signature.'),
+            onFinish: () => {
+                signatureSaving.value = false;
+            },
         },
     );
 };
@@ -695,155 +787,319 @@ const downloadInvoice = (inv) => {
         </div>
 
         <!-- SMTP -->
-        <div v-else-if="tab === 'smtp'" class="mx-auto max-w-xl">
+        <div
+            v-else-if="tab === 'smtp'"
+            class="mx-auto max-w-xl"
+            data-testid="smtp-settings"
+        >
             <section class="md-card space-y-5 p-5 sm:p-6">
-                <div>
-                    <h3 class="text-sm font-medium text-white">SMTP</h3>
-                    <p class="mt-1 text-sm text-zinc-500">
-                        Credentials for
-                        <span class="text-zinc-300">{{ smtp.label }}</span>
-                        ({{ smtp.driver }})
-                        <span v-if="smtp.mode === 'smtp'">
-                            · direct SMTP relay</span
-                        >
-                        <span v-else> · MailDesk API relay</span>.
-                        See
-                        <Link
-                            :href="route('docs')"
-                            class="inline-flex items-center gap-0.5 text-cyan-300 hover:underline"
-                        >
-                            documentation
-                            <ExternalLink :size="12" />
-                        </Link>
-                        for more information.
-                    </p>
-                    <div
-                        v-if="!activeProviderHealth.ok"
-                        class="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
-                    >
-                        This workspace has no active mail provider. Ask a
-                        platform admin to assign one.
-                    </div>
-                </div>
-
-                <div class="space-y-4">
+                <div class="flex items-start justify-between gap-4">
                     <div>
-                        <label class="mb-1.5 block text-xs text-zinc-500"
-                            >Host</label
-                        >
-                        <div class="relative">
-                            <input
-                                class="md-input pr-10 font-mono text-sm"
-                                readonly
-                                :value="smtp.host"
-                            />
-                            <button
-                                type="button"
-                                class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
-                                title="Copy"
-                                @click="copyValue(smtp.host, 'Host')"
+                        <h3 class="text-sm font-medium text-white">SMTP server</h3>
+                        <p class="mt-1 text-sm text-zinc-500">
+                            Send this workspace's email through your own SMTP
+                            server. When it's off, mail goes out through
+                            <span class="text-zinc-300">{{
+                                activeProviderHealth.provider?.name ||
+                                'the platform provider'
+                            }}</span>.
+                            See
+                            <Link
+                                :href="route('docs')"
+                                class="inline-flex items-center gap-0.5 text-cyan-300 hover:underline"
                             >
-                                <Copy :size="14" />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="mb-1.5 block text-xs text-zinc-500"
-                            >Port</label
-                        >
-                        <div class="relative">
-                            <input
-                                class="md-input pr-10 font-mono text-sm"
-                                readonly
-                                :value="smtp.port"
-                            />
-                            <button
-                                type="button"
-                                class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
-                                title="Copy"
-                                @click="copyValue(String(smtp.port), 'Port')"
-                            >
-                                <Copy :size="14" />
-                            </button>
-                        </div>
-                        <p
-                            class="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-zinc-500"
-                        >
-                            <span>For encrypted/TLS connections use</span>
-                            <template
-                                v-for="(p, i) in smtp.ports"
-                                :key="p"
-                            >
-                                <button
-                                    type="button"
-                                    class="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-1.5 py-0.5 font-mono text-[11px] text-zinc-300 transition hover:border-zinc-700 hover:text-white"
-                                    @click="copyValue(String(p), `Port ${p}`)"
-                                >
-                                    {{ p }}
-                                    <Copy :size="10" />
-                                </button>
-                                <span v-if="i < smtp.ports.length - 1">{{
-                                    i === smtp.ports.length - 2 ? 'or' : ','
-                                }}</span>
-                            </template>
-                            <span>.</span>
+                                documentation
+                                <ExternalLink :size="12" />
+                            </Link>
+                            for more information.
                         </p>
                     </div>
+                    <label class="flex shrink-0 items-center gap-2 text-sm text-zinc-200">
+                        <input
+                            v-model="smtpForm.enabled"
+                            type="checkbox"
+                            data-testid="smtp-enabled"
+                            :disabled="!smtpCanManage"
+                            class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                        />
+                        Use SMTP for sending
+                    </label>
+                </div>
 
-                    <div>
-                        <label class="mb-1.5 block text-xs text-zinc-500"
-                            >Username</label
-                        >
-                        <div class="relative">
+                <div
+                    v-if="!smtpSettings.configured"
+                    class="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-400"
+                >
+                    No SMTP server is set up yet. Enter your server's details,
+                    turn on “Use SMTP for sending” and save.
+                </div>
+                <div
+                    v-else-if="smtpSettings.sending_via === 'smtp' && smtpSettings.enabled"
+                    class="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200"
+                >
+                    This workspace sends through {{ smtpSettings.host }}.
+                </div>
+                <div
+                    v-if="!smtpForm.enabled && !activeProviderHealth.ok"
+                    class="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
+                >
+                    This workspace has no active mail provider. Ask a platform
+                    admin to assign one.
+                </div>
+                <p
+                    v-if="platformSmtp && !smtpForm.enabled"
+                    class="text-xs text-zinc-500"
+                >
+                    The platform provider {{ platformSmtp.label }} relays over
+                    SMTP{{ platformSmtp.host ? ` (${platformSmtp.host})` : '' }}.
+                </p>
+                <div
+                    v-if="!smtpCanManage"
+                    class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+                >
+                    Only workspace owners and admins can change SMTP settings.
+                </div>
+
+                <fieldset class="space-y-4" :disabled="!smtpCanManage">
+                    <div class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_120px]">
+                        <div>
+                            <label class="mb-1.5 block text-xs text-zinc-500" for="smtp-host">Host</label>
                             <input
-                                class="md-input pr-10 font-mono text-sm"
-                                readonly
-                                :value="smtp.username"
+                                id="smtp-host"
+                                v-model="smtpForm.host"
+                                class="md-input font-mono text-sm"
+                                placeholder="smtp.example.com"
+                                autocomplete="off"
+                                data-testid="smtp-host"
                             />
-                            <button
-                                type="button"
-                                class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
-                                title="Copy"
-                                @click="copyValue(smtp.username, 'Username')"
-                            >
-                                <Copy :size="14" />
-                            </button>
+                            <p v-if="smtpErrors.host" class="mt-1 text-xs text-rose-300">{{ smtpErrors.host }}</p>
+                        </div>
+                        <div>
+                            <label class="mb-1.5 block text-xs text-zinc-500" for="smtp-port">Port</label>
+                            <input
+                                id="smtp-port"
+                                v-model="smtpForm.port"
+                                type="number"
+                                min="1"
+                                max="65535"
+                                class="md-input font-mono text-sm"
+                                placeholder="587"
+                                data-testid="smtp-port"
+                            />
+                            <p v-if="smtpErrors.port" class="mt-1 text-xs text-rose-300">{{ smtpErrors.port }}</p>
                         </div>
                     </div>
 
                     <div>
-                        <label
-                            class="mb-1.5 flex items-center gap-1.5 text-xs text-zinc-500"
+                        <label class="mb-1.5 block text-xs text-zinc-500" for="smtp-encryption">Encryption</label>
+                        <select
+                            id="smtp-encryption"
+                            v-model="smtpForm.encryption"
+                            class="md-input text-sm"
+                            data-testid="smtp-encryption"
                         >
-                            Password
-                            <span
-                                class="inline-flex text-zinc-600"
-                                title="Use any API key with sending access as the SMTP password."
-                            >
-                                <CircleHelp :size="12" />
-                            </span>
-                        </label>
-                        <div class="relative">
+                            <option v-for="o in encryptionOptions" :key="o.value" :value="o.value">
+                                {{ o.label }}
+                            </option>
+                        </select>
+                        <p v-if="smtpErrors.encryption" class="mt-1 text-xs text-rose-300">{{ smtpErrors.encryption }}</p>
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-xs text-zinc-500" for="smtp-username">Username</label>
+                        <input
+                            id="smtp-username"
+                            v-model="smtpForm.username"
+                            class="md-input font-mono text-sm"
+                            autocomplete="off"
+                            data-testid="smtp-username"
+                        />
+                        <p v-if="smtpErrors.username" class="mt-1 text-xs text-rose-300">{{ smtpErrors.username }}</p>
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-xs text-zinc-500" for="smtp-password">Password</label>
+                        <input
+                            id="smtp-password"
+                            v-model="smtpForm.password"
+                            type="password"
+                            class="md-input font-mono text-sm"
+                            autocomplete="new-password"
+                            :placeholder="
+                                smtpSettings.has_password && !smtpForm.clear_password
+                                    ? 'Saved (leave blank to keep it)'
+                                    : 'SMTP password'
+                            "
+                            data-testid="smtp-password"
+                        />
+                        <p class="mt-1.5 text-xs text-zinc-500">
+                            Stored encrypted and never shown again.
+                        </p>
+                        <label
+                            v-if="smtpSettings.has_password"
+                            class="mt-2 flex items-center gap-2 text-xs text-zinc-400"
+                        >
                             <input
-                                class="md-input pr-10 font-mono text-sm"
-                                readonly
-                                :value="smtp.password"
+                                v-model="smtpForm.clear_password"
+                                type="checkbox"
+                                class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
                             />
-                            <button
-                                type="button"
-                                class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
-                                title="Copy"
-                                @click="
-                                    copyValue(smtp.password, 'Password hint')
-                                "
-                            >
-                                <Copy :size="14" />
-                            </button>
+                            Remove the saved password
+                        </label>
+                        <p v-if="smtpErrors.password" class="mt-1 text-xs text-rose-300">{{ smtpErrors.password }}</p>
+                    </div>
+                </fieldset>
+
+                <div class="flex justify-end border-t border-zinc-800 pt-5">
+                    <button
+                        type="button"
+                        class="md-btn-primary"
+                        data-testid="smtp-save"
+                        :disabled="smtpSaving || !smtpCanManage"
+                        @click="saveSmtp"
+                    >
+                        {{ smtpSaving ? 'Saving…' : 'Save SMTP settings' }}
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <div
+            v-else-if="tab === 'signature'"
+            class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]"
+            data-testid="signature-settings"
+        >
+            <div class="space-y-6">
+                <div class="md-card space-y-5 p-6">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h3 class="font-medium text-white">Email signature</h3>
+                            <p class="mt-1 text-sm text-zinc-400">
+                                Added to the bottom of every email this workspace
+                                sends: new emails, inbox replies and forwards.
+                            </p>
+                        </div>
+                        <label class="flex shrink-0 items-center gap-2 text-sm text-zinc-200">
+                            <input
+                                v-model="signature.enabled"
+                                type="checkbox"
+                                data-testid="signature-enabled"
+                                class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                            />
+                            On
+                        </label>
+                    </div>
+
+                    <div :class="{ 'pointer-events-none opacity-50': !signature.enabled }">
+                        <label class="mb-1.5 block text-xs text-zinc-500">Workspace signature</label>
+                        <div class="overflow-hidden rounded-xl border border-zinc-800">
+                            <WysiwygEditor
+                                v-model="signature.html"
+                                placeholder="Ade Tola · Customer success · Acme Mail"
+                                min-height="120px"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="space-y-3 border-t border-zinc-800 pt-5">
+                        <label class="flex items-center justify-between gap-3 text-sm text-zinc-200">
+                            <span>
+                                Add to broadcasts
+                                <span class="mt-0.5 block text-xs text-zinc-500">Placed above the unsubscribe footer</span>
+                            </span>
+                            <input
+                                v-model="signature.broadcasts"
+                                type="checkbox"
+                                class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                            />
+                        </label>
+                        <label class="flex items-center justify-between gap-3 text-sm text-zinc-200">
+                            <span>
+                                Add to API emails
+                                <span class="mt-0.5 block text-xs text-zinc-500">Off by default so app emails stay as designed. A request can also pass <code class="font-mono">"signature": true</code></span>
+                            </span>
+                            <input
+                                v-model="signature.api"
+                                type="checkbox"
+                                class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                            />
+                        </label>
+                    </div>
+                </div>
+
+                <div class="md-card space-y-4 p-6">
+                    <div>
+                        <h3 class="font-medium text-white">Mailbox signatures</h3>
+                        <p class="mt-1 text-sm text-zinc-400">
+                            Give a mailbox its own signature. Mail sent from that
+                            address uses it instead of the workspace one.
+                        </p>
+                    </div>
+                    <p v-if="!mailboxSignatures.length" class="text-sm text-zinc-500">
+                        No mailboxes yet.
+                    </p>
+                    <div
+                        v-for="m in mailboxSignatures"
+                        :key="m.id"
+                        class="rounded-xl border border-zinc-800 p-4"
+                    >
+                        <label class="flex items-center justify-between gap-3 text-sm text-zinc-200">
+                            <span class="min-w-0">
+                                <span class="block truncate font-mono text-xs">{{ m.email }}</span>
+                                <span class="mt-0.5 block text-xs text-zinc-500">
+                                    {{ m.custom ? 'Own signature' : 'Uses the workspace signature' }}
+                                </span>
+                            </span>
+                            <input
+                                v-model="m.custom"
+                                type="checkbox"
+                                class="rounded border-zinc-700 bg-zinc-900 text-cyan-400 focus:ring-cyan-400/40"
+                            />
+                        </label>
+                        <div v-if="m.custom" class="mt-3 overflow-hidden rounded-xl border border-zinc-800">
+                            <WysiwygEditor
+                                v-model="m.signature"
+                                :placeholder="`Signature for ${m.email}`"
+                                min-height="90px"
+                            />
                         </div>
                     </div>
                 </div>
-            </section>
+
+                <div class="flex justify-end">
+                    <button
+                        type="button"
+                        class="md-btn-primary"
+                        data-testid="signature-save"
+                        :disabled="signatureSaving"
+                        @click="saveSignature"
+                    >
+                        {{ signatureSaving ? 'Saving…' : 'Save signature' }}
+                    </button>
+                </div>
+            </div>
+
+            <div class="md-card h-fit space-y-3 p-5 xl:sticky xl:top-6">
+                <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-sm font-medium text-white">Preview</h3>
+                    <select
+                        v-if="mailboxSignatures.length"
+                        v-model="previewMailbox"
+                        class="md-input !w-auto !py-1 text-xs"
+                    >
+                        <option value="">Workspace</option>
+                        <option v-for="m in mailboxSignatures" :key="m.id" :value="String(m.id)">
+                            {{ m.email }}
+                        </option>
+                    </select>
+                </div>
+                <div class="overflow-hidden rounded-xl border border-zinc-800 bg-white">
+                    <EmailFrame :html="signaturePreviewHtml" />
+                </div>
+                <p v-if="!signature.enabled" class="text-xs text-zinc-500">
+                    Signatures are off, so nothing is added right now.
+                </p>
+            </div>
         </div>
 
         <div

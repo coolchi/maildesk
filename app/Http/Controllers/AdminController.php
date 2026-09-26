@@ -9,6 +9,7 @@ use App\Models\Plan;
 use App\Models\Subscription;
 use App\Services\Domains\HostDnsVerifier;
 use App\Services\EmailUsage;
+use App\Services\Impersonation\ImpersonationService;
 use App\Services\Providers\ProviderConnectionTester;
 use App\Services\RevenueService;
 use App\Support\PlanNairaPrice;
@@ -123,6 +124,9 @@ class AdminController extends Controller
             'subscription' => $organization->subscription?->toAdminArray(),
             'hosts' => $organization->hosts->map->toAdminArray()->values(),
             'providers' => $providers,
+            // "Log in as" picker + recent impersonation audit.
+            'members' => app(ImpersonationService::class)->candidatesFor($organization, request()->user()),
+            'impersonationLogs' => app(ImpersonationService::class)->recentLogsFor($organization),
         ]);
     }
 

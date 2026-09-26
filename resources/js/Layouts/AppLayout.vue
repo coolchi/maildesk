@@ -10,6 +10,8 @@ import CommandPalette from '@/Components/CommandPalette.vue';
 import OnboardingModal from '@/Components/OnboardingModal.vue';
 import NotificationsMenu from '@/Components/NotificationsMenu.vue';
 import Modal from '@/Components/Modal.vue';
+import CreateAccountFields from '@/Components/CreateAccountFields.vue';
+import ImpersonationBanner from '@/Components/ImpersonationBanner.vue';
 import { useTenant } from '@/composables/useTenant';
 import { usePlansModal } from '@/composables/usePlansModal';
 import { useComposeModal } from '@/composables/useComposeModal';
@@ -25,6 +27,7 @@ import {
     Workflow,
     LayoutTemplate,
     Users,
+    UsersRound,
     UserCog,
     BarChart3,
     Globe,
@@ -58,6 +61,10 @@ const teamOpen = ref(false);
 const accountOpen = ref(false);
 const showCreateTeam = ref(false);
 const newTeamName = ref('');
+const newTeamSubdomain = ref('');
+const createTeamErrors = ref({});
+const createTeamFields = ref(null);
+const baseDomain = computed(() => page.props.tenant?.base_domain || '');
 const user = computed(() => page.props.auth?.user);
 const { open: openPlans } = usePlansModal();
 const { open: openCompose } = useComposeModal();
@@ -91,6 +98,7 @@ const navGroups = [
             { name: 'Inbox', route: 'inbox', icon: Inbox },
             { name: 'Sent', route: 'sent', icon: Send },
             { name: 'Bounced', route: 'bounced', icon: MailX },
+            { name: 'Groups', route: 'groups', icon: UsersRound },
             { name: 'Users', route: 'users', icon: UserCog },
         ],
     },
@@ -117,6 +125,7 @@ const navGroups = [
             { name: 'API Keys', route: 'api-keys', icon: KeyRound },
             { name: 'Webhooks', route: 'webhooks', icon: Webhook },
             { name: 'Settings', route: 'settings', params: 'usage', icon: Settings },
+            { name: 'Help', route: 'help', icon: HelpCircle },
         ],
     },
 ];
@@ -206,14 +215,20 @@ const createTeam = () => {
     if (!name) return;
     router.post(
         route('workspaces.store'),
-        { name },
+        { name, subdomain: newTeamSubdomain.value.trim() },
         {
             onSuccess: () => {
                 newTeamName.value = '';
+                newTeamSubdomain.value = '';
+                createTeamErrors.value = {};
+                createTeamFields.value?.reset();
                 showCreateTeam.value = false;
                 toast.success(`Created ${name}`);
             },
-            onError: () => toast.error('Could not create workspace.'),
+            onError: (errors) => {
+                createTeamErrors.value = errors;
+                toast.error('Could not create workspace.');
+            },
         },
     );
 };
@@ -221,6 +236,7 @@ const createTeam = () => {
 
 <template>
     <div class="min-h-screen bg-black text-zinc-100">
+        <ImpersonationBanner />
         <!-- Mobile header -->
         <div
             class="flex items-center justify-between border-b border-zinc-800 px-4 py-3 lg:hidden"
@@ -354,7 +370,7 @@ const createTeam = () => {
                                     "
                                 >
                                     <Plus :size="14" class="text-cyan-300" />
-                                    Create team
+                                    Create account
                                 </button>
                                 <button
                                     type="button"
@@ -627,16 +643,18 @@ const createTeam = () => {
 
         <Modal
             :show="showCreateTeam"
-            title="Create team"
+            title="Create account"
             description="Add another workspace for a product or brand."
             max-width="md"
             @close="showCreateTeam = false"
         >
-            <input
-                v-model="newTeamName"
-                class="md-input"
-                placeholder="Team name"
-                @keyup.enter="createTeam"
+            <CreateAccountFields
+                ref="createTeamFields"
+                v-model:name="newTeamName"
+                v-model:subdomain="newTeamSubdomain"
+                :base-domain="baseDomain"
+                :errors="createTeamErrors"
+                @submit="createTeam"
             />
             <template #footer>
                 <button
@@ -647,7 +665,7 @@ const createTeam = () => {
                     Cancel
                 </button>
                 <button type="button" class="md-btn-primary" @click="createTeam">
-                    Create team
+                    Create account
                 </button>
             </template>
         </Modal>

@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\Organization;
+use App\Services\Impersonation\ImpersonationService;
 use App\Services\TenantResolver;
 use App\Support\PlansCatalog;
 use Illuminate\Http\Request;
@@ -83,8 +84,9 @@ class HandleInertiaRequests extends Middleware
                 'workspaces' => $workspaces,
                 'host_locked' => $hostLocked,
                 'base_domain' => app(TenantResolver::class)->baseDomain(),
-                'provider' => $provider?->toAdminArray(),
-                'smtp' => $provider?->smtpCredentials(),
+                // No provider config/credentials are shared with tenant pages.
+                'provider' => $provider?->toTenantArray(),
+                'smtp' => $provider?->smtpSummary(),
                 'can_send' => $provider !== null && $provider->status === 'active',
                 'sending_from' => $sendingFrom,
             ],
@@ -95,6 +97,30 @@ class HandleInertiaRequests extends Middleware
                 'plain_webhook_secret' => fn () => $request->session()->get('plain_webhook_secret'),
             ],
             'plans' => fn () => PlansCatalog::forModal(),
+            'onboarding' => fn () => $organization ? $this->onboarding($organization) : null,
+            'impersonation' => fn () => app(ImpersonationService::class)->sharedState($request),
+        ];
+    }
+
+    /**
+     * Which "Get started" steps this workspace has actually completed,
+     * derived from real data so the checklist stays in sync across devices.
+     *
+     * @return array{domain: bool, apiKey: bool, send: bool, webhook: bool}
+     */
+    protected function onboarding(Organization $organization): array
+    {
+        return [
+            'domain' => $organization->domains()->where('status', 'verified')->exists(),
+            'apiKey' => $organization->apiKeys()
+                ->whereNull('revoked_at')
+                ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                ->exists(),
+            'send' => $organization->messages()
+                ->where('direction', 'outbound')
+                ->whereNotIn('status', ['queued', 'scheduled', 'failed', 'suppressed', 'canceled', 'cancelled'])
+                ->exists(),
+            'webhook' => $organization->webhooks()->where('is_active', true)->exists(),
         ];
     }
 }

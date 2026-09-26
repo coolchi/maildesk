@@ -3,25 +3,32 @@
 namespace App\Http\Controllers;
 
 use App\Models\Organization;
-use App\Models\OrganizationHost;
 use App\Services\TenantResolver;
+use App\Services\WorkspaceSubdomain;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class WorkspaceController extends Controller
 {
-    public function store(Request $request, TenantResolver $tenants): RedirectResponse|SymfonyResponse
+    public function store(Request $request, TenantResolver $tenants, WorkspaceSubdomain $subdomains): RedirectResponse|SymfonyResponse
     {
         $user = $request->user();
 
+        // The subdomain is chosen by the user (the form suggests one from the
+        // name); the server lowercases it and stays the authority on validity.
+        $request->merge(['subdomain' => WorkspaceSubdomain::normalize($request->input('subdomain'))]);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
-        ]);
+            'subdomain' => $subdomains->rules(),
+        ], WorkspaceSubdomain::messages());
 
         $name = trim($validated['name']);
+        $subdomain = $validated['subdomain'];
         $baseSlug = Str::slug($name) ?: 'workspace';
         $slug = $baseSlug;
         $suffix = 1;
@@ -31,45 +38,29 @@ class WorkspaceController extends Controller
             $suffix++;
         }
 
-        $subdomain = $slug;
-        $suffix = 1;
-        while (
-            Organization::query()->where('subdomain', $subdomain)->exists()
-            || OrganizationHost::query()->where('subdomain', $subdomain)->exists()
-        ) {
-            $subdomain = $slug.'-'.$suffix;
-            $suffix++;
-        }
+        $organization = DB::transaction(function () use ($name, $slug, $subdomain, $user, $subdomains) {
+            $organization = Organization::query()->create([
+                'name' => $name,
+                'slug' => $slug,
+                'status' => 'trial',
+                'plan' => 'Free',
+                'product' => 'transactional',
+                'seats' => 1,
+                'emails_30d' => 0,
+                'mrr' => 0,
+                'region' => 'us-east-1',
+                'owner_name' => $user->name,
+                'owner_email' => $user->email,
+                'provisioned_at' => now(),
+                'settings' => [],
+            ]);
 
-        $base = $tenants->baseDomain();
+            $organization->users()->attach($user->id, ['role' => 'owner']);
 
-        $organization = Organization::query()->create([
-            'name' => $name,
-            'slug' => $slug,
-            'status' => 'trial',
-            'plan' => 'Free',
-            'product' => 'transactional',
-            'subdomain' => $subdomain,
-            'seats' => 1,
-            'emails_30d' => 0,
-            'mrr' => 0,
-            'region' => 'us-east-1',
-            'owner_name' => $user->name,
-            'owner_email' => $user->email,
-            'provisioned_at' => now(),
-            'settings' => [],
-        ]);
+            $subdomains->register($organization, $subdomain);
 
-        $organization->users()->attach($user->id, ['role' => 'owner']);
-
-        OrganizationHost::query()->create([
-            'organization_id' => $organization->id,
-            'subdomain' => $subdomain,
-            'host' => $subdomain.'.'.$base,
-            'status' => 'active',
-            'ssl' => true,
-            'is_custom' => false,
-        ]);
+            return $organization;
+        });
 
         $request->session()->put('current_organization_id', $organization->id);
         $request->session()->save();

@@ -1,588 +1,478 @@
 <script setup>
-import { ref } from 'vue';
-import { Head, Link } from '@inertiajs/vue3';
+import '../../css/landing.css';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { Head, Link, usePage } from '@inertiajs/vue3';
+import HeroPreview from '@/Components/Landing/HeroPreview.vue';
+import { useTheme } from '@/composables/useTheme';
 import {
     ArrowRight,
     Check,
-    CheckCircle2,
     ChevronDown,
     Code2,
     Globe,
-    Headphones,
     Inbox,
     KeyRound,
-    Lock,
     Mail,
-    Server,
+    Megaphone,
+    Moon,
+    Send,
     ShieldCheck,
-    Sparkles,
+    Signature,
+    Sun,
+    Users,
+    UsersRound,
     Webhook,
-    X,
 } from '@lucide/vue';
 
-defineProps({
-    canLogin: Boolean,
-    canRegister: Boolean,
+const props = defineProps({
+    canLogin: { type: Boolean, default: true },
+    canRegister: { type: Boolean, default: true },
 });
+
+const page = usePage();
+const { isDark, toggle } = useTheme();
+
+const user = computed(() => page.props.auth?.user ?? null);
+const primaryHref = computed(() =>
+    user.value
+        ? route('dashboard')
+        : props.canRegister
+          ? route('register')
+          : route('login'),
+);
+const primaryLabel = computed(() =>
+    user.value ? 'Open your workspace' : 'Create your workspace',
+);
+
+const scrolled = ref(false);
+const onScroll = () => {
+    scrolled.value = window.scrollY > 8;
+};
+onMounted(() => {
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+});
+onUnmounted(() => window.removeEventListener('scroll', onScroll));
 
 const openFaq = ref(0);
 
-const headaches = [
-    {
-        problem: 'Fragmented tools',
-        problemBody:
-            'Transactional APIs in one place, team inbox in another, and no shared domain reputation.',
-        solution: 'One mail platform',
-        solutionBody:
-            'API, inbox, domains, and deliverability in a single workspace your product and ops teams share.',
-    },
-    {
-        problem: 'Opaque deliverability',
-        problemBody:
-            'You only find out something broke when customers never get the email.',
-        solution: 'Metrics you can act on',
-        solutionBody:
-            'Delivery, bounce, and complaint rates with logs and suppressions built in.',
-    },
-    {
-        problem: 'Locked-in providers',
-        problemBody:
-            'Hard-wiring to a single vendor makes failover and cost control painful.',
-        solution: 'Provider flexibility',
-        solutionBody:
-            'Start on Resend. Add SMTP or other providers per organization without rewriting your app.',
-    },
+const nav = [
+    { href: '#features', label: 'Features' },
+    { href: '#how-it-works', label: 'How it works' },
+    { href: '#developers', label: 'Developers' },
+    { href: '#faq', label: 'FAQ' },
 ];
 
-const tools = [
+const highlights = [
+    'SPF, DKIM & DMARC checks',
+    'REST API with scoped keys',
+    'Signed webhooks',
+    'Resend or SMTP delivery',
+];
+
+// Only features that exist in the product today.
+const features = [
     {
-        icon: Globe,
-        title: 'Custom @yourcompany.com email',
-        body: 'Professional from-addresses with SPF, DKIM, and DMARC guidance built into domain setup.',
-    },
-    {
-        icon: ShieldCheck,
-        title: 'Spam & bounce protection',
-        body: 'Hard bounce handling, suppressions, and complaint tracking to protect sender reputation.',
-    },
-    {
-        icon: Lock,
-        title: 'Secure by default',
-        body: 'API keys, encrypted provider credentials, and audit-friendly message logs.',
+        icon: Send,
+        title: 'Send from your app or the dashboard',
+        body: 'POST to /api/v1/emails with an API key, or write in the rich-text composer with CC, attachments and scheduling.',
     },
     {
         icon: Inbox,
         title: 'Shared team inbox',
-        body: 'Threads, replies, and compose for humans — while your product still owns the send API.',
+        body: 'Inbound mail lands in threads your team can read, reply to and forward — with the original conversation intact.',
     },
     {
-        icon: KeyRound,
-        title: 'Developer API & webhooks',
-        body: 'Bearer keys, send/receive endpoints, and real-time events for your systems.',
+        icon: Globe,
+        title: 'Domains with DNS verification',
+        body: 'Add your domain, publish the records we generate and verify SPF, DKIM and DMARC. Cloudflare users can connect DNS directly.',
     },
     {
-        icon: Server,
-        title: 'Admin controls',
-        body: 'Workspaces, roles, domains, and usage limits designed for growing teams.',
+        icon: Megaphone,
+        title: 'Broadcasts',
+        body: 'Send campaigns to your audience with per-recipient delivery tracking and one-click unsubscribe links.',
+    },
+    {
+        icon: Users,
+        title: 'Audience & suppressions',
+        body: 'Keep contacts in one place. Bounced and complained addresses are suppressed automatically to protect your reputation.',
+    },
+    {
+        icon: Webhook,
+        title: 'Webhooks',
+        body: 'Get sent, delivered, bounced, complained and received events pushed to your endpoint, signed with HMAC-SHA256.',
+    },
+    {
+        icon: Signature,
+        title: 'Signatures',
+        body: 'Consistent HTML signatures per mailbox, applied to replies and — if you choose — to API sends.',
+    },
+    {
+        icon: UsersRound,
+        title: 'Group addresses',
+        body: 'Create team@ or sales@ addresses that fan out incoming mail to every member of the group.',
     },
 ];
 
 const steps = [
     {
-        n: '1',
         title: 'Create a workspace',
-        body: 'Sign up and pick Resend or SMTP as your default provider.',
+        body: 'Sign up and create a workspace for your team in a minute.',
     },
     {
-        n: '2',
         title: 'Connect your domain',
-        body: 'Add DNS records with a guided checklist for SPF, DKIM, and DMARC.',
+        body: 'Publish the DNS records we generate and verify SPF, DKIM and DMARC in one click.',
     },
     {
-        n: '3',
         title: 'Send & receive',
-        body: 'Ship via API or compose in the dashboard. Inbox and metrics update live.',
+        body: 'Create an API key for your app, add mailboxes and start answering mail from the inbox.',
     },
 ];
 
-const withMailDesk = [
-    'API + shared inbox in one product',
-    'Domain auth and deliverability metrics',
-    'Multi-provider adapters (Resend first)',
-    'Webhooks and automation triggers',
-    'Transparent pricing as you grow',
-    'Human-friendly compose with WYSIWYG',
-];
-
-const withoutMailDesk = [
-    'Separate tools for send vs inbox',
-    'Guesswork when mail fails',
-    'Hard rewrites to change providers',
-    'Manual polling instead of events',
-    'Surprise costs as volume climbs',
-    'Poor DX for product engineers',
+const devPoints = [
+    { icon: KeyRound, text: 'API keys can be scoped to a single sending domain.' },
+    { icon: Webhook, text: 'Delivery and inbound events with signed payloads.' },
+    { icon: ShieldCheck, text: 'Automatic suppression of bounced and complained addresses.' },
 ];
 
 const faqs = [
     {
         q: 'What is MailDesk?',
-        a: 'MailDesk is a business mail platform that combines a developer send/receive API with a team inbox — Resend-style DX plus Gmail-like collaboration.',
+        a: 'MailDesk combines a developer send API with a shared team inbox. Your product sends transactional mail through the API while your team reads, replies to and forwards mail in the same workspace.',
     },
     {
-        q: 'Does MailDesk support SPF, DKIM, and DMARC?',
-        a: 'Yes. Domain setup walks you through SPF, DKIM, and DMARC records so your custom domain authenticates cleanly.',
+        q: 'Does MailDesk support SPF, DKIM and DMARC?',
+        a: 'Yes. When you add a domain, MailDesk generates the DNS records and checks SPF, DKIM and DMARC so your mail authenticates cleanly. If your DNS is on Cloudflare you can connect it and publish records directly.',
     },
     {
-        q: 'Can I use my own mail provider?',
-        a: 'Resend is the default. You can also configure SMTP (and more providers later) per organization without changing your app integration.',
+        q: 'Which delivery providers can I use?',
+        a: 'Workspaces send through Resend by default, and you can configure your own SMTP server instead — without changing how your app calls the MailDesk API.',
     },
     {
         q: 'How do I send email from my app?',
-        a: 'Create an API key in the dashboard and POST to /api/v1/emails with a Bearer token. Docs include cURL and SDK examples.',
+        a: 'Create an API key in the dashboard and POST JSON to /api/v1/emails with a Bearer token. The in-app docs include cURL examples for sending, reading the inbox and managing domains.',
     },
     {
-        q: 'Is there a shared inbox for support teams?',
-        a: 'Yes. Inbound and outbound mail threads live in Inbox so humans can reply while automations and webhooks keep systems in sync.',
+        q: 'Can my whole team work from the inbox?',
+        a: 'Yes. Add mailboxes for your team, set up group addresses like support@, and reply or forward from shared threads with your mailbox signature applied.',
     },
-];
-
-const codeSample = `import { MailDesk } from '@maildesk/sdk';
-
-const md = new MailDesk('md_xxxxxxxx');
-
-await md.emails.send({
-  from: 'Acme <hello@acme.com>',
-  to: ['user@example.com'],
-  subject: 'Hello from MailDesk',
-  html: '<strong>It works.</strong>',
-});`;
-
-const stats = [
-    { value: '99.9%', label: 'Target uptime' },
-    { value: 'API + Inbox', label: 'One platform' },
-    { value: 'SPF/DKIM', label: 'Domain auth built in' },
-    { value: '24×7', label: 'Docs & dashboard' },
 ];
 </script>
 
 <template>
-    <Head title="MailDesk — Easy, reliable business email" />
+    <Head title="MailDesk — Business email and a developer API in one workspace" />
 
-    <div class="min-h-screen overflow-x-hidden bg-black text-zinc-100">
-        <div
-            class="pointer-events-none absolute inset-x-0 top-0 h-[640px] bg-[radial-gradient(ellipse_at_top,_rgba(34,211,238,0.18),_transparent_55%)]"
-        />
-
+    <div class="lp relative min-h-screen overflow-x-hidden font-sans antialiased">
+        <!-- Header -->
         <header
-            class="relative z-20 mx-auto flex max-w-6xl items-center justify-between px-6 py-5"
+            class="lp-header sticky top-0 z-40"
+            :class="{ 'is-scrolled': scrolled }"
         >
-            <div class="flex items-center gap-2">
-                <span
-                    class="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400/15 text-cyan-300"
-                >
-                    <Mail :size="18" />
-                </span>
-                <span class="text-lg font-semibold tracking-tight">MailDesk</span>
-            </div>
-            <nav class="hidden items-center gap-7 text-sm text-zinc-400 md:flex">
-                <a href="#problems" class="transition hover:text-white">Why MailDesk</a>
-                <a href="#tools" class="transition hover:text-white">Product</a>
-                <a href="#api" class="transition hover:text-white">API</a>
-                <a href="#faq" class="transition hover:text-white">FAQ</a>
-                <Link
-                    v-if="$page.props.auth.user"
-                    :href="route('dashboard')"
-                    class="md-btn-solid"
-                >
-                    Open app
+            <div
+                class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5 sm:px-6"
+            >
+                <Link href="/" class="flex items-center gap-2.5" aria-label="MailDesk home">
+                    <span
+                        class="lp-logo flex h-8 w-8 items-center justify-center rounded-lg"
+                    >
+                        <Mail :size="16" />
+                    </span>
+                    <span class="lp-text text-[17px] font-semibold tracking-tight"
+                        >MailDesk</span
+                    >
                 </Link>
-                <template v-else>
-                    <Link :href="route('login')" class="transition hover:text-white"
-                        >Log in</Link
+
+                <nav class="hidden items-center gap-7 text-sm md:flex" aria-label="Primary">
+                    <a
+                        v-for="item in nav"
+                        :key="item.href"
+                        :href="item.href"
+                        class="lp-nav-link"
+                        >{{ item.label }}</a
                     >
-                    <Link :href="route('register')" class="md-btn-primary"
-                        >Sign up now</Link
+                </nav>
+
+                <div class="flex items-center gap-2">
+                    <button
+                        type="button"
+                        class="lp-icon-btn flex h-9 w-9 items-center justify-center rounded-full"
+                        :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+                        data-testid="landing-theme-toggle"
+                        @click="toggle"
                     >
-                </template>
-            </nav>
+                        <Sun v-if="isDark" :size="16" />
+                        <Moon v-else :size="16" />
+                    </button>
+                    <Link
+                        v-if="user"
+                        :href="route('dashboard')"
+                        class="lp-btn lp-btn-primary px-4 py-2 text-sm"
+                    >
+                        Open app
+                    </Link>
+                    <template v-else>
+                        <Link
+                            v-if="canLogin"
+                            :href="route('login')"
+                            class="lp-nav-link px-2 text-sm font-medium"
+                            >Log in</Link
+                        >
+                        <Link
+                            v-if="canRegister"
+                            :href="route('register')"
+                            class="lp-btn lp-btn-primary px-4 py-2 text-sm"
+                            >Sign up</Link
+                        >
+                    </template>
+                </div>
+            </div>
         </header>
 
-        <main class="relative z-10">
+        <main>
             <!-- Hero -->
-            <section class="mx-auto max-w-6xl px-6 pb-16 pt-14 lg:grid lg:grid-cols-2 lg:items-center lg:gap-14 lg:pb-24 lg:pt-20">
-                <div>
-                    <p
-                        class="inline-flex items-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-300"
-                    >
-                        <Sparkles :size="12" />
-                        Secure & professional business email
-                    </p>
-                    <h1
-                        class="mt-6 max-w-xl text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-[3.5rem] lg:leading-[1.08]"
-                    >
-                        Easy, reliable
-                        <span class="text-cyan-300">business email</span>
-                    </h1>
-                    <p class="mt-5 max-w-lg text-lg leading-relaxed text-zinc-400">
-                        Custom domain mail with a developer API, shared inbox,
-                        spam-aware deliverability, and provider flexibility —
-                        trusted tooling for modern teams.
-                    </p>
-                    <div class="mt-8 flex flex-wrap gap-3">
-                        <Link :href="route('register')" class="md-btn-primary">
-                            Sign up now
-                            <ArrowRight :size="16" />
-                        </Link>
-                        <a href="#steps" class="md-btn-ghost">Talk to product</a>
-                    </div>
-                    <ul class="mt-8 space-y-2.5 text-sm text-zinc-400">
-                        <li
-                            v-for="item in [
-                                'Custom @yourcompany.com with SPF, DKIM, DMARC',
-                                'Send & receive via API or dashboard',
-                                'Automations, webhooks, and metrics included',
-                            ]"
-                            :key="item"
-                            class="flex items-start gap-2"
-                        >
-                            <CheckCircle2
-                                :size="16"
-                                class="mt-0.5 shrink-0 text-cyan-400"
-                            />
-                            {{ item }}
-                        </li>
-                    </ul>
-                </div>
+            <section class="relative">
+                <div class="lp-glow pointer-events-none absolute inset-x-0 top-0 h-[720px]" />
+                <div class="lp-grid-bg pointer-events-none absolute inset-x-0 top-0 h-[620px]" />
 
-                <div class="relative mt-14 lg:mt-0">
-                    <div
-                        class="absolute -inset-8 rounded-[2rem] bg-cyan-400/10 blur-3xl"
-                    />
-                    <div
-                        class="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-cyan-950/20"
-                    >
-                        <div
-                            class="flex items-center justify-between border-b border-zinc-800 px-4 py-3"
-                        >
-                            <div class="flex items-center gap-2 text-xs text-zinc-500">
-                                <span class="h-2.5 w-2.5 rounded-full bg-rose-500/80" />
-                                <span class="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
-                                <span class="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
-                                <span class="ml-2">MailDesk inbox</span>
-                            </div>
-                            <span
-                                class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400"
-                                >Live</span
-                            >
-                        </div>
-                        <div class="grid sm:grid-cols-[140px_1fr]">
-                            <div
-                                class="hidden space-y-1 border-r border-zinc-800 bg-black/30 p-3 text-xs text-zinc-500 sm:block"
-                            >
-                                <div class="rounded-md bg-zinc-800/80 px-2 py-1.5 text-cyan-300">
-                                    Inbox
-                                </div>
-                                <div class="px-2 py-1.5">Sent</div>
-                                <div class="px-2 py-1.5">Domains</div>
-                                <div class="px-2 py-1.5">API keys</div>
-                            </div>
-                            <div class="space-y-2 p-3">
-                                <div
-                                    v-for="row in [
-                                        {
-                                            from: 'maya@studio.co',
-                                            subject: 'Welcome to MailDesk',
-                                            status: 'Delivered',
-                                            tone: 'text-emerald-400',
-                                        },
-                                        {
-                                            from: 'ops@northwind.io',
-                                            subject: 'Domain verified',
-                                            status: 'Received',
-                                            tone: 'text-cyan-300',
-                                        },
-                                        {
-                                            from: 'billing@acme.com',
-                                            subject: 'Receipt #1042',
-                                            status: 'Delivered',
-                                            tone: 'text-emerald-400',
-                                        },
-                                    ]"
-                                    :key="row.subject"
-                                    class="rounded-xl border border-zinc-800/80 bg-black/40 px-3 py-2.5"
-                                >
-                                    <div class="flex items-center justify-between gap-2">
-                                        <span class="truncate text-sm text-zinc-200">{{
-                                            row.from
-                                        }}</span>
-                                        <span class="text-[11px]" :class="row.tone">{{
-                                            row.status
-                                        }}</span>
-                                    </div>
-                                    <div class="mt-1 truncate text-xs text-zinc-500">
-                                        {{ row.subject }}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <p class="relative mt-4 text-center text-sm text-zinc-500">
-                        Get started with ad-free, API-first business email.
-                    </p>
-                </div>
-            </section>
-
-            <!-- Stats -->
-            <section class="border-y border-zinc-900 bg-zinc-950/40">
                 <div
-                    class="mx-auto grid max-w-6xl gap-6 px-6 py-10 sm:grid-cols-2 lg:grid-cols-4"
+                    class="relative mx-auto grid max-w-6xl items-center gap-16 px-5 pb-20 pt-14 sm:px-6 sm:pt-20 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:pb-28 lg:pt-24"
                 >
-                    <div
-                        v-for="stat in stats"
-                        :key="stat.label"
-                        class="text-center sm:text-left"
-                    >
-                        <div class="text-2xl font-semibold text-white">
-                            {{ stat.value }}
-                        </div>
-                        <div class="mt-1 text-sm text-zinc-500">
-                            {{ stat.label }}
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Problems / solutions -->
-            <section id="problems" class="mx-auto max-w-6xl px-6 py-24">
-                <div class="max-w-2xl">
-                    <h2 class="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                        Three email headaches.
-                        <span class="text-cyan-300">Now sorted.</span>
-                    </h2>
-                    <p class="mt-3 text-zinc-400">
-                        Inspired by what businesses need from professional mail —
-                        without the bloat of legacy suites.
-                    </p>
-                </div>
-
-                <div class="mt-12 grid gap-4 lg:grid-cols-3">
-                    <div
-                        v-for="item in headaches"
-                        :key="item.problem"
-                        class="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950"
-                    >
-                        <div class="border-b border-zinc-800 bg-rose-500/5 p-5">
-                            <p class="text-[11px] font-semibold uppercase tracking-wider text-rose-300/80">
-                                Problem
-                            </p>
-                            <h3 class="mt-2 text-lg font-medium text-white">
-                                {{ item.problem }}
-                            </h3>
-                            <p class="mt-2 text-sm leading-relaxed text-zinc-400">
-                                {{ item.problemBody }}
-                            </p>
-                        </div>
-                        <div class="p-5">
-                            <p class="text-[11px] font-semibold uppercase tracking-wider text-cyan-300/80">
-                                Solution
-                            </p>
-                            <h3 class="mt-2 text-lg font-medium text-white">
-                                {{ item.solution }}
-                            </h3>
-                            <p class="mt-2 text-sm leading-relaxed text-zinc-400">
-                                {{ item.solutionBody }}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Tools -->
-            <section id="tools" class="border-t border-zinc-900 bg-zinc-950/30 py-24">
-                <div class="mx-auto max-w-6xl px-6">
-                    <h2 class="text-3xl font-semibold text-white sm:text-4xl">
-                        All great tools.
-                        <span class="text-zinc-500">Minus the bloat.</span>
-                    </h2>
-                    <p class="mt-3 max-w-2xl text-zinc-400">
-                        Everything you need to host business email and ship
-                        product mail — nothing you have to ignore.
-                    </p>
-
-                    <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <div
-                            v-for="tool in tools"
-                            :key="tool.title"
-                            class="group rounded-2xl border border-zinc-800 bg-black/40 p-6 transition hover:border-cyan-400/30 hover:bg-zinc-950"
-                        >
-                            <div
-                                class="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-cyan-300 transition group-hover:scale-105 group-hover:border-cyan-400/40"
-                            >
-                                <component :is="tool.icon" :size="20" />
-                            </div>
-                            <h3 class="text-base font-medium text-white">
-                                {{ tool.title }}
-                            </h3>
-                            <p class="mt-2 text-sm leading-relaxed text-zinc-400">
-                                {{ tool.body }}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- 3 steps -->
-            <section id="steps" class="mx-auto max-w-6xl px-6 py-24">
-                <div class="text-center">
-                    <h2 class="text-3xl font-semibold text-white sm:text-4xl">
-                        Be ready before your next coffee
-                    </h2>
-                    <p class="mt-2 text-zinc-400">Go live in 3 steps</p>
-                </div>
-                <div class="mt-12 grid gap-4 md:grid-cols-3">
-                    <div
-                        v-for="step in steps"
-                        :key="step.n"
-                        class="relative rounded-2xl border border-zinc-800 bg-zinc-950 p-6"
-                    >
-                        <div
-                            class="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-cyan-400 text-sm font-bold text-zinc-950"
-                        >
-                            {{ step.n }}
-                        </div>
-                        <h3 class="text-lg font-medium text-white">
-                            {{ step.title }}
-                        </h3>
-                        <p class="mt-2 text-sm leading-relaxed text-zinc-400">
-                            {{ step.body }}
-                        </p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Comparison -->
-            <section class="border-y border-zinc-900 py-24">
-                <div class="mx-auto max-w-6xl px-6">
-                    <p class="text-sm font-medium text-zinc-500">Let's face it.</p>
-                    <h2 class="mt-2 max-w-2xl text-3xl font-semibold text-white sm:text-4xl">
-                        Switching takes a few days. The alternative costs you
-                        every day.
-                    </h2>
-
-                    <div class="mt-12 grid gap-4 lg:grid-cols-2">
-                        <div
-                            class="rounded-2xl border border-cyan-400/30 bg-cyan-400/5 p-6 sm:p-8"
-                        >
-                            <h3 class="text-lg font-medium text-cyan-300">
-                                With MailDesk
-                            </h3>
-                            <ul class="mt-5 space-y-3">
-                                <li
-                                    v-for="item in withMailDesk"
-                                    :key="item"
-                                    class="flex items-start gap-2.5 text-sm text-zinc-200"
-                                >
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-cyan-300"
-                                    >
-                                        <Check :size="12" />
-                                    </span>
-                                    {{ item }}
-                                </li>
-                            </ul>
-                        </div>
-                        <div class="rounded-2xl border border-zinc-800 bg-zinc-950 p-6 sm:p-8">
-                            <h3 class="text-lg font-medium text-zinc-400">
-                                Without MailDesk
-                            </h3>
-                            <ul class="mt-5 space-y-3">
-                                <li
-                                    v-for="item in withoutMailDesk"
-                                    :key="item"
-                                    class="flex items-start gap-2.5 text-sm text-zinc-500"
-                                >
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-500"
-                                    >
-                                        <X :size="12" />
-                                    </span>
-                                    {{ item }}
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- API -->
-            <section id="api" class="mx-auto max-w-6xl px-6 py-24">
-                <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                        <div class="flex items-center gap-3">
-                            <span
-                                class="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-cyan-300"
+                        <p
+                            class="lp-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
+                        >
+                            <span class="h-1.5 w-1.5 rounded-full bg-current" />
+                            Business email + developer API
+                        </p>
+                        <h1
+                            class="lp-text mt-6 text-[2.5rem] font-semibold leading-[1.06] tracking-tight sm:text-5xl lg:text-[3.5rem]"
+                        >
+                            Business email your app
+                            <span class="lp-accent">and your team</span> can share.
+                        </h1>
+                        <p class="lp-text-2 mt-6 max-w-xl text-lg leading-relaxed">
+                            Send transactional mail with a simple API, answer
+                            customers from a shared inbox, and authenticate your
+                            domain with guided DNS — all in one MailDesk
+                            workspace.
+                        </p>
+                        <div class="mt-9 flex flex-col gap-3 sm:flex-row">
+                            <Link
+                                :href="primaryHref"
+                                class="lp-btn lp-btn-primary px-6 py-3 text-[15px]"
+                                data-testid="landing-primary-cta"
                             >
-                                <Code2 :size="18" />
-                            </span>
-                            <h2 class="text-3xl font-semibold text-white">
-                                Integrate this weekend
-                            </h2>
+                                {{ primaryLabel }}
+                                <ArrowRight :size="16" />
+                            </Link>
+                            <a
+                                href="#features"
+                                class="lp-btn lp-btn-secondary px-6 py-3 text-[15px]"
+                            >
+                                See what's included
+                            </a>
                         </div>
-                        <p class="mt-3 max-w-xl text-zinc-400">
-                            One HTTP API for send and receive. Webhooks for
-                            delivery events. Docs in the app.
+                        <ul class="mt-10 grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2">
+                            <li
+                                v-for="item in highlights"
+                                :key="item"
+                                class="lp-text-2 flex items-center gap-2"
+                            >
+                                <Check :size="15" class="lp-accent shrink-0" />
+                                {{ item }}
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="px-2 sm:px-6 lg:px-0">
+                        <HeroPreview />
+                    </div>
+                </div>
+            </section>
+
+            <!-- Features -->
+            <section id="features" class="lp-bg-alt lp-hairline scroll-mt-16 border-y py-20 sm:py-28">
+                <div class="mx-auto max-w-6xl px-5 sm:px-6">
+                    <div class="max-w-2xl">
+                        <p class="lp-eyebrow">Features</p>
+                        <h2
+                            class="lp-text mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
+                        >
+                            Everything you need to send, receive and stay
+                            deliverable.
+                        </h2>
+                        <p class="lp-text-2 mt-4 text-lg leading-relaxed">
+                            One workspace for product mail and the humans who
+                            answer it — no stitching tools together.
                         </p>
                     </div>
-                    <Link :href="route('register')" class="md-btn-ghost self-start">
-                        Get an API key
-                        <ArrowRight :size="14" />
-                    </Link>
-                </div>
 
-                <div class="relative mt-8 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
-                    <div
-                        class="flex items-center justify-between border-b border-zinc-800 px-4 py-2 text-xs text-zinc-500"
-                    >
-                        <span>send.js</span>
-                        <span class="inline-flex items-center gap-1 text-cyan-300">
-                            <Webhook :size="12" /> API ready
-                        </span>
+                    <div class="mt-12 grid gap-4 sm:mt-16 sm:grid-cols-2 lg:grid-cols-4">
+                        <article
+                            v-for="f in features"
+                            :key="f.title"
+                            class="lp-card lp-card-hover rounded-2xl p-6"
+                        >
+                            <span
+                                class="lp-icon-tile flex h-10 w-10 items-center justify-center rounded-xl"
+                            >
+                                <component :is="f.icon" :size="18" />
+                            </span>
+                            <h3 class="lp-text mt-5 text-base font-semibold leading-snug">
+                                {{ f.title }}
+                            </h3>
+                            <p class="lp-text-2 mt-2 text-sm leading-relaxed">
+                                {{ f.body }}
+                            </p>
+                        </article>
                     </div>
-                    <pre
-                        class="overflow-x-auto p-5 text-[13px] leading-relaxed text-zinc-300"
-                    ><code>{{ codeSample }}</code></pre>
+                </div>
+            </section>
+
+            <!-- How it works -->
+            <section id="how-it-works" class="scroll-mt-16 py-20 sm:py-28">
+                <div class="mx-auto max-w-6xl px-5 sm:px-6">
+                    <div class="mx-auto max-w-2xl text-center">
+                        <p class="lp-eyebrow">How it works</p>
+                        <h2
+                            class="lp-text mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
+                        >
+                            Live in three steps
+                        </h2>
+                        <p class="lp-text-2 mt-4 text-lg leading-relaxed">
+                            From sign-up to your first authenticated email in
+                            an afternoon.
+                        </p>
+                    </div>
+                    <ol class="mt-12 grid gap-4 sm:mt-16 md:grid-cols-3">
+                        <li
+                            v-for="(step, i) in steps"
+                            :key="step.title"
+                            class="lp-card rounded-2xl p-6 sm:p-7"
+                        >
+                            <span
+                                class="lp-step-num flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold"
+                                >{{ i + 1 }}</span
+                            >
+                            <h3 class="lp-text mt-5 text-lg font-semibold">
+                                {{ step.title }}
+                            </h3>
+                            <p class="lp-text-2 mt-2 text-sm leading-relaxed">
+                                {{ step.body }}
+                            </p>
+                        </li>
+                    </ol>
+                </div>
+            </section>
+
+            <!-- Developers -->
+            <section
+                id="developers"
+                class="lp-bg-alt lp-hairline scroll-mt-16 border-y py-20 sm:py-28"
+            >
+                <div
+                    class="mx-auto grid max-w-6xl items-center gap-12 px-5 sm:px-6 lg:grid-cols-[1fr_1.15fr] lg:gap-16"
+                >
+                    <div>
+                        <p class="lp-eyebrow">Developers</p>
+                        <h2
+                            class="lp-text mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
+                        >
+                            One HTTP call to send.
+                        </h2>
+                        <p class="lp-text-2 mt-4 text-lg leading-relaxed">
+                            A small, predictable REST API for sending, reading
+                            inbox threads and managing domains — documented
+                            inside the app.
+                        </p>
+                        <ul class="mt-8 space-y-4">
+                            <li
+                                v-for="p in devPoints"
+                                :key="p.text"
+                                class="flex items-start gap-3"
+                            >
+                                <span
+                                    class="lp-icon-tile mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                                >
+                                    <component :is="p.icon" :size="14" />
+                                </span>
+                                <span class="lp-text-2 text-[15px] leading-relaxed">{{
+                                    p.text
+                                }}</span>
+                            </li>
+                        </ul>
+                        <Link
+                            :href="primaryHref"
+                            class="lp-btn lp-btn-secondary mt-9 px-5 py-2.5 text-sm"
+                        >
+                            <Code2 :size="15" />
+                            Get an API key
+                        </Link>
+                    </div>
+
+                    <div class="lp-code lp-float overflow-hidden rounded-2xl">
+                        <div
+                            class="lp-code-bar flex items-center justify-between border-b px-4 py-2.5 text-xs"
+                        >
+                            <span class="font-mono">send-email.sh</span>
+                            <span>cURL</span>
+                        </div>
+                        <pre
+                            class="overflow-x-auto p-5 font-mono text-[13px] leading-6"
+                        ><code><span class="c"># Send a transactional email</span>
+curl -X POST https://your-workspace/api/v1/emails \
+  -H <span class="s">"Authorization: Bearer md_your_api_key"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d '{
+    <span class="k">"from"</span>: <span class="s">"Acme &lt;hello@acme.com&gt;"</span>,
+    <span class="k">"to"</span>: <span class="s">"customer@example.com"</span>,
+    <span class="k">"subject"</span>: <span class="s">"Your receipt"</span>,
+    <span class="k">"html"</span>: <span class="s">"&lt;p&gt;Thanks for your order!&lt;/p&gt;"</span>
+  }'</code></pre>
+                    </div>
                 </div>
             </section>
 
             <!-- FAQ -->
-            <section id="faq" class="border-t border-zinc-900 py-24">
-                <div class="mx-auto max-w-3xl px-6">
-                    <h2 class="text-center text-3xl font-semibold text-white">
-                        Frequently asked questions
-                    </h2>
-                    <div class="mt-10 divide-y divide-zinc-800 rounded-2xl border border-zinc-800 bg-zinc-950">
+            <section id="faq" class="scroll-mt-16 py-20 sm:py-28">
+                <div class="mx-auto max-w-3xl px-5 sm:px-6">
+                    <div class="text-center">
+                        <p class="lp-eyebrow">FAQ</p>
+                        <h2
+                            class="lp-text mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
+                        >
+                            Frequently asked questions
+                        </h2>
+                    </div>
+                    <div class="lp-card mt-12 overflow-hidden rounded-2xl">
                         <div
                             v-for="(faq, i) in faqs"
                             :key="faq.q"
-                            class="px-5"
+                            class="lp-faq border-b px-5 last:border-b-0 sm:px-6"
                         >
-                            <button
-                                type="button"
-                                class="flex w-full items-center justify-between gap-4 py-4 text-left"
-                                @click="openFaq = openFaq === i ? -1 : i"
-                            >
-                                <span class="font-medium text-white">{{
-                                    faq.q
-                                }}</span>
-                                <ChevronDown
-                                    :size="16"
-                                    class="shrink-0 text-zinc-500 transition"
-                                    :class="{ 'rotate-180 text-cyan-300': openFaq === i }"
-                                />
-                            </button>
+                            <h3>
+                                <button
+                                    :id="`faq-q-${i}`"
+                                    type="button"
+                                    class="lp-faq-q lp-text flex w-full items-center justify-between gap-4 py-5 text-left text-[15px] font-medium transition"
+                                    :aria-expanded="openFaq === i"
+                                    :aria-controls="`faq-a-${i}`"
+                                    @click="openFaq = openFaq === i ? -1 : i"
+                                >
+                                    {{ faq.q }}
+                                    <ChevronDown
+                                        :size="18"
+                                        class="lp-muted shrink-0 transition-transform duration-200"
+                                        :class="{ 'rotate-180': openFaq === i }"
+                                    />
+                                </button>
+                            </h3>
                             <div
                                 v-show="openFaq === i"
-                                class="pb-4 text-sm leading-relaxed text-zinc-400"
+                                :id="`faq-a-${i}`"
+                                role="region"
+                                :aria-labelledby="`faq-q-${i}`"
+                                class="lp-text-2 pb-5 text-[15px] leading-relaxed"
                             >
                                 {{ faq.a }}
                             </div>
@@ -591,51 +481,97 @@ const stats = [
                 </div>
             </section>
 
-            <!-- Final CTA -->
-            <section class="mx-auto max-w-6xl px-6 pb-24">
+            <!-- Closing CTA -->
+            <section class="px-5 pb-20 sm:px-6 sm:pb-28">
                 <div
-                    class="overflow-hidden rounded-3xl border border-zinc-800 bg-gradient-to-br from-zinc-950 via-black to-cyan-950/50 px-8 py-14 text-center sm:px-12"
+                    class="lp-cta mx-auto max-w-6xl rounded-3xl px-6 py-14 text-center sm:px-12 sm:py-20"
                 >
-                    <div
-                        class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300"
+                    <h2
+                        class="lp-text mx-auto max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl"
                     >
-                        <Headphones :size="22" />
-                    </div>
-                    <h2 class="text-3xl font-semibold text-white sm:text-4xl">
-                        Host your business email with MailDesk
+                        Give your team and your app one place for email.
                     </h2>
-                    <p class="mx-auto mt-3 max-w-xl text-zinc-400">
-                        Start free today — or explore the dashboard to see
-                        domains, API keys, inbox, and metrics.
+                    <p class="lp-text-2 mx-auto mt-4 max-w-xl text-lg leading-relaxed">
+                        Create a workspace, verify your domain and send your
+                        first email. You can choose a plan from your workspace
+                        settings whenever you're ready.
                     </p>
-                    <div class="mt-8 flex flex-wrap justify-center gap-3">
-                        <Link :href="route('register')" class="md-btn-primary">
-                            Sign up now
+                    <div class="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+                        <Link
+                            :href="primaryHref"
+                            class="lp-btn lp-btn-primary px-6 py-3 text-[15px]"
+                            data-testid="landing-closing-cta"
+                        >
+                            {{ primaryLabel }}
+                            <ArrowRight :size="16" />
                         </Link>
-                        <Link :href="route('login')" class="md-btn-ghost">
-                            Sign in
+                        <Link
+                            v-if="!user && canLogin"
+                            :href="route('login')"
+                            class="lp-btn lp-btn-secondary px-6 py-3 text-[15px]"
+                        >
+                            Log in
                         </Link>
                     </div>
                 </div>
             </section>
         </main>
 
-        <footer class="border-t border-zinc-900 py-10">
+        <!-- Footer -->
+        <footer class="lp-hairline border-t">
             <div
-                class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 text-xs text-zinc-600 sm:flex-row"
+                class="mx-auto grid max-w-6xl gap-10 px-5 py-12 sm:px-6 md:grid-cols-[1.5fr_1fr_1fr]"
             >
-                <div class="flex items-center gap-2 text-zinc-400">
-                    <Mail :size="14" class="text-cyan-400" />
-                    MailDesk
+                <div>
+                    <div class="flex items-center gap-2.5">
+                        <span
+                            class="lp-logo flex h-8 w-8 items-center justify-center rounded-lg"
+                        >
+                            <Mail :size="16" />
+                        </span>
+                        <span class="lp-text font-semibold tracking-tight">MailDesk</span>
+                    </div>
+                    <p class="lp-text-2 mt-4 max-w-xs text-sm leading-relaxed">
+                        Business email and a developer API in one workspace.
+                    </p>
                 </div>
                 <div>
-                    © {{ new Date().getFullYear() }} MailDesk ·
-                    maildesk.test
+                    <h3 class="lp-text text-sm font-semibold">Product</h3>
+                    <ul class="mt-4 space-y-2.5 text-sm">
+                        <li v-for="item in nav" :key="item.href">
+                            <a :href="item.href" class="lp-footer-link">{{ item.label }}</a>
+                        </li>
+                    </ul>
                 </div>
-                <div class="flex gap-4">
-                    <a href="#tools" class="hover:text-zinc-300">Product</a>
-                    <a href="#api" class="hover:text-zinc-300">API</a>
-                    <a href="#faq" class="hover:text-zinc-300">FAQ</a>
+                <div>
+                    <h3 class="lp-text text-sm font-semibold">Account</h3>
+                    <ul class="mt-4 space-y-2.5 text-sm">
+                        <template v-if="user">
+                            <li>
+                                <Link :href="route('dashboard')" class="lp-footer-link"
+                                    >Open app</Link
+                                >
+                            </li>
+                        </template>
+                        <template v-else>
+                            <li v-if="canLogin">
+                                <Link :href="route('login')" class="lp-footer-link">Log in</Link>
+                            </li>
+                            <li v-if="canRegister">
+                                <Link :href="route('register')" class="lp-footer-link"
+                                    >Create a workspace</Link
+                                >
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+            <div class="lp-hairline border-t">
+                <div
+                    class="lp-muted mx-auto flex max-w-6xl flex-col gap-2 px-5 py-6 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                >
+                    <span>© {{ new Date().getFullYear() }} MailDesk. All rights reserved.</span>
+                    <span>Made for teams that live in their inbox.</span>
                 </div>
             </div>
         </footer>

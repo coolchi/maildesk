@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Services\Impersonation\ImpersonationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -39,9 +41,25 @@ class AuthenticatedSessionController extends Controller
     /**
      * Destroy an authenticated session.
      */
-    public function destroy(Request $request): RedirectResponse
+    public function destroy(Request $request, ImpersonationService $impersonation): RedirectResponse|SymfonyResponse
     {
-        Auth::guard('web')->logout();
+        // While impersonating, "log out" ends the impersonation and returns
+        // the admin to the admin panel. Auth::logout() must NOT run here: it
+        // would cycle the impersonated user's remember_token and sign them
+        // out of their other remembered devices.
+        if ($impersonation->isImpersonating($request)) {
+            $url = $impersonation->stop($request, 'logout');
+
+            return $request->header('X-Inertia')
+                ? Inertia::location($url)
+                : redirect()->away($url);
+        }
+
+        // Sign out this device only. logoutCurrentDevice() removes the user
+        // from the session and expires this browser's remember cookie, but
+        // (unlike logout()) does not cycle users.remember_token, so the
+        // user's other remembered devices stay signed in.
+        Auth::guard('web')->logoutCurrentDevice();
 
         $request->session()->invalidate();
 

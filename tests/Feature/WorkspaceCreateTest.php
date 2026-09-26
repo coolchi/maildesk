@@ -24,14 +24,16 @@ class WorkspaceCreateTest extends TestCase
         $response = $this->actingAs($user)
             ->post(route('workspaces.store'), [
                 'name' => 'Harbor Labs',
+                'subdomain' => 'harbor-labs',
             ]);
 
         $org = Organization::query()->where('name', 'Harbor Labs')->first();
         $this->assertNotNull($org);
         $this->assertTrue($org->users()->whereKey($user->id)->exists());
+        $this->assertSame('harbor-labs', $org->subdomain);
         $this->assertDatabaseHas('organization_hosts', [
             'organization_id' => $org->id,
-            'host' => $org->subdomain.'.maildesk.test',
+            'host' => 'harbor-labs.maildesk.test',
         ]);
         $this->assertEquals($org->id, session('current_organization_id'));
         $response->assertRedirect('/emails');
@@ -49,7 +51,7 @@ class WorkspaceCreateTest extends TestCase
 
         $this->actingAs($user)
             ->withHeaders([Header::INERTIA => 'true'])
-            ->post(route('workspaces.store'), ['name' => 'Nova'])
+            ->post(route('workspaces.store'), ['name' => 'Nova', 'subdomain' => 'nova'])
             ->assertStatus(409)
             ->assertHeader(Header::LOCATION);
     }

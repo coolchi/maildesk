@@ -4,7 +4,7 @@ MailDesk is a multi-tenant business email platform. Each customer organisation g
 
 Outbound mail goes through a pluggable provider layer: **Resend** by default, **SMTP** as an alternative, and a fake in-memory provider for local development and tests.
 
-> Status: early / pilot. The core send path, tenancy, API keys, suppressions, scheduled sends, and webhooks are implemented and tested. Inbound mail is received via provider webhooks and threaded into the shared inbox. Several screens still use mock data, and real DNS verification, automations, and billing are not implemented yet — see [Known gaps](#known-gaps--roadmap).
+> Status: early / pilot. The core send path, tenancy, API keys, suppressions, scheduled sends, webhooks, queued broadcasts with unsubscribe handling, real domain verification (Resend registration + DNS lookups, optional Cloudflare auto-publish), delivery events with auto-suppression, signatures, and group addresses are implemented and tested. Inbound mail is received via provider webhooks and threaded into the shared inbox, where you can reply and forward. Some screens still use mock data, and automations, recurring billing, and several audience features are not implemented yet — see [Known gaps](#known-gaps--roadmap).
 
 ## Features
 
@@ -13,23 +13,28 @@ Legend: ✅ working · 🟡 partial / uses mock data · ⛔ not implemented
 | Area | Status | Notes |
 |---|---|---|
 | Multi-tenant workspaces | ✅ | Tenant resolved from subdomain (`IdentifyTenant`, `TenantResolver`); workspace create + switch |
-| Compose & send | ✅ | Rich-text (Tiptap) editor, attachments, provider selection, suppression check |
+| Compose & send | ✅ | Floating compose button (`c`) opens a docked panel (minimise / full-screen / discard) whose draft survives navigation; Tiptap editor, Cc/Bcc, attachments, provider selection, suppression check, signature appended |
 | Scheduled sends | ✅ | `SendScheduledMessage` job runs every minute via the scheduler |
-| Sent emails log | ✅ | List + detail; the "Insights" panel on the detail page is mock |
-| Suppression list | ✅ | Enforced on compose, API, and broadcast sends |
-| API keys | ✅ | `md_…` Bearer keys, rate-limited; "Export" button not implemented |
+| Sent page | ✅ | `GET /sent` with status tabs, search and paging; email detail page's "Insights" panel is still mock |
+| Bounced page | ✅ | `GET /bounced` lists bounced / suppressed sends; failed replies can be retried (`POST /emails/{id}/retry`) |
+| Suppression list | ✅ | Enforced on compose, API, and broadcast sends; bounces and complaints are added automatically |
+| Delivery events | 🟡 | `POST /api/v1/events/{driver}` handles delivered, bounced, complained, opened, clicked; bounces/complaints auto-suppress and fire `email.<type>` webhooks. The live Resend webhook still only subscribes to `email.received`; delivery-delayed events and an event timeline UI are not built |
+| API keys | ✅ | `md_…` Bearer keys with enforced permissions (Sending access = `POST /emails` only, else 403), single-domain scope, verified-sender check, per-key rate limit (`MAILDESK_API_RATE_LIMIT`/min, 429 + `Retry-After`/`X-RateLimit-*`), optional expiry and one-click rotation; "Export" button not implemented |
 | Public REST API | ✅ | `/api/v1` — emails, inbox threads, domains |
-| Webhooks | 🟡 | Queued, HMAC-SHA256 signed (`X-MailDesk-Signature`); no retry/backoff policy |
-| Mailbox users | ✅ | Create / update / delete mailboxes per workspace |
-| Templates | 🟡 | CRUD works; "Send test" is mock |
+| Webhooks | ✅ | Queued per endpoint with retries (5 attempts, 30 s → 30 min backoff) and per-attempt delivery history; SSRF-protected (https only outside local, private/internal addresses blocked on save and at delivery after DNS resolution, no redirects, 5 s timeout); HMAC-SHA256 signed (`X-MailDesk-Signature`, plus timestamped `X-MailDesk-Signature-V2`); test event button and owner/admin secret rotation |
+| Mailbox users | ✅ | Create / update / delete mailboxes per workspace; optional per-mailbox signature override |
+| Signatures | ✅ | Workspace signature (Settings → Signature) applied to compose, replies, forwards, API sends and broadcasts, each toggleable; per-mailbox override (`SignatureService`) |
+| Group addresses | ✅ | Groups page (CRUD + members); mail to a group address fans out to members (`FanOutGroupMessage`, `GroupAddressService`); groups usable as broadcast audiences |
+| Templates | 🟡 | CRUD works; "Send test" and "Publish" are front-end only |
 | Audience (contacts, segments) | 🟡 | Add / delete / suppress contacts; editing contacts, properties, segments, topics not implemented |
-| Broadcasts | 🟡 | Sends to all contacts or a segment, skips suppressed; runs synchronously in the request, no unsubscribe link/header |
-| Inbound email | ✅ | `POST /api/v1/inbound/{resend,generic}` — signature-verified, routed to the right tenant/mailbox, threaded, deduped, fires `email.received` |
-| Shared inbox | 🟡 | Received mail and replies to sent mail thread together; read state is persisted; replying from the inbox, star, archive and delete are still UI-only |
-| Domains | 🟡 | Add / delete; DNS records are shown, but **verification is faked** (always passes) and DKIM value is a placeholder |
-| Automations | ⛔ | List / view / edit / delete only; no create route and nothing executes steps |
-| Metrics & logs | 🟡 | Pages exist; some widgets fall back to mock data |
-| Settings (usage, billing, SMTP, unsubscribe page, documents) | 🟡 | Unsubscribe page and SMTP settings saved; billing actions are mock, no payment provider |
+| Broadcasts | 🟡 | Queued, throttled sending (`SendBroadcast` / `SendBroadcastRecipient`, `MAILDESK_BROADCAST_PER_SECOND`) to all contacts, a segment or a group; per-recipient rows with skipped (suppressed / unsubscribed) recipients and stats; signed unsubscribe links, branded unsubscribe page and `List-Unsubscribe` / one-click headers. No click tracking, scheduling, or draft edit screen |
+| Inbound email | ✅ | `POST /api/v1/inbound/{resend,generic}` — signature-verified, routed to the right tenant/mailbox, threaded, deduped, fires `email.received`; attachments shown in the thread with download links |
+| Shared inbox | 🟡 | Threads received mail with replies; read state persisted; reply (hidden by default, opens with the Reply button or `r`, with Cc/Bcc, attachments, retry) and forward (`f`) are real. Bodies render in a sandboxed iframe after HTMLPurifier cleaning. Star, archive and delete are still UI-only |
+| Domains | 🟡 | Registered with Resend for real DKIM/records; verified via DNS-over-HTTPS (1.1.1.1) with system-resolver fallback; hourly/daily recheck (`domains:recheck`); optional Cloudflare connect + auto-publish of records. Shows "verified" even while Resend reports `partially_verified` |
+| Onboarding | ✅ | Get Started modal whose steps (domain, API key, first send, webhook) are driven by real server state |
+| Automations | ⛔ | List / view / edit / delete only; create page has no store route, steps are not saved, nothing executes steps |
+| Metrics & logs | ✅ | Built from real message data and provider events: date-range/domain/tag filters, delivered (delivery events only), bounce and complaint rates, opens/clicks (shown as "Not tracked" until the provider sends such events) and per-broadcast numbers. App log rotates daily (`LOG_DAILY_DAYS`, default 14); failed sends and webhook deliveries are logged |
+| Settings (usage, billing, SMTP, signature, unsubscribe page, documents) | 🟡 | Signature, unsubscribe page and per-workspace SMTP server (owners/admins; password stored encrypted and write-only) are saved; usage falls back to mock numbers; plan upgrades are paid through Monipay (NGN hosted checkout, verified server-side — see [Payments](#payments-monipay)); card form, invoices and cancel are still mock |
 | Notifications bell | 🟡 | Mock data (`useNotifications.js`) |
 | Platform admin | 🟡 | Accounts, subscriptions, providers, subdomains, plans; plan list, provider presets and health read from `adminMock.js` |
 
@@ -73,11 +78,18 @@ php artisan schedule:work
 | `APP_URL` | `http://maildesk.test` |
 | `MAILDESK_PROVIDER` | Default outbound provider: `resend` or `smtp` |
 | `RESEND_API_KEY` | Resend API key (`re_…`); also used to fetch inbound email bodies |
-| `RESEND_WEBHOOK_SECRET` | Signing secret (`whsec_…`) of the Resend webhook that posts `email.received` events |
+| `RESEND_WEBHOOK_SECRET` | Signing secret (`whsec_…`) of the Resend webhook that posts `email.received` and delivery events |
 | `MAILDESK_INBOUND_SECRET` | Shared secret for the generic inbound endpoint (`X-MailDesk-Inbound-Secret` header) |
 | `MAILDESK_INBOUND_LOG_CHANNEL` | Optional log channel for inbound events (defaults to the main log) |
+| `MAILDESK_INBOUND_TOLERANCE` | Webhook signature timestamp tolerance in seconds (default 300) |
+| `MAILDESK_INBOUND_DISK` | Filesystem disk for inbound attachments (default `local`) |
+| `RESEND_API_URL` | Resend API base URL (default `https://api.resend.com`) |
+| `MAILDESK_DOMAINS_REGISTER` | Register new domains with the provider (default true) |
+| `MAILDESK_DNS_RESOLVER`, `MAILDESK_DNS_DOH_URL` | DNS lookup mode for verification: `doh` (default, `https://1.1.1.1/dns-query`) or the system resolver |
+| `MAILDESK_DNS_AUTO_PUBLISH` | Auto-publish required records to a connected Cloudflare zone (default true) |
+| `MAILDESK_BROADCAST_PER_SECOND` | Broadcast send throttle (default 2 per second) |
 | `MAILDESK_FAKE_SEND` | When true, sends use the in-memory `ArrayProvider`. Defaults to true when `APP_ENV` is `local` or `testing` |
-| `MAILDESK_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_ENCRYPTION` | SMTP provider settings |
+| `MAILDESK_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_ENCRYPTION` | Fallback SMTP settings for `SmtpProvider` (a workspace's own Settings → SMTP server wins, then an admin SMTP provider's config, then these); Laravel's `MAIL_*` mailer is not used for provider sends |
 | `MAILDESK_BASE_DOMAIN` | Base domain for tenant subdomains (`maildesk.test`) |
 | `MAILDESK_CENTRAL_DOMAINS` | Comma-separated domains that serve the shared app shell |
 | `MAILDESK_API_RATE_LIMIT` | API requests per minute per key (default 120) |
@@ -96,6 +108,7 @@ All endpoints live under `/api/v1` and require `Authorization: Bearer md_…` (c
 | GET | `/api/v1/inbox/threads` | List inbox threads |
 | GET | `/api/v1/inbox/threads/{thread}` | Get a thread with messages |
 | POST | `/api/v1/inbound/{driver}` | Provider webhook for received mail (`resend` or `generic`); no API key, signature-verified |
+| POST | `/api/v1/events/{driver}` | Provider webhook for delivery events (delivered, bounced, complained, opened, clicked); no API key, signature-verified |
 | GET | `/api/v1/domains` | List domains |
 | POST | `/api/v1/domains` | Add a domain |
 
@@ -118,14 +131,19 @@ app/
   Http/Controllers/        Web controllers (one per dashboard section) + AdminController
   Http/Controllers/Api/V1/ Public API (emails, inbox, domains)
   Http/Middleware/         IdentifyTenant, AuthenticateApiKey, EnsurePlatformAdmin, HandleInertiaRequests
-  Jobs/                    DispatchWebhook, SendScheduledMessage
+  Jobs/                    DispatchWebhook, SendScheduledMessage, SendBroadcast, SendBroadcastRecipient,
+                           FanOutGroupMessage
+  Console/Commands/        RecheckDomains (domains:recheck)
   Mail/                    Provider layer: MailManager, Contracts/MailProvider, DTOs,
                            Providers/{Resend,Smtp,Array,Unsupported}Provider
-  Models/                  22 Eloquent models (Organization, Mailbox, Message, Thread, Domain,
-                           Contact, Segment, Broadcast, Automation, Template, Webhook, Plan, …)
-  Services/                EmailService (send pipeline), TenantResolver
+  Models/                  26 Eloquent models (Organization, Mailbox, Message, Thread, Domain,
+                           Contact, Segment, Broadcast, BroadcastRecipient, GroupAddress, …)
+  Services/                EmailService (send pipeline), InboundEmailService, BroadcastService,
+                           DeliveryEventService, SignatureService, GroupAddressService, TenantResolver,
+                           Domains/{DnsResolver,DomainVerifier,ResendDomainClient},
+                           Dns/{CloudflareDnsProvider,DnsRecordManager}
   Support/                 CurrentOrganization, PlansCatalog
-config/maildesk.php        Provider, fake-send, API, and multi-tenant host config
+config/maildesk.php        Provider, fake-send, API, multi-tenant host, inbound, domains/DNS, broadcast config
 database/                  Migrations + seeders (SaasPlatformSeeder, TenantWorkspaceSeeder)
 resources/js/
   Pages/                   Inertia pages per section (Inbox, Compose, Emails, Broadcasts, Automations,
@@ -136,8 +154,10 @@ resources/js/
 routes/
   web.php                  Dashboard + admin routes
   api.php                  /api/v1 routes
-  console.php              Scheduler (scheduled sends every minute)
-tests/Feature/             78 tests: compose, suppressions, scheduled sends, webhooks, tenancy, admin, …
+  console.php              Scheduler (scheduled sends every minute, domain recheck hourly + daily full pass)
+tests/Feature/             PHPUnit feature tests: compose, inbox, broadcasts, domains, delivery events,
+                           signatures & groups, onboarding, tenancy, admin, …
+tests/js/                  Vitest tests (email frame, onboarding)
 ```
 
 ## Inbound email
@@ -179,22 +199,25 @@ Notes: test and live share the same API host — the mode comes from the `pub_te
 ## Testing
 
 ```bash
-php artisan test     # 78 tests, 423 assertions — all passing
+php artisan test     # 205 tests, 1304 assertions — all passing
+npm test             # 9 Vitest tests
 npm run build        # production frontend build
 ```
 
 ## Known gaps / roadmap
 
-1. **Inbound email follow-ups** — send replies from the shared inbox (with `In-Reply-To`/`References`), persist star/archive/delete, raw MIME parsing for SMTP relays, and attachment download links. Confirm the Resend receiving API response shape against a live account.
-2. **Real domain verification** — register domains with the provider, store real DKIM records, and check SPF/DKIM/DMARC via DNS instead of always passing.
-3. **Broadcasts** — send via queued jobs, add unsubscribe links and `List-Unsubscribe` headers, and record delivery counts.
-4. **Automations** — add a create route/wizard and a job that executes automation steps.
-5. **Remove mock data** — replace `resources/js/data/mock.js` / `adminMock.js` usage (notifications, plans, admin provider health, usage fallback, email insights, broadcast preview) with real backend data.
-6. **Delivery events** — process provider webhooks (delivered, bounced, complained, opened) to drive metrics, logs, and automatic suppressions.
-7. **Webhook reliability** — retries with backoff and delivery history in the UI.
-8. **Billing** — integrate a payment provider and enforce plan limits.
-9. **Unfinished UI actions** — template test send, edit contact/property/segment/topic, API key export, support chat.
-10. **Production readiness** — Postgres/MySQL config, queue worker + scheduler process setup, deployment docs.
+1. **Inbox actions** — persist star/archive/delete (currently UI-only); raw MIME parsing for SMTP relays. Confirm the Resend receiving API response shape against a live account.
+2. **Domain status accuracy** — reflect Resend's `partially_verified` state instead of showing "verified".
+3. **Delivery events follow-ups** — subscribe the live Resend webhook to delivery events (and enable open/click tracking), handle delivery-delayed events, and add an event timeline in the UI.
+4. **Broadcasts** — scheduling and a draft edit screen (opens/clicks come from provider events once tracking is enabled).
+5. **Email rendering** — `<style>` blocks are stripped and remote images auto-load; template and broadcast previews still use `v-html`.
+6. **Automations** — save the create wizard and its steps, add a job that executes steps, and an events API to trigger them.
+7. **SMTP** — workspaces can send through their own SMTP server (Settings → SMTP) with headers, Message-ID and provider id preserved; SMTP has no delivery/bounce event feed, so SMTP-sent mail stays at `sent` unless something posts events for it. There is no inbound SMTP relay server, and the compose/reply send buttons still require an active platform provider even when workspace SMTP is on.
+8. **Remove mock data** — replace `resources/js/data/mock.js` / `adminMock.js` usage (notifications, plans, admin plans / provider presets / health, usage fallback, email insights) with real backend data.
+9. **Webhook follow-ups** — auto-disable endpoints after repeated failures, prune old delivery rows, manual "redeliver" button.
+10. **Billing** — one-off Monipay plan payments work (Settings → Billing); still missing: automatic renewals (Monipay documents no recurring API, so customers renew with a new checkout each period), expiry/downgrade when `current_period_ends_at` passes, plan-limit enforcement, admin editing of `plans.price_kobo`, refunds, real payment-method and invoice screens.
+11. **Unfinished UI actions** — template test send and publish, edit contact/property/segment/topic, API key export, support chat.
+12. **Production readiness** — Postgres/MySQL config, queue worker + scheduler process setup, deployment docs.
 
 ## License
 

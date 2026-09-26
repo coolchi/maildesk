@@ -1,6 +1,6 @@
 <script setup>
 import EmailFrame from '@/Components/EmailFrame.vue';
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
@@ -17,6 +17,9 @@ import {
     MailOpen,
     AlertCircle,
     Paperclip,
+    Forward,
+    Reply,
+    UsersRound,
     RotateCw,
     Search,
     X,
@@ -26,6 +29,7 @@ import {
 } from '@lucide/vue';
 
 const props = defineProps({
+    signatureEnabled: { type: Boolean, default: false },
     threads: { type: Array, default: () => [] },
 });
 
@@ -171,7 +175,46 @@ const onPickFiles = (event) => {
 
 const removeFile = (index) => replyFiles.value.splice(index, 1);
 
+const replyOpen = ref(false);
+// "reply" answers the sender; "forward" sends the latest message on to someone new.
+const replyMode = ref('reply');
+const forwardTo = ref('');
+
+const openReply = () => {
+    replyMode.value = 'reply';
+    replyOpen.value = true;
+    scrollToLatest();
+    nextTick(() => document.querySelector('[data-testid=reply-box] .ProseMirror')?.focus());
+};
+
+const openForward = () => {
+    replyMode.value = 'forward';
+    replyOpen.value = true;
+    scrollToLatest();
+    nextTick(() => document.querySelector('[data-testid=forward-to]')?.focus());
+};
+
+const closeReply = () => {
+    replyOpen.value = false;
+};
+
+// "r" opens the reply box and "f" forwards, like Gmail. Ignored while typing in a field.
+const onKeydown = (event) => {
+    if (!['r', 'f'].includes(event.key) || event.metaKey || event.ctrlKey || event.altKey) return;
+    const el = event.target;
+    if (el?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (!active.value) return;
+    event.preventDefault();
+    if (event.key === 'f') openForward();
+    else openReply();
+};
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
+
 const resetReply = () => {
+    replyOpen.value = false;
+    replyMode.value = 'reply';
+    forwardTo.value = '';
     replyHtml.value = '<p></p>';
     replyCc.value = '';
     replyBcc.value = '';
@@ -224,7 +267,49 @@ const retryMessage = (message) => {
     );
 };
 
+const sendForward = () => {
+    if (!active.value || sendingReply.value) return;
+    if (!forwardTo.value.trim()) {
+        toast.error('Add at least one recipient to forward to.');
+        return;
+    }
+
+    sendingReply.value = true;
+    router.post(
+        route('inbox.forward', active.value.id),
+        {
+            to: forwardTo.value.trim(),
+            html: replyHtml.value,
+            cc: replyCc.value.trim() || null,
+            bcc: replyBcc.value.trim() || null,
+            attachments: replyFiles.value,
+        },
+        {
+            forceFormData: true,
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: (page) => {
+                if (page.props.flash?.error) {
+                    toast.error(page.props.flash.error);
+                    return;
+                }
+                resetReply();
+                toast.success('Message forwarded.');
+            },
+            onError: (errors) =>
+                toast.error(errors.to ?? Object.values(errors)[0] ?? 'Could not forward.'),
+            onFinish: () => {
+                sendingReply.value = false;
+            },
+        },
+    );
+};
+
 const sendReply = () => {
+    if (replyMode.value === 'forward') {
+        sendForward();
+        return;
+    }
     if (!active.value || sendingReply.value) return;
     const plain = replyHtml.value.replace(/<[^>]*>/g, '').trim();
     if (!plain) {
@@ -396,10 +481,34 @@ const sendReply = () => {
                             · {{ active.updated }}
                         </p>
                     </div>
-                    <RowActions
-                        :items="headerActions"
-                        @select="onHeaderAction"
-                    />
+                    <div class="flex shrink-0 items-center gap-2">
+                        <button
+                            type="button"
+                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                            :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'reply' }"
+                            title="Reply (r)"
+                            data-testid="reply-toggle"
+                            @click="replyOpen && replyMode === 'reply' ? closeReply() : openReply()"
+                        >
+                            <Reply :size="15" />
+                            Reply
+                        </button>
+                        <button
+                            type="button"
+                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                            :class="{ '!border-cyan-400/40 !text-cyan-300': replyOpen && replyMode === 'forward' }"
+                            title="Forward (f)"
+                            data-testid="forward-toggle"
+                            @click="replyOpen && replyMode === 'forward' ? closeReply() : openForward()"
+                        >
+                            <Forward :size="15" />
+                            Forward
+                        </button>
+                        <RowActions
+                            :items="headerActions"
+                            @select="onHeaderAction"
+                        />
+                    </div>
                 </div>
                 <div
                     ref="messagesEl"
@@ -444,6 +553,22 @@ const sendReply = () => {
                                 <span class="ml-2 text-zinc-600">bcc</span>
                                 {{ message.bcc }}
                             </template>
+                        </div>
+                        <div
+                            v-if="message.fanout?.length"
+                            class="-mt-1 mb-3 flex flex-wrap gap-1.5"
+                            data-testid="group-fanout"
+                        >
+                            <span
+                                v-for="g in message.fanout"
+                                :key="g.id"
+                                class="inline-flex items-center gap-1 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 text-[11px] text-cyan-300"
+                                :title="g.members.join(', ')"
+                            >
+                                <UsersRound :size="11" />
+                                Sent to {{ g.email }} · copied to {{ g.members.length }}
+                                {{ g.members.length === 1 ? 'member' : 'members' }}
+                            </span>
                         </div>
                         <EmailFrame
                             v-if="message.html"
@@ -503,11 +628,17 @@ const sendReply = () => {
                     </article>
                 </div>
                 <div
+                    v-if="replyOpen"
                     class="shrink-0 border-t border-zinc-800 bg-zinc-950 p-4"
                     data-testid="reply-box"
                 >
                     <div class="mb-2 flex items-center justify-between gap-3 text-xs">
-                        <span class="truncate text-zinc-500">
+                        <span v-if="replyMode === 'forward'" class="truncate text-zinc-500">
+                            Forward
+                            <span class="text-zinc-300">“{{ active.subject }}”</span>
+                            with its attachments
+                        </span>
+                        <span v-else class="truncate text-zinc-500">
                             Reply to
                             <span class="text-zinc-300">{{ active.from }}</span>
                         </span>
@@ -528,8 +659,26 @@ const sendReply = () => {
                             >
                                 Bcc
                             </button>
+                            <button
+                                type="button"
+                                class="ml-1 rounded p-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
+                                title="Close reply (your draft is kept)"
+                                data-testid="reply-close"
+                                @click="closeReply"
+                            >
+                                <X :size="14" />
+                            </button>
                         </span>
                     </div>
+                    <label v-if="replyMode === 'forward'" class="relative mb-2 block">
+                        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">To</span>
+                        <input
+                            v-model="forwardTo"
+                            class="md-input !py-1.5 pl-10"
+                            placeholder="name@example.com, staff@yourdomain.com"
+                            data-testid="forward-to"
+                        />
+                    </label>
                     <div v-if="showCc || showBcc" class="mb-2 grid gap-2 sm:grid-cols-2">
                         <label v-if="showCc" class="relative block">
                             <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">Cc</span>
@@ -553,8 +702,8 @@ const sendReply = () => {
                     <div class="max-h-[26vh] overflow-y-auto rounded-lg">
                         <WysiwygEditor
                             v-model="replyHtml"
-                            placeholder="Write a reply…"
-                            min-height="84px"
+                            :placeholder="replyMode === 'forward' ? 'Add a note (optional)…' : 'Write a reply…'"
+                            min-height="110px"
                         />
                     </div>
                     <div v-if="replyFiles.length" class="mt-2 flex flex-wrap gap-2">
@@ -584,7 +733,7 @@ const sendReply = () => {
                             @click="sendReply"
                         >
                             <Send :size="16" />
-                            {{ sendingReply ? 'Sending…' : 'Send reply' }}
+                            {{ sendingReply ? 'Sending…' : replyMode === 'forward' ? 'Forward' : 'Send reply' }}
                         </button>
                         <button
                             type="button"
@@ -603,6 +752,12 @@ const sendReply = () => {
                             data-testid="reply-file-input"
                             @change="onPickFiles"
                         />
+                        <span
+                            v-if="signatureEnabled"
+                            class="ml-auto hidden text-xs text-zinc-500 sm:inline"
+                        >
+                            Your signature is added when it sends
+                        </span>
                     </div>
                 </div>
             </div>

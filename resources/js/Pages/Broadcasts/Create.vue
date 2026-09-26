@@ -9,6 +9,7 @@ import { ArrowLeft, Send } from '@lucide/vue';
 
 const props = defineProps({
     segments: { type: Array, default: () => [] },
+    selected: { type: String, default: null },
 });
 
 const toast = useToast();
@@ -16,7 +17,10 @@ const step = ref(1);
 
 const form = ref({
     name: '',
-    segment: 'all',
+    segment:
+        props.selected && props.segments.some((s) => s.id === props.selected)
+            ? props.selected
+            : 'all',
     subject: '',
     from: 'Acme <hello@acme.com>',
     html: '<h2>What\'s new</h2><p>Share your announcement here…</p>',
@@ -61,7 +65,7 @@ const send = () => {
             onSuccess: () =>
                 toast.success(
                     form.value.schedule === 'now'
-                        ? 'Broadcast sent.'
+                        ? 'Broadcast queued for sending.'
                         : 'Draft saved.',
                 ),
             onError: () => toast.error('Could not create broadcast.'),
@@ -142,7 +146,8 @@ const send = () => {
                                 seg.label
                             }}</span>
                             <span class="text-xs text-zinc-500"
-                                >{{ seg.count }} contacts</span
+                                >{{ seg.count }}
+                                {{ String(seg.id).startsWith('group:') ? 'members' : 'contacts' }}</span
                             >
                         </span>
                         <span

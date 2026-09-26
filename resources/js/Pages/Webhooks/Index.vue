@@ -13,6 +13,7 @@ import {
     MoreHorizontal,
     Pause,
     Plus,
+    Send,
     Trash2,
     Webhook,
 } from '@lucide/vue';
@@ -140,6 +141,22 @@ const duplicate = (hook) => {
         },
         {
             onSuccess: () => toast.success('Webhook duplicated.'),
+        },
+    );
+};
+
+const sendTest = (hook) => {
+    menuId.value = null;
+    router.post(
+        route('webhooks.test', hook.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: (page) => {
+                const flash = page?.props?.flash || {};
+                if (flash.error) toast.error(flash.error, 8000);
+                else if (flash.success) toast.success(flash.success);
+            },
         },
     );
 };
@@ -273,6 +290,14 @@ const confirmDelete = () => {
                                                 ? 'Disable endpoint'
                                                 : 'Enable endpoint'
                                         }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-900"
+                                        @click="sendTest(hook)"
+                                    >
+                                        <Send :size="14" class="text-zinc-500" />
+                                        Send test event
                                     </button>
                                     <button
                                         type="button"

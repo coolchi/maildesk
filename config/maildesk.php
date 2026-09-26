@@ -112,4 +112,13 @@ return [
         'auto_publish_dns' => (bool) env('MAILDESK_DNS_AUTO_PUBLISH', true),
     ],
 
+    /*
+    | Broadcasts are sent from the queue, one job per recipient. Sends are
+    | throttled to stay under the provider's rate limit (Resend allows a
+    | few requests per second by default). 0 disables the throttle.
+    */
+    'broadcasts' => [
+        'per_second' => (int) env('MAILDESK_BROADCAST_PER_SECOND', 2),
+    ],
+
 ];

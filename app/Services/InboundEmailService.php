@@ -94,6 +94,9 @@ class InboundEmailService
             'status' => $message->status,
         ]);
 
+        // Mail to a group address (staff@...) is copied to each member via the queue.
+        app(GroupAddressService::class)->routeInbound($message, $email->recipients());
+
         $fresh = $message->fresh(['attachments', 'thread']);
         $fresh->wasRecentlyCreated = true;
 

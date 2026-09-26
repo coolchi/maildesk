@@ -13,6 +13,8 @@ import {
     EyeOff,
     MoreHorizontal,
     Pause,
+    RefreshCw,
+    Send,
     Trash2,
     Webhook,
 } from '@lucide/vue';
@@ -21,12 +23,15 @@ const props = defineProps({
     webhook: { type: Object, required: true },
     deliveries: { type: Array, default: () => [] },
     plainWebhookSecret: { type: String, default: null },
+    canManage: { type: Boolean, default: false },
 });
 
 const toast = useToast();
 const showDelete = ref(false);
 const menuOpen = ref(false);
 const revealSecret = ref(Boolean(props.plainWebhookSecret));
+const showRotate = ref(false);
+const testing = ref(false);
 
 const hook = computed(() => props.webhook);
 const status = computed(() => hook.value.status || 'enabled');
@@ -81,6 +86,44 @@ const toggleStatus = () => {
     );
 };
 
+const flashResult = (page) => {
+    const flash = page?.props?.flash || {};
+    if (flash.error) toast.error(flash.error, 8000);
+    else if (flash.success) toast.success(flash.success);
+};
+
+const sendTest = () => {
+    menuOpen.value = false;
+    testing.value = true;
+    router.post(
+        route('webhooks.test', hook.value.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: flashResult,
+            onFinish: () => {
+                testing.value = false;
+            },
+        },
+    );
+};
+
+const rotateSecret = () => {
+    router.post(
+        route('webhooks.rotate', hook.value.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: (page) => {
+                showRotate.value = false;
+                revealSecret.value = true;
+                flashResult(page);
+            },
+            onError: () => toast.error('Could not rotate the secret.'),
+        },
+    );
+};
+
 const remove = () => {
     router.delete(route('webhooks.destroy', hook.value.id), {
         onSuccess: () => toast.info('Webhook deleted.'),
@@ -109,6 +152,15 @@ const remove = () => {
                 </div>
             </div>
             <div class="relative flex items-center gap-2">
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    :disabled="testing"
+                    @click="sendTest"
+                >
+                    <Send :size="14" />
+                    {{ testing ? 'Sending…' : 'Send test event' }}
+                </button>
                 <Link
                     :href="route('docs')"
                     class="md-btn-ghost !px-2.5"
@@ -139,6 +191,18 @@ const remove = () => {
                                 ? 'Disable endpoint'
                                 : 'Enable endpoint'
                         }}
+                    </button>
+                    <button
+                        v-if="canManage"
+                        type="button"
+                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-900"
+                        @click="
+                            menuOpen = false;
+                            showRotate = true;
+                        "
+                    >
+                        <RefreshCw :size="14" class="text-zinc-500" />
+                        Rotate signing secret
                     </button>
                     <button
                         type="button"
@@ -243,6 +307,16 @@ const remove = () => {
                             <span v-if="delivery.response_status">
                                 · HTTP {{ delivery.response_status }}
                             </span>
+                            <span v-if="delivery.attempts > 1">
+                                · {{ delivery.attempts }} attempts
+                            </span>
+                        </div>
+                        <div
+                            v-if="delivery.error"
+                            class="mt-0.5 max-w-xl truncate text-xs text-rose-400/80"
+                            :title="delivery.error"
+                        >
+                            {{ delivery.error }}
                         </div>
                     </div>
                     <StatusBadge :status="delivery.status" />
@@ -258,6 +332,30 @@ const remove = () => {
                 ← Back to webhooks
             </Link>
         </div>
+
+        <Modal
+            :show="showRotate"
+            title="Rotate signing secret?"
+            description="A new secret is generated and shown once. The current secret stops working immediately."
+            @close="showRotate = false"
+        >
+            <template #footer>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    @click="showRotate = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-primary"
+                    @click="rotateSecret"
+                >
+                    Rotate secret
+                </button>
+            </template>
+        </Modal>
 
         <Modal
             :show="showDelete"

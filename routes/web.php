@@ -12,6 +12,9 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DomainController;
 use App\Http\Controllers\DomainDnsController;
 use App\Http\Controllers\EmailController;
+use App\Http\Controllers\GroupAddressController;
+use App\Http\Controllers\HelpController;
+use App\Http\Controllers\ImpersonationController;
 use App\Http\Controllers\InboxController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\MailboxController;
@@ -20,8 +23,10 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SuppressionController;
 use App\Http\Controllers\TemplateController;
+use App\Http\Controllers\UnsubscribeController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WorkspaceController;
+use App\Http\Middleware\RequireFreshPassword;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -34,6 +39,12 @@ Route::get('/', function () {
         'phpVersion' => PHP_VERSION,
     ]);
 });
+
+// Public, signed unsubscribe links embedded in broadcast emails.
+Route::get('/unsubscribe/{recipient}', [UnsubscribeController::class, 'show'])
+    ->whereNumber('recipient')->middleware('signed:relative')->name('unsubscribe.show');
+Route::post('/unsubscribe/{recipient}', [UnsubscribeController::class, 'store'])
+    ->whereNumber('recipient')->middleware(['signed:relative', 'throttle:30,1'])->name('unsubscribe.store');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/workspaces', [WorkspaceController::class, 'store'])->name('workspaces.store');
@@ -51,6 +62,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/inbox/{thread}', [InboxController::class, 'show'])->whereNumber('thread')->name('inbox.show');
     Route::patch('/inbox/{thread}/read', [InboxController::class, 'markRead'])->whereNumber('thread')->name('inbox.read');
     Route::post('/inbox/{thread}/reply', [InboxController::class, 'reply'])->whereNumber('thread')->name('inbox.reply');
+    Route::post('/inbox/{thread}/forward', [InboxController::class, 'forward'])->whereNumber('thread')->name('inbox.forward');
     Route::get('/sent', [EmailController::class, 'sent'])->name('sent');
     Route::get('/bounced', [BounceController::class, 'index'])->name('bounced');
     Route::get('/compose', [DashboardController::class, 'compose'])->name('compose');
@@ -59,6 +71,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/broadcasts', [BroadcastController::class, 'store'])->name('broadcasts.store');
     Route::get('/broadcasts/{broadcast}', [BroadcastController::class, 'show'])->name('broadcasts.show');
     Route::delete('/broadcasts/{broadcast}', [BroadcastController::class, 'destroy'])->name('broadcasts.destroy');
+    Route::post('/broadcasts/{broadcast}/send', [BroadcastController::class, 'send'])->name('broadcasts.send');
     Route::get('/automations', [AutomationController::class, 'index'])->name('automations');
     Route::get('/automations/create', [AutomationController::class, 'create'])->name('automations.create');
     Route::get('/automations/{automation}', [AutomationController::class, 'show'])->name('automations.show');
@@ -93,20 +106,32 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/api-keys', [ApiKeyController::class, 'store'])->name('api-keys.store');
     Route::put('/api-keys/{apiKey}', [ApiKeyController::class, 'update'])->name('api-keys.update');
     Route::delete('/api-keys/{apiKey}', [ApiKeyController::class, 'destroy'])->name('api-keys.destroy');
+    Route::post('/api-keys/{apiKey}/revoke', [ApiKeyController::class, 'revoke'])->name('api-keys.revoke');
+    Route::post('/api-keys/{apiKey}/rotate', [ApiKeyController::class, 'rotate'])->middleware('throttle:10,1')->name('api-keys.rotate');
     Route::get('/webhooks', [WebhookController::class, 'index'])->name('webhooks');
     Route::post('/webhooks', [WebhookController::class, 'store'])->name('webhooks.store');
     Route::get('/webhooks/{webhook}', [WebhookController::class, 'show'])->name('webhooks.show');
     Route::put('/webhooks/{webhook}', [WebhookController::class, 'update'])->name('webhooks.update');
     Route::delete('/webhooks/{webhook}', [WebhookController::class, 'destroy'])->name('webhooks.destroy');
+    Route::post('/webhooks/{webhook}/test', [WebhookController::class, 'test'])->middleware('throttle:10,1')->name('webhooks.test');
+    Route::post('/webhooks/{webhook}/rotate-secret', [WebhookController::class, 'rotateSecret'])->middleware('throttle:10,1')->name('webhooks.rotate');
+    Route::get('/groups', [GroupAddressController::class, 'index'])->name('groups');
+    Route::post('/groups', [GroupAddressController::class, 'store'])->name('groups.store');
+    Route::put('/groups/{group}', [GroupAddressController::class, 'update'])->whereNumber('group')->name('groups.update');
+    Route::delete('/groups/{group}', [GroupAddressController::class, 'destroy'])->whereNumber('group')->name('groups.destroy');
+    Route::post('/groups/{group}/members', [GroupAddressController::class, 'addMember'])->whereNumber('group')->name('groups.members.store');
+    Route::delete('/groups/{group}/members/{member}', [GroupAddressController::class, 'removeMember'])->whereNumber(['group', 'member'])->name('groups.members.destroy');
     Route::get('/suppressions', [SuppressionController::class, 'index'])->name('suppressions');
     Route::post('/suppressions', [SuppressionController::class, 'store'])->name('suppressions.store');
     Route::delete('/suppressions/{suppression}', [SuppressionController::class, 'destroy'])->name('suppressions.destroy');
     Route::get('/docs', [DashboardController::class, 'docs'])->name('docs');
+    Route::get('/help', [HelpController::class, 'index'])->name('help');
     Route::redirect('/settings', '/settings/usage');
     Route::get('/settings/{tab}', [SettingsController::class, 'show'])
-        ->whereIn('tab', ['usage', 'billing', 'smtp', 'unsubscribe', 'documents'])
+        ->whereIn('tab', ['usage', 'billing', 'smtp', 'unsubscribe', 'documents', 'signature'])
         ->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    Route::put('/settings/smtp', [SettingsController::class, 'updateSmtp'])->name('settings.smtp.update');
     Route::post('/billing/monipay/initialize', [MonipayController::class, 'initialize'])
         ->middleware('throttle:20,1')->name('billing.monipay.initialize');
     Route::get('/billing/monipay/callback', [MonipayController::class, 'callback'])->name('billing.monipay.callback');
@@ -143,6 +168,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->middleware('throttle:10,1')->name('providers.test');
         Route::get('/settings', [\App\Http\Controllers\Admin\PlatformSettingsController::class, 'index'])->name('settings');
         Route::put('/settings', [\App\Http\Controllers\Admin\PlatformSettingsController::class, 'update'])->name('settings.update');
+        Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])
+            ->middleware([RequireFreshPassword::class, 'throttle:10,1'])->name('impersonate');
     });
 });
 
@@ -150,6 +177,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::post('/impersonate/leave', [ImpersonationController::class, 'leave'])->name('impersonate.leave');
 });
 
 require __DIR__.'/auth.php';

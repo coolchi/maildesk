@@ -5,22 +5,159 @@ namespace App\Mail\Providers;
 use App\Mail\Contracts\MailProvider;
 use App\Mail\DTO\OutboundEmail;
 use App\Mail\DTO\ProviderSendResult;
-use Illuminate\Mail\Message as MailMessage;
-use Illuminate\Support\Facades\Mail;
+use Closure;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
+use Symfony\Component\Mailer\Transport\TransportInterface;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Email;
 use Throwable;
 
+/**
+ * Sends through an SMTP server described by $config (host, port, username,
+ * password, encryption: tls|ssl|none). The config is resolved by MailManager
+ * (workspace SMTP settings → platform SMTP provider → MAILDESK_SMTP_* env);
+ * Laravel's default mailer / MAIL_* settings are never used.
+ *
+ * A transport (or a factory receiving the config) can be injected for tests.
+ */
 class SmtpProvider implements MailProvider
 {
+    /** Headers that are set from OutboundEmail fields and must not be duplicated. */
+    protected const RESERVED_HEADERS = [
+        'from', 'to', 'cc', 'bcc', 'reply-to', 'subject', 'sender', 'date',
+        'return-path', 'mime-version', 'content-type', 'content-transfer-encoding',
+    ];
+
+    /** Headers holding one or more <message-id> values. */
+    protected const ID_HEADERS = ['message-id', 'in-reply-to', 'references'];
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @param  TransportInterface|(Closure(array<string, mixed>): TransportInterface)|null  $transport
+     */
     public function __construct(
         protected array $config = [],
+        protected TransportInterface|Closure|null $transport = null,
     ) {}
 
     public function name(): string
     {
         return 'smtp';
+    }
+
+    public function send(OutboundEmail $email): ProviderSendResult
+    {
+        try {
+            $message = $this->buildEmail($email);
+            $messageId = $message->getHeaders()->get('Message-ID')->getBodyAsString();
+            $providerMessageId = trim($messageId, "<> \t");
+
+            $sent = $this->transport()->send($message, Envelope::create($message));
+
+            return new ProviderSendResult(
+                success: true,
+                providerMessageId: $providerMessageId,
+                raw: array_filter([
+                    'message_id' => $providerMessageId,
+                    // Queue id reported by the SMTP server, when it gave one.
+                    'smtp_id' => $sent?->getMessageId() !== $providerMessageId ? $sent?->getMessageId() : null,
+                ]),
+            );
+        } catch (Throwable $e) {
+            return new ProviderSendResult(success: false, error: $e->getMessage());
+        }
+    }
+
+    /**
+     * Build the MIME message: addresses, bodies, attachments and every custom
+     * header (List-Unsubscribe, In-Reply-To, References, X-MailDesk-Group…).
+     */
+    public function buildEmail(OutboundEmail $email): Email
+    {
+        $message = (new Email)
+            ->from(new Address($email->fromEmail, (string) ($email->fromName ?? '')))
+            ->subject($email->subject);
+
+        $message->to(...$this->addresses($email->to));
+
+        if ($cc = $this->addresses($email->cc ?? [])) {
+            $message->cc(...$cc);
+        }
+        if ($bcc = $this->addresses($email->bcc ?? [])) {
+            $message->bcc(...$bcc);
+        }
+        if ($replyTo = $this->addresses($email->replyTo ?? [])) {
+            $message->replyTo(...$replyTo);
+        }
+
+        if ($email->text !== null && $email->text !== '') {
+            $message->text($email->text);
+        }
+        if ($email->html !== null && $email->html !== '') {
+            $message->html($email->html);
+        } elseif ($email->text === null || $email->text === '') {
+            $message->text('');
+        }
+
+        foreach ($email->attachments ?? [] as $attachment) {
+            $contents = Storage::disk($attachment['disk'] ?? 'local')->get($attachment['path']);
+            if ($contents === null) {
+                throw new InvalidArgumentException("Attachment {$attachment['filename']} could not be read.");
+            }
+            $message->attach($contents, $attachment['filename'], $attachment['content_type'] ?? null);
+        }
+
+        $headers = $message->getHeaders();
+
+        foreach ($email->headers ?? [] as $name => $value) {
+            $name = trim((string) $name);
+            if ($name === '' || $value === null || $value === '' || $value === []) {
+                continue;
+            }
+
+            $lower = Str::lower($name);
+            if (in_array($lower, self::RESERVED_HEADERS, true)) {
+                continue;
+            }
+
+            $value = is_array($value) ? implode(' ', array_map('strval', $value)) : (string) $value;
+            $headers->remove($name);
+
+            $ids = in_array($lower, self::ID_HEADERS, true) ? $this->messageIds($value) : [];
+            if ($ids !== []) {
+                $headers->addIdHeader($name, $lower === 'message-id' ? $ids[0] : $ids);
+            } else {
+                $headers->addTextHeader($name, $value);
+            }
+        }
+
+        if (! empty($email->tags) && ! $headers->has('X-MailDesk-Tags')) {
+            $headers->addTextHeader('X-MailDesk-Tags', implode(', ', array_map('strval', $email->tags)));
+        }
+
+        if (! $headers->has('Message-ID')) {
+            $domain = Str::after($email->fromEmail, '@') ?: 'maildesk.local';
+            $headers->addIdHeader('Message-ID', Str::uuid().'@'.$domain);
+        }
+
+        return $message;
+    }
+
+    public function transport(): TransportInterface
+    {
+        if ($this->transport instanceof TransportInterface) {
+            return $this->transport;
+        }
+
+        if ($this->transport instanceof Closure) {
+            return $this->transport = ($this->transport)($this->config);
+        }
+
+        return $this->transport = static::makeTransport($this->config);
     }
 
     /**
@@ -55,59 +192,44 @@ class SmtpProvider implements MailProvider
         return $transport;
     }
 
-    public function send(OutboundEmail $email): ProviderSendResult
+    /**
+     * @param  array<int, string|array{email: string, name?: string}>  $addresses
+     * @return array<int, Address>
+     */
+    protected function addresses(array $addresses): array
     {
-        try {
-            Mail::mailer('smtp')->html($email->html ?: nl2br(e($email->text ?? '')), function (MailMessage $message) use ($email) {
-                $message
-                    ->from($email->fromEmail, $email->fromName)
-                    ->subject($email->subject);
+        $out = [];
 
-                foreach ($this->normalizeAddresses($email->to) as $to) {
-                    $message->to($to);
-                }
+        foreach ($addresses as $address) {
+            if (is_array($address)) {
+                $emailAddress = trim((string) ($address['email'] ?? ''));
+                $name = (string) ($address['name'] ?? '');
+            } else {
+                $emailAddress = trim((string) $address);
+                $name = '';
+            }
 
-                foreach ($this->normalizeAddresses($email->cc ?? []) as $cc) {
-                    $message->cc($cc);
-                }
+            if ($emailAddress === '') {
+                continue;
+            }
 
-                foreach ($this->normalizeAddresses($email->bcc ?? []) as $bcc) {
-                    $message->bcc($bcc);
-                }
-
-                foreach ($this->normalizeAddresses($email->replyTo ?? []) as $replyTo) {
-                    $message->replyTo($replyTo);
-                }
-
-                foreach ($email->attachments ?? [] as $attachment) {
-                    $disk = $attachment['disk'] ?? 'local';
-                    $message->attachFromStorageDisk(
-                        $disk,
-                        $attachment['path'],
-                        $attachment['filename'],
-                        ['mime' => $attachment['content_type'] ?? null],
-                    );
-                }
-            });
-
-            return new ProviderSendResult(success: true, providerMessageId: null);
-        } catch (Throwable $e) {
-            return new ProviderSendResult(success: false, error: $e->getMessage());
+            $out[] = $name !== '' ? new Address($emailAddress, $name) : Address::create($emailAddress);
         }
+
+        return $out;
     }
 
     /**
-     * @param  array<int, string|array{email: string, name?: string}>  $addresses
-     * @return array<int, string>
+     * @return array<int, string> ids without angle brackets
      */
-    protected function normalizeAddresses(array $addresses): array
+    protected function messageIds(string $value): array
     {
-        return array_values(array_map(function ($address) {
-            if (is_array($address)) {
-                return $address['email'] ?? '';
-            }
+        if (preg_match_all('/<([^<>\s]+@[^<>\s]+)>/', $value, $matches) && $matches[1] !== []) {
+            return $matches[1];
+        }
 
-            return (string) $address;
-        }, $addresses));
+        $bare = trim($value);
+
+        return preg_match('/^[^<>\s]+@[^<>\s]+$/', $bare) ? [$bare] : [];
     }
 }

@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProviderConfig extends Model
 {
+    /** Decrypted credentials must never be serialized into responses. */
+    protected $hidden = ['credentials'];
+
     protected $fillable = [
         'organization_id',
         'provider',

@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 class Attachment extends Model
 {
@@ -22,6 +24,20 @@ class Attachment extends Model
     public function message(): BelongsTo
     {
         return $this->belongsTo(Message::class);
+    }
+
+    /**
+     * Wrap the stored file so it can be re-attached to a new outgoing email
+     * (forwards and group fan-out). Returns null if the file is gone.
+     */
+    public function toUploadedFile(): ?UploadedFile
+    {
+        $disk = Storage::disk($this->disk ?: 'local');
+        if (! $this->path || ! $disk->exists($this->path)) {
+            return null;
+        }
+
+        return new UploadedFile($disk->path($this->path), $this->filename, $this->content_type, null, true);
     }
 
     public function isPreviewableImage(): bool

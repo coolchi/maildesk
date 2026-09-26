@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Applies provider delivery events to outbound messages: status, event
- * history, open tracking, automatic suppression and outgoing webhooks.
+ * history, open/click tracking, automatic suppression and outgoing webhooks.
  */
 class DeliveryEventService
 {
@@ -104,6 +104,11 @@ class DeliveryEventService
                     $meta['open_count'] = (int) ($meta['open_count'] ?? 0) + 1;
                     $meta['first_opened_at'] ??= $at;
                     $meta['last_opened_at'] = $at;
+                    break;
+                case DeliveryEvent::CLICKED:
+                    $meta['click_count'] = (int) ($meta['click_count'] ?? 0) + 1;
+                    $meta['first_clicked_at'] ??= $at;
+                    $meta['last_clicked_at'] = $at;
                     break;
             }
 

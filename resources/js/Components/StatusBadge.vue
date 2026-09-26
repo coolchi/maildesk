@@ -20,6 +20,8 @@ const styles = {
     subscribed: 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/20',
     unsubscribed: 'bg-zinc-500/20 text-zinc-300 ring-zinc-500/20',
     queued: 'bg-amber-500/15 text-amber-300 ring-amber-500/20',
+    sending: 'bg-violet-500/15 text-violet-300 ring-violet-500/20',
+    skipped: 'bg-zinc-500/20 text-zinc-400 ring-zinc-500/20',
     enabled: 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/20',
     disabled: 'bg-zinc-500/20 text-zinc-300 ring-zinc-500/20',
     paused: 'bg-amber-500/15 text-amber-300 ring-amber-500/20',

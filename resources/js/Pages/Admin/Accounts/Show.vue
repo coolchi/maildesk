@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref, watchEffect } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { computed, onMounted, ref, watchEffect } from 'vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AdminLayout from '@/Layouts/AdminLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Modal from '@/Components/Modal.vue';
@@ -15,6 +15,8 @@ import {
     Building2,
     Check,
     Globe2,
+    History,
+    LogIn,
     Pencil,
     Server,
 } from '@lucide/vue';
@@ -25,6 +27,8 @@ const props = defineProps({
     subscription: { type: Object, default: null },
     hosts: { type: Array, default: () => [] },
     providers: { type: Array, default: () => [] },
+    members: { type: Array, default: () => [] },
+    impersonationLogs: { type: Array, default: () => [] },
 });
 
 const toast = useToast();
@@ -139,6 +143,75 @@ const suspend = () => {
 };
 
 const changePlan = () => router.visit(route('admin.plans'));
+
+// ── Log in as (read-only impersonation) ────────────────────────────
+const page = usePage();
+const showImpersonate = ref(false);
+const impersonating = ref(false);
+const impersonateErrors = ref({});
+const impersonateForm = ref({ userId: null, reason: '' });
+
+const impersonatable = computed(() =>
+    props.members.filter((m) => m.can_impersonate),
+);
+
+const defaultImpersonationTarget = () =>
+    (
+        props.members.find((m) => m.role === 'owner' && m.can_impersonate) ||
+        impersonatable.value[0]
+    )?.id ?? null;
+
+const reasonLength = computed(() => impersonateForm.value.reason.trim().length);
+
+const canStartImpersonation = computed(
+    () =>
+        !!impersonateForm.value.userId &&
+        reasonLength.value >= 10 &&
+        reasonLength.value <= 500 &&
+        !impersonating.value,
+);
+
+const openImpersonate = () => {
+    impersonateForm.value = { userId: defaultImpersonationTarget(), reason: '' };
+    impersonateErrors.value = {};
+    showImpersonate.value = true;
+};
+
+const startImpersonation = () => {
+    if (!canStartImpersonation.value) return;
+    router.post(
+        route('admin.impersonate', impersonateForm.value.userId),
+        {
+            organization_id: props.id,
+            reason: impersonateForm.value.reason.trim(),
+        },
+        {
+            preserveScroll: true,
+            onStart: () => {
+                impersonating.value = true;
+            },
+            onFinish: () => {
+                impersonating.value = false;
+            },
+            onError: (errors) => {
+                impersonateErrors.value = errors;
+                toast.error(
+                    errors.user ||
+                        errors.reason ||
+                        errors.organization_id ||
+                        'Could not start impersonation.',
+                );
+            },
+        },
+    );
+};
+
+const formatDateTime = (iso) => (iso ? new Date(iso).toLocaleString() : '—');
+
+onMounted(() => {
+    const error = page.props.flash?.error;
+    if (error && /impersonat/i.test(error)) toast.error(error);
+});
 </script>
 
 <template>
@@ -204,6 +277,20 @@ const changePlan = () => router.visit(route('admin.plans'));
                 <button type="button" class="md-btn-ghost" @click="changePlan">
                     <Pencil :size="16" />
                     Edit plans
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    :disabled="!impersonatable.length"
+                    :title="
+                        impersonatable.length
+                            ? 'Read-only session as a member of this account'
+                            : 'No members can be impersonated'
+                    "
+                    @click="openImpersonate"
+                >
+                    <LogIn :size="16" />
+                    Log in as
                 </button>
                 <button type="button" class="md-btn-ghost" @click="suspend">
                     <Ban :size="16" />
@@ -379,6 +466,205 @@ const changePlan = () => router.visit(route('admin.plans'));
         </div>
 
         <AccountUsersPanel :account-id="props.id" />
+
+        <section v-if="impersonationLogs.length" class="md-card mb-6 p-5">
+            <div class="mb-4 flex items-center gap-2">
+                <History :size="16" class="text-zinc-500" />
+                <h2 class="text-sm font-medium text-white">
+                    Recent impersonation sessions
+                </h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="text-zinc-500">
+                        <tr class="border-b border-zinc-800">
+                            <th class="py-2 pr-4 font-medium">Admin</th>
+                            <th class="py-2 pr-4 font-medium">User</th>
+                            <th class="py-2 pr-4 font-medium">Reason</th>
+                            <th class="py-2 pr-4 font-medium">Started</th>
+                            <th class="py-2 pr-4 font-medium">Ended</th>
+                            <th class="py-2 pr-4 font-medium">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-zinc-300">
+                        <tr
+                            v-for="log in impersonationLogs"
+                            :key="log.id"
+                            class="border-b border-zinc-900 align-top"
+                        >
+                            <td class="py-2 pr-4">{{ log.admin }}</td>
+                            <td class="py-2 pr-4">
+                                <div>{{ log.user || 'Deleted user' }}</div>
+                                <div class="text-[11px] text-zinc-500">
+                                    {{ log.user_email }}
+                                </div>
+                            </td>
+                            <td class="max-w-xs py-2 pr-4 text-zinc-400">
+                                {{ log.reason }}
+                            </td>
+                            <td class="whitespace-nowrap py-2 pr-4">
+                                {{ formatDateTime(log.started_at) }}
+                            </td>
+                            <td class="whitespace-nowrap py-2 pr-4">
+                                <span v-if="log.ended_at">
+                                    {{ formatDateTime(log.ended_at) }}
+                                    <span
+                                        class="text-zinc-500"
+                                        :title="log.denied_reason || undefined"
+                                        >· {{ log.end_reason }}</span
+                                    >
+                                </span>
+                                <span v-else class="text-amber-300"
+                                    >Active</span
+                                >
+                            </td>
+                            <td class="py-2 pr-4 tabular-nums">
+                                {{ log.actions_count }}
+                                <span
+                                    v-if="log.blocked_count"
+                                    class="text-rose-300"
+                                    >({{ log.blocked_count }} blocked)</span
+                                >
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <Modal
+            :show="showImpersonate"
+            title="Log in as a user"
+            description="Opens this account's workspace as the selected user. The session is read-only, audited, and ends automatically after 30 minutes."
+            max-width="lg"
+            @close="showImpersonate = false"
+        >
+            <div class="space-y-4">
+                <div v-if="members.length > 1" class="space-y-2">
+                    <div class="text-xs text-zinc-500">User</div>
+                    <label
+                        v-for="m in members"
+                        :key="m.id"
+                        class="flex items-start gap-3 rounded-xl border px-3 py-2.5 transition"
+                        :class="[
+                            !m.can_impersonate
+                                ? 'cursor-not-allowed border-zinc-900 opacity-50'
+                                : 'cursor-pointer',
+                            impersonateForm.userId === m.id
+                                ? 'border-cyan-400/40 bg-cyan-400/10'
+                                : m.can_impersonate
+                                  ? 'border-zinc-800 hover:border-zinc-700'
+                                  : '',
+                        ]"
+                    >
+                        <input
+                            v-model="impersonateForm.userId"
+                            type="radio"
+                            class="mt-1"
+                            :value="m.id"
+                            :disabled="!m.can_impersonate"
+                        />
+                        <span class="min-w-0 flex-1">
+                            <span
+                                class="flex items-center gap-2 text-sm font-medium text-white"
+                            >
+                                <span class="truncate">{{ m.name }}</span>
+                                <span
+                                    class="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-normal capitalize text-zinc-400"
+                                    >{{ m.role }}</span
+                                >
+                            </span>
+                            <span class="block truncate text-xs text-zinc-500">
+                                {{ m.email }}
+                            </span>
+                            <span
+                                v-if="m.disabled_reason"
+                                class="mt-0.5 block text-[11px] text-amber-300/80"
+                            >
+                                {{ m.disabled_reason }} · cannot impersonate
+                            </span>
+                        </span>
+                    </label>
+                </div>
+                <div
+                    v-else-if="members.length === 1"
+                    class="rounded-xl border border-zinc-800 px-3 py-2.5"
+                >
+                    <div class="text-sm font-medium text-white">
+                        {{ members[0].name }}
+                        <span class="text-xs font-normal capitalize text-zinc-500"
+                            >· {{ members[0].role }}</span
+                        >
+                    </div>
+                    <div class="text-xs text-zinc-500">{{ members[0].email }}</div>
+                    <div
+                        v-if="members[0].disabled_reason"
+                        class="mt-0.5 text-[11px] text-amber-300/80"
+                    >
+                        {{ members[0].disabled_reason }} · cannot impersonate
+                    </div>
+                </div>
+                <p v-else class="text-sm text-zinc-500">
+                    This account has no members.
+                </p>
+                <p v-if="impersonateErrors.user" class="text-xs text-rose-300">
+                    {{ impersonateErrors.user }}
+                </p>
+
+                <div>
+                    <label
+                        for="impersonate-reason"
+                        class="mb-1.5 block text-xs text-zinc-500"
+                        >Reason (required, logged)</label
+                    >
+                    <textarea
+                        id="impersonate-reason"
+                        v-model="impersonateForm.reason"
+                        rows="3"
+                        maxlength="500"
+                        class="md-input"
+                        placeholder="e.g. Investigating support ticket #4521 — emails not arriving"
+                    />
+                    <div class="mt-1 flex justify-between text-[11px]">
+                        <span class="text-rose-300">{{
+                            impersonateErrors.reason || ''
+                        }}</span>
+                        <span
+                            class="tabular-nums"
+                            :class="
+                                reasonLength && reasonLength < 10
+                                    ? 'text-amber-300'
+                                    : 'text-zinc-500'
+                            "
+                            >{{ reasonLength }}/500 · min 10</span
+                        >
+                    </div>
+                </div>
+                <p class="text-[11px] text-zinc-500">
+                    You'll be asked to confirm your password if you haven't in
+                    the last 10 minutes. Sending mail and all changes are
+                    blocked while impersonating.
+                </p>
+            </div>
+            <template #footer>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    @click="showImpersonate = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-solid"
+                    :disabled="!canStartImpersonation"
+                    @click="startImpersonation"
+                >
+                    <LogIn :size="14" />
+                    Log in as user
+                </button>
+            </template>
+        </Modal>
 
         <Modal
             :show="showProvider"

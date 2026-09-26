@@ -25,6 +25,7 @@ class Mailbox extends Model
         'transactional',
         'marketing',
         'send_limit',
+        'signature',
     ];
 
     protected function casts(): array

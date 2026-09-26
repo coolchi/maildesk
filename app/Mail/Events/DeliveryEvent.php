@@ -5,7 +5,7 @@ namespace App\Mail\Events;
 use Carbon\CarbonImmutable;
 
 /**
- * Provider-neutral delivery event (delivered, bounced, complained, opened).
+ * Provider-neutral delivery event (delivered, bounced, complained, opened, clicked).
  */
 final class DeliveryEvent
 {
@@ -16,6 +16,8 @@ final class DeliveryEvent
     public const COMPLAINED = 'complained';
 
     public const OPENED = 'opened';
+
+    public const CLICKED = 'clicked';
 
     /**
      * @param  list<string>  $recipients

@@ -5,6 +5,7 @@ use App\Http\Middleware\EnsureAccountActive;
 use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\IdentifyTenant;
+use App\Http\Middleware\ImpersonationGuard;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -25,12 +26,18 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->web(append: [
+            // Read-only + TTL enforcement and audit for admin "log in as".
+            ImpersonationGuard::class,
             IdentifyTenant::class,
-            // Suspended / closed accounts: log out, block.
+            // Suspended / closed accounts: log out, block, refuse impersonation.
             EnsureAccountActive::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
+
+        // One-click unsubscribe (RFC 8058) is POSTed by mail providers
+        // without a CSRF token; the signed URL protects it instead.
+        $middleware->validateCsrfTokens(except: ['unsubscribe/*']);
 
         $middleware->alias([
             'platform.admin' => EnsurePlatformAdmin::class,

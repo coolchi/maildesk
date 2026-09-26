@@ -13,15 +13,63 @@ use App\Models\ProviderConfig;
 
 class MailManager
 {
+    /**
+     * Which provider sends for a workspace:
+     *
+     *  1. The workspace's own SMTP settings (Settings → SMTP), when saved with
+     *     "Use SMTP for sending" on and a host → smtp with ONLY those credentials.
+     *  2. Otherwise the platform provider assigned by an admin (driver), e.g.
+     *     resend, or smtp with the admin provider's HOST/PORT/USERNAME/… config
+     *     layered over MAILDESK_SMTP_* env values.
+     *  3. Otherwise the workspace default_provider / maildesk.default_provider.
+     *
+     * With maildesk.fake_send on (local/testing) the chosen driver is replaced
+     * by an in-memory ArrayProvider that reports the same name.
+     */
     public function forOrganization(Organization $organization): MailProvider
     {
         $organization->loadMissing('mailProvider');
 
-        $platform = $organization->mailProvider;
-        $provider = $platform?->driver
-            ?: ($organization->default_provider ?: config('maildesk.default_provider'));
+        return $this->driver($this->driverNameFor($organization), $organization, $this->platformProviderFor($organization));
+    }
 
-        return $this->driver($provider, $organization, $platform);
+    /**
+     * The workspace's assigned platform provider, or, when that one is
+     * disabled, the active platform default (is_default). Null when neither.
+     */
+    public function platformProviderFor(Organization $organization): ?PlatformMailProvider
+    {
+        $organization->loadMissing('mailProvider');
+        $assigned = $organization->mailProvider;
+
+        if ($assigned === null || $assigned->status === 'active') {
+            return $assigned;
+        }
+
+        return PlatformMailProvider::query()->where('is_default', true)->where('status', 'active')->first();
+    }
+
+    /**
+     * default_provider should hold a driver name, but older rows stored a
+     * platform provider KEY (e.g. resend_66f…); map those to their driver.
+     */
+    protected function normalizeDriverName(?string $name): ?string
+    {
+        if ($name === null || $name === '' || in_array($name, ['resend', 'smtp', 'array', 'log'], true)) {
+            return $name;
+        }
+
+        return PlatformMailProvider::query()->where('key', $name)->value('driver') ?: $name;
+    }
+
+    public function driverNameFor(Organization $organization): string
+    {
+        if ($this->organizationSmtpConfig($organization) !== null) {
+            return 'smtp';
+        }
+
+        return (string) ($this->platformProviderFor($organization)?->driver
+            ?: ($this->normalizeDriverName($organization->default_provider) ?: config('maildesk.default_provider')));
     }
 
     /**
@@ -70,11 +118,11 @@ class MailManager
             return new ArrayProvider($provider);
         }
 
-        $credentials = $this->resolveCredentials($provider, $organization, $platform);
+        $credentials = $provider === 'smtp' ? [] : $this->resolveCredentials($provider, $organization, $platform);
 
         return match ($provider) {
             'resend' => new ResendProvider($credentials['api_key'] ?? null),
-            'smtp' => new SmtpProvider(array_merge(config('maildesk.providers.smtp', []), $credentials)),
+            'smtp' => new SmtpProvider($this->smtpConfigFor($organization, $platform)),
             'array', 'log' => new ArrayProvider($provider),
             default => new UnsupportedProvider($provider),
         };
