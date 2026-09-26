@@ -19,6 +19,10 @@ class DashboardController extends Controller
         try {
             $organization = CurrentOrganization::from($request);
         } catch (NotFoundHttpException) {
+            if ($request->user()?->isPlatformAdmin()) {
+                return redirect()->route('admin.dashboard');
+            }
+
             return redirect()->route('emails');
         }
 

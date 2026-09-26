@@ -24,7 +24,7 @@ return new class extends Migration
             $table->json('regions')->nullable();
             $table->json('features')->nullable();
             $table->text('description')->nullable();
-            $table->json('config')->nullable(); // encrypted via cast
+            $table->longText('config')->nullable(); // encrypted via cast; not JSON
             $table->timestamps();
         });
 

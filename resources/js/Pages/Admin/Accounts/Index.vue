@@ -96,7 +96,7 @@ const goShow = (a) => router.visit(route('admin.accounts.show', a.id));
             </select>
             <select v-model="plan" class="md-input w-full lg:w-36">
                 <option value="all">All plans</option>
-                <option value="Free">Free</option>
+                <option value="Starter">Starter</option>
                 <option value="Pro">Pro</option>
                 <option value="Enterprise">Enterprise</option>
             </select>

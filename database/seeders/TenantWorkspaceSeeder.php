@@ -30,7 +30,7 @@ class TenantWorkspaceSeeder extends Seeder
             return;
         }
 
-        $admin = User::query()->where('email', 'ade@test.com')->first();
+        $admin = User::query()->where('email', 'admin@maildesk.ng')->first();
         $member = User::query()->where('email', 'member@test.com')->first();
 
         if ($member && ! $org->users()->whereKey($member->id)->exists()) {

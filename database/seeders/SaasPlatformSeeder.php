@@ -16,9 +16,9 @@ class SaasPlatformSeeder extends Seeder
     public function run(): void
     {
         $admin = User::query()->updateOrCreate(
-            ['email' => 'ade@test.com'],
+            ['email' => 'admin@maildesk.ng'],
             [
-                'name' => 'Ade Tola',
+                'name' => 'MailDesk Admin',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
                 'is_platform_admin' => true,
@@ -162,112 +162,9 @@ class SaasPlatformSeeder extends Seeder
             );
         }
 
-        $plans = [
-            [
-                'key' => 'tx_free',
-                'product' => 'transactional',
-                'name' => 'Free',
-                'price' => 0,
-                'emails' => 3000,
-                'seats' => 1,
-                'featured' => false,
-                'features' => [
-                    ['id' => 'f1', 'label' => '3,000 emails / month', 'included' => true],
-                    ['id' => 'f2', 'label' => '1 domain', 'included' => true],
-                    ['id' => 'f3', 'label' => 'Community support', 'included' => true],
-                    ['id' => 'f4', 'label' => 'Dedicated IPs', 'included' => false],
-                    ['id' => 'f5', 'label' => 'SSO', 'included' => false],
-                ],
-            ],
-            [
-                'key' => 'tx_pro',
-                'product' => 'transactional',
-                'name' => 'Pro',
-                'price' => 20,
-                'emails' => 50000,
-                'seats' => 10,
-                'featured' => true,
-                'features' => [
-                    ['id' => 'f1', 'label' => '50,000 emails / month', 'included' => true],
-                    ['id' => 'f2', 'label' => 'Unlimited domains', 'included' => true],
-                    ['id' => 'f3', 'label' => 'Slack + ticket support', 'included' => true],
-                    ['id' => 'f4', 'label' => 'Dedicated IPs (add-on)', 'included' => false],
-                    ['id' => 'f5', 'label' => 'SSO', 'included' => false],
-                ],
-            ],
-            [
-                'key' => 'tx_enterprise',
-                'product' => 'transactional',
-                'name' => 'Enterprise',
-                'price' => 999,
-                'emails' => null,
-                'seats' => null,
-                'featured' => false,
-                'features' => [
-                    ['id' => 'f1', 'label' => 'Custom volume', 'included' => true],
-                    ['id' => 'f2', 'label' => 'Unlimited domains', 'included' => true],
-                    ['id' => 'f3', 'label' => 'Priority support', 'included' => true],
-                    ['id' => 'f4', 'label' => 'Dedicated IPs', 'included' => true],
-                    ['id' => 'f5', 'label' => 'SSO', 'included' => true],
-                ],
-            ],
-            [
-                'key' => 'mkt_free',
-                'product' => 'marketing',
-                'name' => 'Free',
-                'price' => 0,
-                'contacts' => 1000,
-                'seats' => 1,
-                'featured' => false,
-                'features' => [
-                    ['id' => 'f1', 'label' => '1,000 contacts', 'included' => true],
-                    ['id' => 'f2', 'label' => '3 segments', 'included' => true],
-                    ['id' => 'f3', 'label' => 'Ticket support', 'included' => true],
-                    ['id' => 'f4', 'label' => 'Marketing analytics', 'included' => false],
-                    ['id' => 'f5', 'label' => 'SSO', 'included' => false],
-                ],
-            ],
-            [
-                'key' => 'mkt_pro',
-                'product' => 'marketing',
-                'name' => 'Pro',
-                'price' => 49,
-                'contacts' => 10000,
-                'seats' => 10,
-                'featured' => true,
-                'features' => [
-                    ['id' => 'f1', 'label' => '10,000 contacts', 'included' => true],
-                    ['id' => 'f2', 'label' => 'Unlimited segments', 'included' => true],
-                    ['id' => 'f3', 'label' => 'Slack + ticket support', 'included' => true],
-                    ['id' => 'f4', 'label' => 'Marketing analytics', 'included' => true],
-                    ['id' => 'f5', 'label' => 'SSO', 'included' => false],
-                ],
-            ],
-            [
-                'key' => 'mkt_enterprise',
-                'product' => 'marketing',
-                'name' => 'Enterprise',
-                'price' => 499,
-                'contacts' => null,
-                'seats' => null,
-                'featured' => false,
-                'features' => [
-                    ['id' => 'f1', 'label' => 'Custom contacts', 'included' => true],
-                    ['id' => 'f2', 'label' => 'Unlimited segments', 'included' => true],
-                    ['id' => 'f3', 'label' => 'Priority support', 'included' => true],
-                    ['id' => 'f4', 'label' => 'Marketing analytics', 'included' => true],
-                    ['id' => 'f5', 'label' => 'SSO', 'included' => true],
-                ],
-            ],
-        ];
+        $this->call(PlansSeeder::class);
 
-        $planModels = [];
-        foreach ($plans as $plan) {
-            $planModels[$plan['key']] = Plan::query()->updateOrCreate(
-                ['key' => $plan['key']],
-                array_merge(['interval' => 'month', 'emails' => null, 'contacts' => null], $plan),
-            );
-        }
+        $planModels = Plan::query()->get()->keyBy('key');
 
         $accounts = [
             [
@@ -282,7 +179,7 @@ class SaasPlatformSeeder extends Seeder
                 'seats' => 4,
                 'emails_30d' => 12840,
                 'owner_name' => 'Ade Tola',
-                'owner_email' => 'ade@test.com',
+                'owner_email' => 'admin@maildesk.ng',
                 'provisioned_at' => '2026-01-12',
                 'subscription' => ['key' => 'sub_1', 'plan' => 'tx_pro', 'price' => 20, 'renews' => 'Oct 4, 2026'],
             ],
@@ -300,7 +197,7 @@ class SaasPlatformSeeder extends Seeder
                 'owner_name' => 'Jordan Lee',
                 'owner_email' => 'jordan@northwind.io',
                 'provisioned_at' => '2026-02-03',
-                'subscription' => ['key' => 'sub_5', 'plan' => 'mkt_free', 'price' => 0, 'renews' => '—'],
+                'subscription' => ['key' => 'sub_5', 'plan' => 'mkt_starter', 'price' => 10, 'renews' => '—'],
             ],
             [
                 'name' => 'Harbor FM',

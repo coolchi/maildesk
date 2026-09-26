@@ -56,8 +56,9 @@ class PlansCatalog
      */
     private static function matrixForProduct($plans): array
     {
-        $free = $plans->first(fn (Plan $plan) => str_contains(strtolower($plan->key), 'free')
-            || strtolower($plan->name) === 'free');
+        $free = $plans->first(fn (Plan $plan) => str_contains(strtolower($plan->key), 'starter')
+            || str_contains(strtolower($plan->key), 'free')
+            || in_array(strtolower($plan->name), ['starter', 'free'], true));
         $pro = $plans->first(fn (Plan $plan) => str_contains(strtolower($plan->key), 'pro')
             || strtolower($plan->name) === 'pro');
         $enterprise = $plans->first(fn (Plan $plan) => str_contains(strtolower($plan->key), 'enterprise')

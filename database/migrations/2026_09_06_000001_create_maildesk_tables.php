@@ -30,7 +30,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->string('provider'); // resend, smtp, ses, postmark
-            $table->json('credentials')->nullable();
+            $table->longText('credentials')->nullable(); // encrypted via cast; not JSON
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 

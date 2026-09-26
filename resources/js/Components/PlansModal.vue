@@ -348,7 +348,7 @@ const metricLabel = computed(() =>
                                     class="flex flex-col rounded-2xl border border-zinc-800 bg-black/40 p-5"
                                 >
                                     <div class="text-center text-sm text-zinc-400">
-                                        Free
+                                        Starter
                                     </div>
                                     <div
                                         class="mt-3 text-center text-3xl font-semibold text-white"
@@ -364,8 +364,8 @@ const metricLabel = computed(() =>
                                     >
                                         {{
                                             mode === 'marketing'
-                                                ? '1,000 contacts'
-                                                : '3,000 emails / mo'
+                                                ? '10,000 contacts'
+                                                : '10,000 emails / mo'
                                         }}
                                     </div>
                                     <div
