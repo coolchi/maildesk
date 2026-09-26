@@ -115,7 +115,7 @@ const verify = (row) => {
         {
             preserveScroll: true,
             onSuccess: () => toast.success(`${row.host} verified.`),
-            onError: () => toast.error('Could not verify host.'),
+            onError: (errors) => toast.error(errors.host || 'Could not verify host.', 6000),
         },
     );
 };
@@ -203,6 +203,21 @@ const verify = (row) => {
                         </td>
                         <td class="px-4 py-3 font-mono text-xs text-zinc-300">
                             {{ d.host }}
+                            <ul
+                                v-if="d.dnsCheck?.checks?.length"
+                                class="mt-1 space-y-0.5 font-sans text-[11px]"
+                                data-testid="dns-check"
+                            >
+                                <li
+                                    v-for="c in d.dnsCheck.checks"
+                                    :key="c.key"
+                                    :class="c.pass ? 'text-emerald-300/80' : c.required ? 'text-rose-300' : 'text-amber-300/80'"
+                                    :title="c.detail"
+                                >
+                                    {{ c.pass ? '✓' : c.required ? '✗' : '!' }} {{ c.label }}
+                                    <span v-if="!c.pass" class="text-zinc-500">— {{ c.detail }}</span>
+                                </li>
+                            </ul>
                         </td>
                         <td class="px-4 py-3">
                             <StatusBadge :status="d.status" />
@@ -213,13 +228,13 @@ const verify = (row) => {
                         <td class="px-4 py-3 text-zinc-500">{{ d.created }}</td>
                         <td class="px-4 py-3 text-right">
                             <button
-                                v-if="d.status !== 'active'"
+                                v-if="d.status !== 'active' || d.custom"
                                 type="button"
                                 class="inline-flex items-center gap-1 text-xs text-cyan-300 hover:text-cyan-200"
                                 @click="verify(d)"
                             >
                                 <Check :size="12" />
-                                Verify
+                                {{ d.status === 'active' ? 'Re-check' : 'Verify' }}
                             </button>
                         </td>
                     </tr>

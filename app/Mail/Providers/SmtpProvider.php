@@ -7,6 +7,9 @@ use App\Mail\DTO\OutboundEmail;
 use App\Mail\DTO\ProviderSendResult;
 use Illuminate\Mail\Message as MailMessage;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
+use InvalidArgumentException;
+use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Throwable;
 
 class SmtpProvider implements MailProvider
@@ -18,6 +21,38 @@ class SmtpProvider implements MailProvider
     public function name(): string
     {
         return 'smtp';
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    public static function makeTransport(array $config): EsmtpTransport
+    {
+        $host = trim((string) ($config['host'] ?? ''));
+        if ($host === '') {
+            throw new InvalidArgumentException('SMTP host is not configured.');
+        }
+
+        $encryption = Str::lower((string) ($config['encryption'] ?? 'tls'));
+        $port = (int) ($config['port'] ?? 0) ?: ($encryption === 'ssl' ? 465 : 587);
+
+        // ssl = implicit TLS; tls = STARTTLS (required); none = plain text.
+        $transport = new EsmtpTransport($host, $port, $encryption === 'ssl');
+
+        if ($encryption === 'tls') {
+            $transport->setRequireTls(true);
+        } elseif ($encryption === 'none') {
+            $transport->setAutoTls(false);
+        }
+
+        if (($username = (string) ($config['username'] ?? '')) !== '') {
+            $transport->setUsername($username);
+        }
+        if (($password = (string) ($config['password'] ?? '')) !== '') {
+            $transport->setPassword($password);
+        }
+
+        return $transport;
     }
 
     public function send(OutboundEmail $email): ProviderSendResult

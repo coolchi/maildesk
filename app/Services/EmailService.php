@@ -28,6 +28,9 @@ class EmailService
      */
     public function send(Organization $organization, array $payload, array $files = [], ?Thread $thread = null): Message
     {
+        // Central suspension check: every send path (web, API, broadcasts) goes through here.
+        app(AccountAccess::class)->assertCanSend($organization);
+
         $from = $this->parseAddress($payload['from']);
         $to = $this->normalizeList($payload['to'] ?? []);
         $cc = ! empty($payload['cc']) ? $this->normalizeList($payload['cc']) : [];
@@ -108,6 +111,18 @@ class EmailService
 
     public function deliver(Organization $organization, Message $message): Message
     {
+        $access = app(AccountAccess::class);
+        if ($access->organizationBlocked($organization)) {
+            // Scheduled sends / retries of a suspended account never reach the provider.
+            $message->update([
+                'status' => 'failed',
+                'scheduled_at' => null,
+                'meta' => array_merge((array) ($message->meta ?? []), ['error' => $access->reasonFor($organization)]),
+            ]);
+
+            return $message->fresh(['attachments']);
+        }
+
         $organization->loadMissing('mailProvider');
         $message->loadMissing('attachments');
 

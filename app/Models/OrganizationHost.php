@@ -19,6 +19,8 @@ class OrganizationHost extends Model
         'status',
         'ssl',
         'is_custom',
+        'dns_check',
+        'dns_checked_at',
     ];
 
     protected function casts(): array
@@ -26,6 +28,8 @@ class OrganizationHost extends Model
         return [
             'ssl' => 'boolean',
             'is_custom' => 'boolean',
+            'dns_check' => 'array',
+            'dns_checked_at' => 'datetime',
         ];
     }
 
@@ -49,6 +53,8 @@ class OrganizationHost extends Model
             'ssl' => $this->ssl,
             'custom' => $this->is_custom,
             'created' => $this->created_at?->format('M j, Y') ?? '',
+            'dnsCheck' => $this->dns_check,
+            'dnsCheckedAt' => $this->dns_checked_at?->toIso8601String(),
         ];
     }
 }

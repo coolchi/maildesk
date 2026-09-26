@@ -50,6 +50,16 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        // Suspended / closed accounts cannot sign in (platform admins can).
+        $user = Auth::user();
+        $access = app(\App\Services\AccountAccess::class);
+        if ($user && $access->isLockedOut($user)) {
+            $message = $access->lockoutMessage($user);
+            Auth::guard('web')->logout();
+
+            throw ValidationException::withMessages(['email' => $message]);
+        }
+
         RateLimiter::clear($this->throttleKey());
     }
 

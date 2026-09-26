@@ -159,6 +159,23 @@ Pipeline (`App\Services\InboundEmailService`):
 
 **Responses and retries.** `201` stored, `200` duplicate or ignored event, `202` unroutable, `401` bad signature. `503` means "retry later": a missing webhook secret outside local/testing (logged as critical) or Resend's API being unreachable, rate-limited, or returning 5xx while fetching the body or attachments. Unexpected errors return `500`. Without a secret, local and testing environments accept unsigned posts for development. Every outcome is logged (never the body).
 
+## Payments (Monipay)
+
+Plan upgrades are paid in naira through [Monipay](https://monipay.ng/api-docs) hosted checkout (`App\Services\Billing\*`, `payments` table).
+
+Env (leave empty to disable; the Billing tab then shows "Payments not configured"):
+
+- `MONIPAY_PUBLIC_KEY` — `pub_test_…` / `pub_live_…`, used for `POST /transaction/initialize`.
+- `MONIPAY_SECRET_KEY` — `pri_test_…` / `pri_live_…`, server-only: `GET /transaction/verify/{reference}` and the webhook HMAC. Never sent to the browser.
+- `MONIPAY_WEBHOOK_SECRET` — optional; overrides the secret key for webhook signatures.
+- `MONIPAY_NAIRA_PER_PLAN_PRICE_UNIT` — optional; `plans.price` is stored in whole units, so a plan without an explicit `plans.price_kobo` is charged `price × rate × 100` kobo (default rate 1). Set `price_kobo` on paid plans for exact NGN prices. Minimum charge is ₦50 (5000 kobo).
+
+Flow: an owner/admin clicks **Pay with Monipay** → `POST /billing/monipay/initialize` creates a pending payment (`md_<ulid>` reference), initializes it (amount in kobo, `callback_url` on the tenant's own host, `webhook_url`) and redirects to the returned `authorization_url`. Monipay sends the customer back to `GET /billing/monipay/callback` (reference from `reference`/`trxref`/`ref`/`trans_id`, falling back to the reference kept in the session), which verifies with the secret key. A payment is fulfilled only if verify succeeds, `data.status` is `success`/`approved` (case-insensitive), the amount equals the kobo charged and the currency is NGN. Fulfilment activates the workspace's subscription for that plan's product (or extends it by one interval when paying again for the same plan) inside a locked transaction, so callback, webhook and retries are idempotent. Mismatched amounts are logged as critical and left for review.
+
+Webhook: set `https://<your-app-host>/api/v1/payments/monipay/webhook` in the Monipay dashboard (it is also sent per transaction as `webhook_url`). The `x-monipay-signature` header must be the hex HMAC-SHA512 of the raw body (optional `sha512=` prefix). Bad signature → `401`; missing secret outside local/testing → `503` + critical log; events other than `charge.success` → `200 ignored`. `charge.success` is still re-verified via the API before fulfilling (defence in depth); if verify is unreachable the webhook answers `503` so Monipay retries.
+
+Notes: test and live share the same API host — the mode comes from the `pub_test_`/`pri_test_` keys. Monipay publishes no SDKs, test cards, refunds or subscription API, so renewals are manual (a new checkout each period). The inline popup is not used: v1 `MonipayPop` is gone and v2 `new Monipay().checkout()` cannot take our server-generated reference, so MailDesk uses the hosted redirect only.
+
 ## Testing
 
 ```bash

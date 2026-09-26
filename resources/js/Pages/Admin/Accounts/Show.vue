@@ -6,6 +6,8 @@ import StatusBadge from '@/Components/StatusBadge.vue';
 import Modal from '@/Components/Modal.vue';
 import { providerHealthForAccount } from '@/data/adminMock';
 import { usePlatform } from '@/composables/usePlatform';
+import AccountUsersPanel from '@/Components/Admin/AccountUsersPanel.vue';
+import DeleteAccountPanel from '@/Components/Admin/DeleteAccountPanel.vue';
 import { useToast } from '@/composables/useToast';
 import {
     ArrowLeft,
@@ -376,6 +378,8 @@ const changePlan = () => router.visit(route('admin.plans'));
             </section>
         </div>
 
+        <AccountUsersPanel :account-id="props.id" />
+
         <Modal
             :show="showProvider"
             title="Mail provider"
@@ -490,5 +494,7 @@ const changePlan = () => router.visit(route('admin.plans'));
                 </button>
             </template>
         </Modal>
+
+        <DeleteAccountPanel :account="account" />
     </AdminLayout>
 </template>

@@ -24,6 +24,46 @@ class MailManager
         return $this->driver($provider, $organization, $platform);
     }
 
+    /**
+     * The workspace's enabled SMTP settings, or null when it has none.
+     */
+    public function organizationSmtpConfig(Organization $organization): ?ProviderConfig
+    {
+        /** @var ProviderConfig|null $config */
+        $config = $organization->providerConfigs()
+            ->where('provider', 'smtp')
+            ->where('is_active', true)
+            ->first();
+
+        return $config && trim((string) ($config->credentials['host'] ?? '')) !== '' ? $config : null;
+    }
+
+    /**
+     * Resolved SMTP settings for a workspace (see forOrganization for precedence).
+     *
+     * @return array<string, mixed>
+     */
+    public function smtpConfigFor(?Organization $organization, ?PlatformMailProvider $platform = null): array
+    {
+        if ($organization && ($config = $this->organizationSmtpConfig($organization))) {
+            // Never mix the platform's username/password into a workspace's own server.
+            return array_merge(
+                ['port' => 587, 'encryption' => 'tls', 'username' => null, 'password' => null],
+                array_filter($config->credentials ?? [], fn ($value) => $value !== null && $value !== ''),
+                ['driver' => 'smtp'],
+            );
+        }
+
+        $defaults = array_filter(config('maildesk.providers.smtp', []), fn ($value) => $value !== null && $value !== '');
+        $platform ??= $organization?->mailProvider;
+
+        if ($platform && ($platform->driver === 'smtp' || $platform->type === 'smtp' || $platform->key === 'smtp')) {
+            return array_merge($defaults, $this->credentialsFromPlatform($platform));
+        }
+
+        return $defaults;
+    }
+
     public function driver(string $provider, ?Organization $organization = null, ?PlatformMailProvider $platform = null): MailProvider
     {
         if (config('maildesk.fake_send')) {

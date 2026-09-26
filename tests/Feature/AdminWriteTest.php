@@ -7,7 +7,9 @@ use App\Models\OrganizationHost;
 use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\Domains\HostRecordResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\FakeHostRecordResolver;
 use Tests\TestCase;
 
 class AdminWriteTest extends TestCase
@@ -79,6 +81,8 @@ class AdminWriteTest extends TestCase
     public function test_admin_can_create_and_verify_host(): void
     {
         config(['maildesk.base_domain' => 'maildesk.test']);
+        // Verify now does real (read-only) DNS lookups; fake them.
+        $this->app->instance(HostRecordResolver::class, (new FakeHostRecordResolver)->set('send.acme.test', DNS_CNAME, ['maildesk.test']));
 
         $admin = User::factory()->platformAdmin()->create();
         $org = Organization::factory()->create(['subdomain' => 'acme']);

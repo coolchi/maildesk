@@ -7,8 +7,15 @@ use App\Models\Organization;
 use App\Models\OrganizationHost;
 use App\Models\Plan;
 use App\Models\Subscription;
+use App\Services\Domains\HostDnsVerifier;
+use App\Services\EmailUsage;
+use App\Services\Providers\ProviderConnectionTester;
+use App\Services\RevenueService;
+use App\Support\PlanNairaPrice;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -20,7 +27,8 @@ class AdminController extends Controller
         $accounts = Organization::query()
             ->with('mailProvider')
             ->latest('id')
-            ->get();
+            ->get()
+            ->pipe(fn ($orgs) => app(EmailUsage::class)->attach($orgs));
 
         $providers = MailProvider::query()
             ->withCount('organizations')
@@ -30,17 +38,18 @@ class AdminController extends Controller
 
         $subscriptions = Subscription::query()
             ->with(['organization', 'plan'])
+            ->whereHas('organization')
             ->latest('id')
             ->get();
 
         $hosts = OrganizationHost::query()
             ->with('organization')
+            ->whereHas('organization')
             ->latest('id')
             ->get();
 
-        $activeMrr = $subscriptions
-            ->where('status', 'active')
-            ->sum('price');
+        // Shared MRR computation (active paid subs, yearly ÷ 12).
+        $activeMrr = app(RevenueService::class)->mrr();
 
         $endedRecently = Subscription::query()
             ->whereIn('status', ['canceled', 'cancelled', 'past_due'])
@@ -79,6 +88,7 @@ class AdminController extends Controller
             ->with('mailProvider')
             ->orderBy('name')
             ->get()
+            ->pipe(fn ($orgs) => app(EmailUsage::class)->attach($orgs))
             ->map->toAdminArray()
             ->values();
 
@@ -130,7 +140,8 @@ class AdminController extends Controller
 
         $organization->update([
             'mail_provider_id' => $provider->id,
-            'default_provider' => $provider->key,
+            // default_provider is a DRIVER name for MailManager's fallback, not the key.
+            'default_provider' => $provider->driver,
         ]);
 
         return back()->with('success', "Mail provider set to {$provider->name}.");
@@ -212,7 +223,8 @@ class AdminController extends Controller
     public function plans(): Response
     {
         return Inertia::render('Admin/Plans/Index', [
-            'plans' => Plan::query()->orderBy('product')->orderBy('price')->get()->map->toAdminArray()->values(),
+            'plans' => Plan::query()->withCount('subscriptions')->orderBy('product')->orderBy('price')->get()->map->toAdminArray()->values(),
+            'monipayMinKobo' => PlanNairaPrice::minKobo(),
         ]);
     }
 
@@ -221,6 +233,11 @@ class AdminController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'price' => ['required', 'integer', 'min:0'],
+            'price_ngn' => PlanNairaPrice::rules(),
+            'interval' => ['sometimes', Rule::in(['month', 'year'])],
+            'emails' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'contacts' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'seats' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'featured' => ['sometimes', 'boolean'],
             'features' => ['nullable', 'array'],
             'features.*.id' => ['nullable', 'string', 'max:64'],
@@ -237,11 +254,19 @@ class AdminController extends Controller
             ->values()
             ->all();
 
+        PlanNairaPrice::assertMinimum((int) $validated['price'], $validated['price_ngn'] ?? null);
+
         $plan->update([
             'name' => $validated['name'],
             'price' => $validated['price'],
             'featured' => (bool) ($validated['featured'] ?? false),
             'features' => $features,
+            // Optional fields only change when sent.
+            ...(array_key_exists('price_ngn', $validated) ? ['price_kobo' => PlanNairaPrice::toKobo($validated['price_ngn'])] : []),
+            ...collect(['interval', 'emails', 'contacts', 'seats'])
+                ->filter(fn (string $field) => array_key_exists($field, $validated))
+                ->mapWithKeys(fn (string $field) => [$field => $validated[$field]])
+                ->all(),
         ]);
 
         Subscription::query()
@@ -255,6 +280,9 @@ class AdminController extends Controller
             ->whereHas('subscription', fn ($query) => $query->where('plan_id', $plan->id))
             ->update(['plan' => $plan->name]);
 
+        // Price / interval changes: refresh organizations.mrr for affected accounts.
+        app(RevenueService::class)->syncPlan($plan);
+
         return back()->with('success', "{$plan->name} plan saved.");
     }
 
@@ -265,18 +293,23 @@ class AdminController extends Controller
             'product' => ['required', Rule::in(['transactional', 'marketing'])],
             'name' => ['required', 'string', 'max:120'],
             'price' => ['required', 'integer', 'min:0'],
+            'price_ngn' => PlanNairaPrice::rules(),
+            'interval' => ['sometimes', Rule::in(['month', 'year'])],
             'emails' => ['nullable', 'integer', 'min:0'],
             'contacts' => ['nullable', 'integer', 'min:0'],
             'seats' => ['nullable', 'integer', 'min:0'],
             'featured' => ['sometimes', 'boolean'],
         ]);
 
+        PlanNairaPrice::assertMinimum((int) $validated['price'], $validated['price_ngn'] ?? null);
+
         Plan::query()->create([
             'key' => $validated['key'],
             'product' => $validated['product'],
             'name' => $validated['name'],
             'price' => $validated['price'],
-            'interval' => 'month',
+            'price_kobo' => PlanNairaPrice::toKobo($validated['price_ngn'] ?? null),
+            'interval' => $validated['interval'] ?? 'month',
             'emails' => $validated['emails'] ?? null,
             'contacts' => $validated['contacts'] ?? null,
             'seats' => $validated['seats'] ?? null,
@@ -292,6 +325,7 @@ class AdminController extends Controller
         return Inertia::render('Admin/Subscriptions/Index', [
             'subscriptions' => Subscription::query()
                 ->with(['organization', 'plan'])
+                ->whereHas('organization')
                 ->latest('id')
                 ->get()
                 ->map->toAdminArray()
@@ -327,7 +361,7 @@ class AdminController extends Controller
             $subscription->organization->update([
                 'plan' => $subscription->plan_name,
                 'product' => $subscription->product,
-                'mrr' => $subscription->status === 'active' ? $subscription->price : 0,
+                'mrr' => app(RevenueService::class)->organizationMrr($subscription->organization),
             ]);
         }
 
@@ -339,6 +373,7 @@ class AdminController extends Controller
         return Inertia::render('Admin/Subdomains/Index', [
             'hosts' => OrganizationHost::query()
                 ->with('organization')
+                ->whereHas('organization')
                 ->latest('id')
                 ->get()
                 ->map->toAdminArray()
@@ -410,10 +445,14 @@ class AdminController extends Controller
 
     public function verifyHost(OrganizationHost $organizationHost): RedirectResponse
     {
-        $organizationHost->update([
-            'status' => 'active',
-            'ssl' => true,
-        ]);
+        // Real, read-only DNS checks; active only when every required check passes.
+        $result = app(HostDnsVerifier::class)->verify($organizationHost);
+
+        if (! $result['passed']) {
+            return back()
+                ->withErrors(['host' => 'DNS check failed: '.implode('; ', $result['failed'])])
+                ->with('error', "{$organizationHost->host} not verified: ".implode('; ', $result['failed']));
+        }
 
         return back()->with('success', "{$organizationHost->host} verified.");
     }
@@ -480,24 +519,40 @@ class AdminController extends Controller
             'config.*.secret' => ['boolean'],
         ]);
 
-        if (($validated['is_default'] ?? false) === true) {
-            MailProvider::query()->where('id', '!=', $mailProvider->id)->update(['is_default' => false]);
-            $mailProvider->is_default = true;
-        }
+        $makeDefault = ($validated['is_default'] ?? false) === true;
 
-        if (($validated['status'] ?? null) === 'disabled' && $mailProvider->is_default) {
+        // Validate the default/disabled combination BEFORE touching any row.
+        if ($validated['status'] === 'disabled' && ($makeDefault || $mailProvider->is_default)) {
             return back()->withErrors(['status' => 'Switch default provider before disabling.']);
         }
 
-        $mailProvider->fill([
-            'name' => $validated['name'],
-            'status' => $validated['status'],
-            'api_base' => $validated['api_base'] ?? null,
-            'description' => $validated['description'] ?? $mailProvider->description,
-            'config' => $validated['config'] ?? $mailProvider->config,
-        ])->save();
+        DB::transaction(function () use ($validated, $mailProvider, $makeDefault): void {
+            if ($makeDefault) {
+                MailProvider::query()->where('id', '!=', $mailProvider->id)->update(['is_default' => false]);
+                $mailProvider->is_default = true;
+            }
+
+            $mailProvider->fill([
+                'name' => $validated['name'],
+                'status' => $validated['status'],
+                'api_base' => $validated['api_base'] ?? null,
+                'description' => $validated['description'] ?? $mailProvider->description,
+                'config' => array_key_exists('config', $validated) && $validated['config'] !== null
+                    ? $mailProvider->mergeConfigKeepingSecrets($validated['config'])
+                    : $mailProvider->config,
+            ])->save();
+        });
 
         return back()->with('success', "{$mailProvider->name} config saved.");
+    }
+
+    /**
+     * Live "test connection" for a provider; stores nothing. JSON only:
+     * {ok, message, latency_ms, driver} with secrets scrubbed.
+     */
+    public function testProvider(MailProvider $mailProvider): JsonResponse
+    {
+        return response()->json(app(ProviderConnectionTester::class)->test($mailProvider));
     }
 
     public function destroyProvider(MailProvider $mailProvider): RedirectResponse
@@ -507,8 +562,27 @@ class AdminController extends Controller
         }
 
         $name = $mailProvider->name;
-        $mailProvider->delete();
+        $fallback = MailProvider::query()
+            ->where('is_default', true)
+            ->where('status', 'active')
+            ->whereKeyNot($mailProvider->id)
+            ->first();
 
-        return back()->with('success', "Deleted “{$name}”.");
+        $moved = DB::transaction(function () use ($mailProvider, $fallback): int {
+            // Reassign tenants to the platform default instead of orphaning them.
+            $moved = $fallback
+                ? Organization::withTrashed()
+                    ->where('mail_provider_id', $mailProvider->id)
+                    ->update(['mail_provider_id' => $fallback->id, 'default_provider' => $fallback->driver])
+                : 0;
+
+            $mailProvider->delete();
+
+            return $moved;
+        });
+
+        return back()->with('success', $moved > 0
+            ? "Deleted “{$name}”; {$moved} account(s) moved to {$fallback->name}."
+            : "Deleted “{$name}”.");
     }
 }

@@ -21,6 +21,7 @@ class Subscription extends Model
         'status',
         'price',
         'renews_at',
+        'current_period_ends_at',
         'seats',
     ];
 
@@ -29,6 +30,7 @@ class Subscription extends Model
         return [
             'price' => 'integer',
             'seats' => 'integer',
+            'current_period_ends_at' => 'datetime',
         ];
     }
 

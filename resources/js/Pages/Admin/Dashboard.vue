@@ -50,7 +50,7 @@ const cards = computed(() => [
         label: 'MRR',
         value: `$${Number(stats.value.mrr || 0).toLocaleString()}`,
         icon: DollarSign,
-        href: 'admin.plans',
+        href: 'admin.revenue',
     },
     {
         label: 'Mail providers',

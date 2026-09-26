@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PlanNairaPrice;
 use Database\Factories\PlanFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,6 +18,7 @@ class Plan extends Model
         'product',
         'name',
         'price',
+        'price_kobo',
         'interval',
         'emails',
         'contacts',
@@ -29,6 +31,7 @@ class Plan extends Model
     {
         return [
             'price' => 'integer',
+            'price_kobo' => 'integer',
             'emails' => 'integer',
             'contacts' => 'integer',
             'seats' => 'integer',
@@ -59,6 +62,10 @@ class Plan extends Model
             'seats' => $this->seats,
             'featured' => $this->featured,
             'features' => $this->features ?? [],
+            'price_kobo' => $this->price_kobo,
+            'price_ngn' => PlanNairaPrice::toNaira($this->price_kobo),
+            'monipay_payable' => PlanNairaPrice::payableViaMonipay($this),
+            'subscriptions_count' => $this->subscriptions_count ?? $this->subscriptions()->count(),
         ];
     }
 }

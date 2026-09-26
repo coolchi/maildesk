@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\AutomationController;
+use App\Http\Controllers\Billing\MonipayController;
 use App\Http\Controllers\BounceController;
 use App\Http\Controllers\BroadcastController;
 use App\Http\Controllers\ContactController;
@@ -28,7 +29,7 @@ use Inertia\Inertia;
 Route::get('/', function () {
     return Inertia::render('Welcome', [
         'canLogin' => Route::has('login'),
-        'canRegister' => Route::has('register'),
+        'canRegister' => Route::has('register') && app(\App\Services\PlatformSettings::class)->signupOpen(),
         'laravelVersion' => Application::VERSION,
         'phpVersion' => PHP_VERSION,
     ]);
@@ -106,6 +107,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->whereIn('tab', ['usage', 'billing', 'smtp', 'unsubscribe', 'documents'])
         ->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    Route::post('/billing/monipay/initialize', [MonipayController::class, 'initialize'])
+        ->middleware('throttle:20,1')->name('billing.monipay.initialize');
+    Route::get('/billing/monipay/callback', [MonipayController::class, 'callback'])->name('billing.monipay.callback');
 
     Route::prefix('admin')->name('admin.')->middleware('platform.admin')->group(function () {
         Route::get('/', [AdminController::class, 'dashboard'])->name('dashboard');
@@ -126,6 +130,19 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/subdomains', [AdminController::class, 'subdomains'])->name('subdomains');
         Route::post('/subdomains', [AdminController::class, 'storeHost'])->name('subdomains.store');
         Route::post('/subdomains/{organizationHost}/verify', [AdminController::class, 'verifyHost'])->name('subdomains.verify');
+
+        // Account lifecycle + membership management (admin panel gap fixes).
+        Route::delete('/accounts/{organization}', [\App\Http\Controllers\Admin\AccountLifecycleController::class, 'destroy'])->name('accounts.destroy');
+        Route::get('/accounts/{organization}/users', [\App\Http\Controllers\Admin\AccountUserController::class, 'index'])->name('accounts.users');
+        Route::post('/accounts/{organization}/users', [\App\Http\Controllers\Admin\AccountUserController::class, 'store'])->name('accounts.users.store');
+        Route::put('/accounts/{organization}/users/{user}', [\App\Http\Controllers\Admin\AccountUserController::class, 'update'])->name('accounts.users.update');
+        Route::delete('/accounts/{organization}/users/{user}', [\App\Http\Controllers\Admin\AccountUserController::class, 'destroy'])->name('accounts.users.destroy');
+        Route::delete('/plans/{plan}', [\App\Http\Controllers\Admin\PlanController::class, 'destroy'])->name('plans.destroy');
+        Route::get('/revenue', [\App\Http\Controllers\Admin\RevenueController::class, 'index'])->name('revenue');
+        Route::post('/providers/{mailProvider}/test', [AdminController::class, 'testProvider'])
+            ->middleware('throttle:10,1')->name('providers.test');
+        Route::get('/settings', [\App\Http\Controllers\Admin\PlatformSettingsController::class, 'index'])->name('settings');
+        Route::put('/settings', [\App\Http\Controllers\Admin\PlatformSettingsController::class, 'update'])->name('settings.update');
     });
 });
 

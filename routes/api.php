@@ -2,14 +2,16 @@
 
 use App\Http\Controllers\Api\DeliveryEventController;
 use App\Http\Controllers\Api\InboundEmailController;
+use App\Http\Controllers\Api\MonipayWebhookController;
 use App\Http\Controllers\Api\V1\DomainController;
 use App\Http\Controllers\Api\V1\EmailController;
 use App\Http\Controllers\Api\V1\InboxController;
 use App\Http\Middleware\AuthenticateApiKey;
+use App\Http\Middleware\EnsureApiAccountActive;
 use App\Services\DeliveryEventService;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware([AuthenticateApiKey::class])->group(function () {
+Route::middleware([AuthenticateApiKey::class, EnsureApiAccountActive::class])->group(function () {
     Route::get('/emails', [EmailController::class, 'index']);
     Route::post('/emails', [EmailController::class, 'store']);
     Route::get('/emails/{uuid}', [EmailController::class, 'show']);
@@ -32,3 +34,8 @@ Route::post('/events/{driver}', DeliveryEventController::class)
     ->whereIn('driver', array_keys(DeliveryEventService::DRIVERS))
     ->middleware('throttle:600,1')
     ->name('events.receive');
+
+// Monipay payment events (HMAC-SHA512 signature-verified, no API key).
+Route::post('/payments/monipay/webhook', MonipayWebhookController::class)
+    ->middleware('throttle:600,1')
+    ->name('payments.monipay.webhook');

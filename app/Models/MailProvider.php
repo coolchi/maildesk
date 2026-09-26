@@ -12,6 +12,9 @@ class MailProvider extends Model
     /** @use HasFactory<MailProviderFactory> */
     use HasFactory;
 
+    /** Decrypted credentials must never be serialized into responses. */
+    protected $hidden = ['config'];
+
     protected $fillable = [
         'key',
         'name',
@@ -59,12 +62,38 @@ class MailProvider extends Model
             'apiBase' => $this->api_base,
             'features' => $this->features ?? [],
             'description' => $this->description,
+            // Secret values never leave the server; the admin form sends a blank
+            // value back to keep the stored one (see AdminController::updateProvider).
             'config' => collect($this->config ?? [])->map(fn ($row) => [
                 'key' => $row['key'] ?? '',
-                'value' => $row['value'] ?? '',
+                'value' => ($row['secret'] ?? false) ? '' : ($row['value'] ?? ''),
                 'secret' => (bool) ($row['secret'] ?? false),
+                'hasValue' => ($row['value'] ?? '') !== '',
             ])->values()->all(),
         ];
+    }
+
+    /**
+     * Keep stored secret values for rows the admin form submitted blank.
+     *
+     * @param  array<int, array{key?: string, value?: ?string, secret?: bool}>  $rows
+     * @return array<int, array{key: string, value: string, secret: bool}>
+     */
+    public function mergeConfigKeepingSecrets(array $rows): array
+    {
+        $existing = collect($this->config ?? [])->keyBy(fn ($row) => strtoupper((string) ($row['key'] ?? '')));
+
+        return collect($rows)->map(function ($row) use ($existing) {
+            $key = (string) ($row['key'] ?? '');
+            $value = (string) ($row['value'] ?? '');
+            $previous = $existing->get(strtoupper($key));
+
+            if ($value === '' && $previous && ($previous['secret'] ?? false)) {
+                $value = (string) ($previous['value'] ?? '');
+            }
+
+            return ['key' => $key, 'value' => $value, 'secret' => (bool) ($row['secret'] ?? false)];
+        })->values()->all();
     }
 
     /**

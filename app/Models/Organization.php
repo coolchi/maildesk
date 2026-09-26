@@ -9,12 +9,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 class Organization extends Model
 {
     /** @use HasFactory<OrganizationFactory> */
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'name',
@@ -45,6 +46,16 @@ class Organization extends Model
             'provisioned_at' => 'datetime',
             'settings' => 'array',
         ];
+    }
+
+    /** Live 30-day outbound count preloaded by EmailUsage::attach(); not a column. */
+    protected ?int $liveEmails30d = null;
+
+    public function setLiveEmails30d(int $count): static
+    {
+        $this->liveEmails30d = $count;
+
+        return $this;
     }
 
     protected static function booted(): void
@@ -166,7 +177,8 @@ class Organization extends Model
             'customDomain' => $this->custom_domain,
             'mrr' => $this->mrr,
             'seats' => $this->seats,
-            'emails30d' => $this->emails_30d,
+            // Live count from outbound messages (not the seeded column).
+            'emails30d' => $this->liveEmails30d ?? app(\App\Services\EmailUsage::class)->countFor($this),
             'created' => $this->provisioned_at?->format('M j, Y')
                 ?? $this->created_at?->format('M j, Y')
                 ?? '',

@@ -7,6 +7,7 @@ import { useTheme } from '@/composables/useTheme';
 import {
     Building2,
     CreditCard,
+    DollarSign,
     Globe2,
     LayoutDashboard,
     LogOut,
@@ -14,6 +15,7 @@ import {
     Moon,
     Package,
     Server,
+    Settings,
     Shield,
     Sun,
     X,
@@ -29,8 +31,10 @@ const nav = [
     { name: 'Accounts', route: 'admin.accounts', icon: Building2 },
     { name: 'Subscriptions', route: 'admin.subscriptions', icon: CreditCard },
     { name: 'Plans', route: 'admin.plans', icon: Package },
+    { name: 'Revenue', route: 'admin.revenue', icon: DollarSign },
     { name: 'Providers', route: 'admin.providers', icon: Server },
     { name: 'Subdomains', route: 'admin.subdomains', icon: Globe2 },
+    { name: 'Settings', route: 'admin.settings', icon: Settings },
 ];
 
 const pageTitle = computed(() => {

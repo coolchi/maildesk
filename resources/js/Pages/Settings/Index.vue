@@ -15,6 +15,7 @@ import {
     Eye,
 } from '@lucide/vue';
 import RowActions from '@/Components/RowActions.vue';
+import MonipayUpgrade from '@/Components/Billing/MonipayUpgrade.vue';
 
 const props = defineProps({
     tab: {
@@ -26,6 +27,10 @@ const props = defineProps({
         default: null,
     },
     billing: {
+        type: Object,
+        default: null,
+    },
+    payments: {
         type: Object,
         default: null,
     },
@@ -174,6 +179,7 @@ const nigeriaStates = ['Ogun State', 'Lagos', 'Abuja', 'Rivers', 'Kano'];
 
 const subscriptionActions = [
     { id: 'change', label: 'Change plan' },
+    { id: 'upgrade', label: 'Upgrade / renew with Monipay' },
     { id: 'cancel', label: 'Cancel subscription', danger: true },
 ];
 
@@ -233,7 +239,14 @@ const saveAddress = () => toast.success('Billing address saved.');
 
 const onSubscriptionAction = (item) => {
     if (item.id === 'change') openPlans('transactional');
-    else toast.info('Subscription updated (mock).');
+    else if (item.id === 'upgrade')
+        document
+            .getElementById('monipay-upgrade')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    else
+        toast.info(
+            'Plans are prepaid per period and do not auto-renew; contact support to cancel early.',
+        );
 };
 
 const onCardAction = (card, item) => {
@@ -483,6 +496,9 @@ const downloadInvoice = (inv) => {
                     </li>
                 </ul>
             </section>
+
+            <!-- Plan upgrades (Monipay) + payment history — full width -->
+            <MonipayUpgrade :payments="payments" class="lg:col-span-2" />
 
             <!-- Left: email + payment -->
             <div class="space-y-4">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Billing\BillingService;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -89,6 +90,8 @@ class SettingsController extends Controller
             'tab' => $tab,
             'usage' => $usage,
             'billing' => $billing,
+            // Monipay plan upgrades + payment history (no secret material).
+            'payments' => fn () => app(BillingService::class)->settingsProps($request->user(), $organization),
             'settings' => [
                 'unsubscribe' => $settings['unsubscribe'] ?? [
                     'brand' => $organization->name,

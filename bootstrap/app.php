@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\ClearStaleSessionCookies;
+use App\Http\Middleware\EnsureAccountActive;
 use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\IdentifyTenant;
@@ -25,6 +26,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             IdentifyTenant::class,
+            // Suspended / closed accounts: log out, block.
+            EnsureAccountActive::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);

@@ -5,6 +5,7 @@ import AdminLayout from '@/Layouts/AdminLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Modal from '@/Components/Modal.vue';
+import ProviderTestButton from '@/Components/Admin/ProviderTestButton.vue';
 import { providerDriverPresets } from '@/data/adminMock';
 import { usePlatform } from '@/composables/usePlatform';
 import { useToast } from '@/composables/useToast';
@@ -385,6 +386,7 @@ const inputType = (row, providerId) => {
                                     : 'Enable'
                             }}
                         </button>
+                        <ProviderTestButton :provider="selected" />
                         <button
                             type="button"
                             class="md-btn-ghost text-rose-300 hover:border-rose-500/40 hover:text-rose-200"
@@ -493,7 +495,11 @@ const inputType = (row, providerId) => {
                                     :type="inputType(row, selected.id)"
                                     :placeholder="
                                         row.placeholder ||
-                                        (row.secret ? '••••••••' : 'value')
+                                        (row.secret
+                                            ? row.hasValue
+                                                ? 'Saved (leave blank to keep)'
+                                                : '••••••••'
+                                            : 'value')
                                     "
                                     autocomplete="off"
                                 />
