@@ -4,39 +4,42 @@ MailDesk is a multi-tenant business email platform. Each customer organisation g
 
 Outbound mail goes through a pluggable provider layer: **Resend** by default, **SMTP** as an alternative, and a fake in-memory provider for local development and tests.
 
-> Status: early / pilot. The core send path, tenancy, API keys, suppressions, scheduled sends, webhooks, queued broadcasts with unsubscribe handling, real domain verification (Resend registration + DNS lookups, optional Cloudflare auto-publish), delivery events with auto-suppression, signatures, and group addresses are implemented and tested. Inbound mail is received via provider webhooks and threaded into the shared inbox, where you can reply and forward. Workspaces start on a Platform Admin–configured free trial (no free tier); expired trials lock to Settings/Billing until Monipay payment. See [Known gaps](#known-gaps--roadmap) for remaining polish.
+> Status: ready for a first production launch once the host, database, queue worker, and scheduler are configured. Sending, inbound mail, domains, API keys, webhooks, broadcasts, automations, trials, and Monipay checkout are implemented. There is no free tier: new workspaces start on a Platform Admin–configured trial and lock to Settings/Billing when it ends. See [Known gaps](#known-gaps--roadmap) for what is still partial.
 
 ## Features
 
-Legend: ✅ working · 🟡 partial / uses mock data · ⛔ not implemented
+Legend: ✅ working · 🟡 partial · ⛔ not implemented
 
 | Area | Status | Notes |
 |---|---|---|
 | Multi-tenant workspaces | ✅ | Tenant resolved from subdomain (`IdentifyTenant`, `TenantResolver`); workspace create + switch |
 | Compose & send | ✅ | Floating compose button (`c`) opens a docked panel (minimise / full-screen / discard) whose draft survives navigation; Tiptap editor, Cc/Bcc, attachments, provider selection, suppression check, signature appended |
-| Scheduled sends | ✅ | `SendScheduledMessage` job runs every minute via the scheduler |
-| Sent page | ✅ | `GET /sent` with status tabs, search and paging; email detail Insights shows real open/click counts and event timeline |
-| Bounced page | ✅ | `GET /bounced` lists bounced / suppressed sends; failed replies can be retried (`POST /emails/{id}/retry`) |
+| Scheduled sends | ✅ | `SendScheduledMessage` and `SendScheduledBroadcast` run every minute via the scheduler |
+| Sent page | ✅ | `GET /sent` with status tabs, search and paging; email detail Insights shows real open/click counts and an event timeline |
+| Emails log | ✅ | `GET /emails` pages 15 at a time (Sending / Receiving, status, search). Stats stay on a 15-day window |
+| Drafts | ✅ | Compose drafts survive navigation and have their own Drafts page |
+| Bounced page | ✅ | `GET /bounced` lists bounced / suppressed sends; failed replies can be retried (`POST /emails/{id}/retry`). AI bounce explanations when that feature is on |
 | Suppression list | ✅ | Enforced on compose, API, and broadcast sends; bounces and complaints are added automatically |
-| Delivery events | 🟡 | `POST /api/v1/events/{driver}` handles delivered, bounced, complained, opened, clicked; bounces/complaints auto-suppress and fire `email.<type>` webhooks. Email detail Insights shows open/click counts and an event timeline from message meta. Subscribe the Resend webhook to `email.opened` / `email.clicked` (and enable tracking) for opens/clicks; delivery-delayed events are not handled yet |
+| Delivery events | 🟡 | `POST /api/v1/events/{driver}` (and delivery events posted to the inbound URL) handle delivered, bounced, complained, opened, and clicked. Bounces and complaints auto-suppress and fire `email.<type>` webhooks. Domain recheck turns on Resend open and click tracking and asks for a `links` CNAME. Opens and clicks stay empty until that CNAME verifies and the Resend webhook includes `email.opened` and `email.clicked`. Delivery-delayed events are not handled |
 | API keys | ✅ | `md_…` Bearer keys with enforced permissions (Sending access = `POST /emails` only, else 403), single-domain scope, verified-sender check, per-key rate limit (`MAILDESK_API_RATE_LIMIT`/min, 429 + `Retry-After`/`X-RateLimit-*`), optional expiry and one-click rotation; "Export" button not implemented |
 | Public REST API | ✅ | `/api/v1` — emails, inbox, domains, contacts, segments, suppressions, templates, automation events |
 | Webhooks | ✅ | Queued per endpoint with retries (5 attempts, 30 s → 30 min backoff) and per-attempt delivery history; SSRF-protected (https only outside local, private/internal addresses blocked on save and at delivery after DNS resolution, no redirects, 5 s timeout); HMAC-SHA256 signed (`X-MailDesk-Signature`, plus timestamped `X-MailDesk-Signature-V2`); test event button and owner/admin secret rotation |
 | Mailbox users | ✅ | Create / update / delete mailboxes per workspace; optional per-mailbox signature override |
 | Signatures | ✅ | Workspace signature (Settings → Signature) applied to compose, replies, forwards, API sends and broadcasts, each toggleable; per-mailbox override (`SignatureService`) |
 | Group addresses | ✅ | Groups page (CRUD + members); mail to a group address fans out to members (`FanOutGroupMessage`, `GroupAddressService`); groups usable as broadcast audiences |
-| Templates | ✅ | CRUD, send test to current user, publish/draft status |
-| Audience (contacts, segments) | ✅ | Contact CRUD + suppress; segment CRUD with rules/membership; subscribe toggle; broadcasts resolve segments server-side. Properties/Topics later |
-| Broadcasts | ✅ | Queued sends to all / segment / group; schedule + cancel; per-recipient stats and unsubscribe |
-| Inbound email | ✅ | `POST /api/v1/inbound/{resend,generic}` — signature-verified, routed to the right tenant/mailbox, threaded, deduped, fires `email.received`; attachments shown in the thread with download links |
-| Shared inbox | ✅ | Threads, reply/forward, archive, trash (`inbox:purge-trash`), sandboxed HTML bodies |
-| Domains | 🟡 | Registered with Resend for real DKIM/records; verified via DNS-over-HTTPS (1.1.1.1) with system-resolver fallback; hourly/daily recheck (`domains:recheck`); optional Cloudflare connect + auto-publish of records. Shows "verified" even while Resend reports `partially_verified` |
+| Templates | ✅ | CRUD, send a test to the current user, publish/draft status |
+| Audience (contacts, segments) | ✅ | Contact CRUD, CSV import, suppress; segment rules and membership; subscribe toggle; broadcasts resolve segments server-side. Natural-language segments when that AI feature is on. Properties/Topics later |
+| Broadcasts | ✅ | Queued sends to all / segment / group; schedule + cancel; per-recipient stats and unsubscribe. AI subject and body help when that feature is on |
+| Inbound email | ✅ | `POST /api/v1/inbound/{resend,generic}` — signature-verified, routed to an active mailbox or to the workspace that owns the domain (catch-all). Unknown domains return `202` and are not stored. Threaded, deduped, fires `email.received`; attachments shown in the thread with download links |
+| Shared inbox | ✅ | Threads, reply/forward, archive, trash (`inbox:purge-trash`), sandboxed HTML bodies. The thread header shows sender, recipient, and time. Mobile uses a list-first full-screen thread, bottom tabs, and a More sheet |
+| Domains | 🟡 | Registered with Resend for real DKIM/records; verified via DNS-over-HTTPS (1.1.1.1) with system-resolver fallback; hourly recheck of unverified domains and a daily pass of all domains (`domains:recheck --all`). Re-check also enables Resend open and click tracking and lists the `links` CNAME. Optional Cloudflare connect + auto-publish. A domain can show "verified" while Resend still reports `partially_verified` |
 | Onboarding | ✅ | Get Started modal whose steps (domain, API key, first send, webhook) are driven by real server state |
-| Automations | ✅ | Create/update with steps; `POST /api/v1/events` starts runs; delay + email jobs |
-| Metrics & logs | ✅ | Built from real message data and provider events: date-range/domain/tag filters, delivered (delivery events only), bounce and complaint rates, opens/clicks (shown as "Not tracked" until the provider sends such events) and per-broadcast numbers. App log rotates daily (`LOG_DAILY_DAYS`, default 14); failed sends and webhook deliveries are logged |
-| Settings (usage, billing, SMTP, signature, unsubscribe page, documents) | ✅ | Free trial from Platform Admin (`trial_days`); expired trial locks to Settings/Billing; Monipay restores access; plan email quotas; SMTP `can_send`; team email invites |
-| Notifications bell | ✅ | Empty feed (no mocks); inbox unread badge is real |
-| Platform admin | 🟡 | Accounts, subscriptions, providers, subdomains, plans; plan list, provider presets and health read from `adminMock.js` |
+| Automations | ✅ | Create/update with steps; `POST /api/v1/events` starts runs; delay + email jobs. Natural-language steps when that AI feature is on |
+| AI assists | 🟡 | Off until Platform Admin enables them. Per-feature flags: smart triage, reply drafts, thread summary, compose assist, broadcast assist, automation steps, natural-language segments, bounce explanations, in-app help, and hourly abuse detection. Providers: OpenAI or Anthropic |
+| Metrics & logs | ✅ | Built from real message data and provider events: date-range/domain/tag filters, delivered (delivery events only), bounce and complaint rates, opens/clicks (shown as "Not tracked" until events arrive) and per-broadcast numbers. App log rotates daily (`LOG_DAILY_DAYS`, default 14); failed sends and webhook deliveries are logged |
+| Settings (usage, billing, SMTP, signature, unsubscribe page, documents, team) | ✅ | Usage comes from the workspace plan and sends. Free trial from Platform Admin (`trial_days`, default 14); expired trial locks the workspace to Settings/Billing; Monipay sets the workspace active again; plan email quotas; SMTP `can_send`. Owners and admins invite teammates by email |
+| Notifications bell | ✅ | Empty feed (no sample notifications); inbox unread badge is real |
+| Platform admin | ✅ | Accounts, subscriptions, plans, revenue, providers (with a live connection test), subdomains, platform settings (trial length, AI, signup). Lists are loaded from the database. Provider add-forms use driver presets, not sample accounts |
 
 ## Tech stack
 
@@ -108,7 +111,7 @@ All endpoints live under `/api/v1` and require `Authorization: Bearer md_…` (c
 | GET | `/api/v1/inbox/threads` | List inbox threads |
 | GET | `/api/v1/inbox/threads/{thread}` | Get a thread with messages |
 | POST | `/api/v1/inbound/{driver}` | Provider webhook for received mail (`resend` or `generic`); no API key, signature-verified |
-| POST | `/api/v1/events/{driver}` | Provider webhook for delivery events (delivered, bounced, complained, opened, clicked); no API key, signature-verified |
+| POST | `/api/v1/events/{driver}` | Provider webhook for delivery events (delivered, bounced, complained, opened, clicked); no API key, signature-verified. The same events are also accepted on `POST /api/v1/inbound/{driver}` |
 | GET | `/api/v1/domains` | List domains |
 | POST | `/api/v1/domains` | Add a domain |
 | GET | `/api/v1/contacts` | List contacts |
@@ -137,40 +140,45 @@ app/
   Http/Controllers/        Web controllers (one per dashboard section) + AdminController
   Http/Controllers/Api/V1/ Public API (emails, inbox, domains)
   Http/Middleware/         IdentifyTenant, AuthenticateApiKey, EnsurePlatformAdmin, HandleInertiaRequests
-  Jobs/                    DispatchWebhook, SendScheduledMessage, SendBroadcast, SendBroadcastRecipient,
-                           FanOutGroupMessage
-  Console/Commands/        RecheckDomains (domains:recheck)
+  Jobs/                    DispatchWebhook, SendScheduledMessage, SendScheduledBroadcast,
+                           SendBroadcast, SendBroadcastRecipient, FanOutGroupMessage,
+                           ProcessAutomationEvent, AdvanceAutomationRun, DetectWorkspaceAbuse,
+                           ClassifyInboundMessage
+  Console/Commands/        domains:recheck, billing:expire-trials, inbox:purge-trash
   Mail/                    Provider layer: MailManager, Contracts/MailProvider, DTOs,
                            Providers/{Resend,Smtp,Array,Unsupported}Provider
-  Models/                  26 Eloquent models (Organization, Mailbox, Message, Thread, Domain,
+  Models/                  33 Eloquent models (Organization, Mailbox, Message, Thread, Domain,
                            Contact, Segment, Broadcast, BroadcastRecipient, GroupAddress, …)
-  Services/                EmailService (send pipeline), InboundEmailService, BroadcastService,
-                           DeliveryEventService, SignatureService, GroupAddressService, TenantResolver,
+  Services/                EmailService, InboundEmailService, BroadcastService, AutomationService,
+                           DeliveryEventService, TrialService, AccountAccess, SignatureService,
+                           GroupAddressService, TenantResolver, AbuseDetectionService,
                            Domains/{DnsResolver,DomainVerifier,ResendDomainClient},
                            Dns/{CloudflareDnsProvider,DnsRecordManager}
+  Ai/                      Provider clients used by the platform AI flags
   Support/                 CurrentOrganization, PlansCatalog
 config/maildesk.php        Provider, fake-send, API, multi-tenant host, inbound, domains/DNS, broadcast config
 database/                  Migrations + seeders (SaasPlatformSeeder, TenantWorkspaceSeeder)
 resources/js/
-  Pages/                   Inertia pages per section (Inbox, Compose, Emails, Broadcasts, Automations,
-                           Templates, Audience, Domains, ApiKeys, Webhooks, Metrics, Logs, Settings, Admin/…)
-  Layouts/, Components/    AppLayout, shared UI
-  composables/             useNotifications, usePlatform, …
-  data/                    mock.js, adminMock.js (placeholder data still used by some screens)
+  Pages/                   Inertia pages (Inbox, Emails, Sent, Drafts, Bounced, Broadcasts, Automations,
+                           Templates, Audience, Domains, ApiKeys, Webhooks, Metrics, Logs, Settings, Help, Admin/…)
+  Layouts/, Components/    AppLayout, mobile tab bar, shared UI
+  composables/             useNotifications, usePlatform, useAiFeatures, …
+  lib/                     mailProviders.js (admin provider form presets)
 routes/
   web.php                  Dashboard + admin routes
   api.php                  /api/v1 routes
-  console.php              Scheduler (scheduled sends every minute, domain recheck hourly + daily full pass)
-tests/Feature/             PHPUnit feature tests: compose, inbox, broadcasts, domains, delivery events,
-                           signatures & groups, onboarding, tenancy, admin, …
-tests/js/                  Vitest tests (email frame, onboarding)
+  console.php              Scheduler: sends every minute; domain recheck hourly and daily;
+                           trial expiry and abuse scan hourly; trash purge daily
+tests/Feature/             PHPUnit feature tests for send, inbox, broadcasts, domains, delivery events,
+                           billing, automations, invitations, AI, tenancy, admin, …
+tests/js/                  Vitest tests (email frame, mobile shell, template editor, onboarding)
 ```
 
 ## Inbound email
 
 Providers POST received mail to `POST /api/v1/inbound/{driver}`:
 
-- **`resend`** — point a Resend webhook for `email.received` at `https://<app>/api/v1/inbound/resend` and set `RESEND_WEBHOOK_SECRET`. Svix signatures are verified (5-minute tolerance). If the webhook carries only metadata, the body is fetched from Resend's receiving API with `RESEND_API_KEY`, and attachments are downloaded via the receiving attachments API.
+- **`resend`** — point a Resend webhook at `https://<app>/api/v1/inbound/resend` and set `RESEND_WEBHOOK_SECRET`. Subscribe `email.received` for inbound mail, and `email.delivered`, `email.bounced`, `email.complained`, `email.opened`, and `email.clicked` for delivery tracking (those events are also accepted on `POST /api/v1/events/resend`). Svix signatures are verified (5-minute tolerance). If the webhook carries only metadata, the body is fetched from Resend's receiving API with `RESEND_API_KEY`, and attachments are downloaded via the receiving attachments API.
 - **`generic`** — JSON (`from`, `to`, `cc`, `subject`, `text`, `html`, `message_id`, `in_reply_to`, `references`, `headers`, base64 `attachments`) with the `X-MailDesk-Inbound-Secret` header.
 
 With a secret left empty, verification is skipped only in `local`/`testing`; in production the request is rejected.
@@ -205,22 +213,21 @@ Notes: test and live share the same API host — the mode comes from the `pub_te
 ## Testing
 
 ```bash
-php artisan test     # 205 tests, 1304 assertions — all passing
-npm test             # 9 Vitest tests
+php artisan test
+npm test
 npm run build        # production frontend build
 ```
 
 ## Known gaps / roadmap
 
 1. **Domain status accuracy** — reflect Resend's `partially_verified` state instead of showing "verified".
-2. **Delivery events** — subscribe the live Resend webhook to `email.opened` / `email.clicked` (with tracking enabled); handle delivery-delayed events.
-3. **Email rendering** — `<style>` blocks are stripped and remote images auto-load; template/broadcast previews still use `v-html` in places.
-4. **SMTP** — no delivery/bounce event feed for SMTP-sent mail; no inbound SMTP relay.
-5. **Admin mock leftovers** — `adminMock.js` still used for some platform-admin presets/health.
-6. **Webhook follow-ups** — auto-disable after repeated failures, prune old delivery rows, manual redeliver.
-7. **Billing** — Monipay is prepaid (no auto-renew card vault); renewals are a new checkout each period.
-8. **CRM fields** — Properties/Topics audience tabs remain deferred; API key export and in-app support chat are unfinished.
-12. **Production readiness** — Postgres/MySQL config, queue worker + scheduler process setup, deployment docs.
+2. **Open and click tracking go-live** — re-check each sending domain so the `links` CNAME is added, then subscribe the live Resend webhook to `email.opened` and `email.clicked`. Delivery-delayed events are not handled.
+3. **Email rendering** — `<style>` blocks are stripped and remote images auto-load; template and broadcast previews still use `v-html` in places.
+4. **SMTP** — no delivery or bounce event feed for SMTP-sent mail, and no inbound SMTP relay.
+5. **Webhook follow-ups** — auto-disable after repeated failures, prune old delivery rows, manual redeliver.
+6. **Billing** — Monipay is prepaid (no saved card, no automatic renewal). Each period is a new checkout.
+7. **CRM fields** — Properties and Topics audience tabs are deferred. API key export and in-app support chat are unfinished.
+8. **Production host** — the repo defaults to SQLite and `maildesk.test`. A live deploy needs Postgres or MySQL, `APP_ENV=production`, a public domain, and a running queue worker plus scheduler.
 
 ## License
 

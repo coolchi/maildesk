@@ -108,25 +108,25 @@ const cancelInvite = (invitation) => {
     });
 };
 
-const mockUsageFallback = {
+const emptyUsage = {
     transactional: {
-        plan: 'Pro',
-        monthly: { used: 0, limit: 50000, renews: '—' },
-        daily: 'Unlimited',
+        plan: '—',
+        monthly: { used: 0, limit: 0, renews: '—' },
+        daily: '—',
     },
     marketing: {
-        plan: 'Free',
-        contacts: { used: 0, limit: 1000 },
-        segments: { used: 0, limit: 3 },
-        broadcasts: 'Unlimited',
+        plan: '—',
+        contacts: { used: 0, limit: 0 },
+        segments: { used: 0, limit: 0 },
+        broadcasts: '—',
     },
     team: {
-        plan: 'Pro',
-        seats: { used: 1, limit: 10 },
+        plan: '—',
+        seats: { used: 0, limit: 0 },
     },
 };
 
-const usageData = computed(() => props.usage || mockUsageFallback);
+const usageData = computed(() => props.usage || emptyUsage);
 
 const tabs = [
     'usage',

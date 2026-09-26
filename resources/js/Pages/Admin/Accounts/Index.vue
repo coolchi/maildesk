@@ -5,7 +5,7 @@ import AdminLayout from '@/Layouts/AdminLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import EmptyState from '@/Components/EmptyState.vue';
-import { providerHealthForAccount } from '@/data/adminMock';
+import { providerHealthForAccount } from '@/lib/mailProviders';
 import { usePlatform } from '@/composables/usePlatform';
 import { Building2, Search } from '@lucide/vue';
 

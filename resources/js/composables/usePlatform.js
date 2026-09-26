@@ -1,15 +1,8 @@
 import { computed, ref } from 'vue';
 import {
-    adminAccounts,
-    adminProviders,
-    adminStats,
-    adminSubdomains,
-    adminSubscriptions,
     providerHealthForAccount,
     recountProviderTenants,
-    smtpCredentialsForProvider,
-    workspaceColorByAccountId,
-} from '@/data/adminMock';
+} from '@/lib/mailProviders';
 
 const cloneProviders = (list) =>
     list.map((p) => ({
@@ -21,14 +14,20 @@ const cloneProviders = (list) =>
 
 const cloneAccounts = (list) => list.map((a) => ({ ...a }));
 
-const providers = ref(cloneProviders(adminProviders));
-const accounts = ref(cloneAccounts(adminAccounts));
-const subdomains = ref(adminSubdomains.map((d) => ({ ...d })));
-const subscriptions = ref(adminSubscriptions.map((s) => ({ ...s })));
-const stats = ref({ ...adminStats });
-const activeWorkspaceId = ref(1);
-
-recountProviderTenants(providers.value, accounts.value);
+const providers = ref([]);
+const accounts = ref([]);
+const subdomains = ref([]);
+const subscriptions = ref([]);
+const stats = ref({
+    accounts: 0,
+    activeSubscriptions: 0,
+    mrr: 0,
+    customSubdomains: 0,
+    trialAccounts: 0,
+    churn30d: '—',
+    providers: 0,
+});
+const activeWorkspaceId = ref(null);
 
 const findProvider = (id) => providers.value.find((p) => p.id === id) || null;
 
@@ -65,7 +64,7 @@ const workspaces = computed(() =>
             host: a.subdomain ? `${a.subdomain}.maildesk.test` : null,
             customDomain: a.customDomain,
             status: a.status,
-            color: workspaceColorByAccountId[a.id] || 'cyan',
+            color: 'cyan',
         };
     }),
 );
@@ -89,10 +88,6 @@ const activeProvider = computed(() => {
 
 const activeProviderHealth = computed(() =>
     providerHealthForAccount(activeAccount.value, providers.value),
-);
-
-const activeSmtp = computed(() =>
-    smtpCredentialsForProvider(activeProviderHealth.value.provider),
 );
 
 const canSend = computed(() => activeProviderHealth.value.ok);
@@ -205,10 +200,10 @@ const createWorkspace = ({ name, email, color = 'cyan' }) => {
         emails30d: 0,
         created: 'just now',
         region: 'us-east-1',
+        color,
     };
 
     accounts.value.push(account);
-    workspaceColorByAccountId[id] = color;
     subdomains.value.push({
         id: Date.now() + 1,
         accountId: id,
@@ -240,7 +235,6 @@ export function usePlatform() {
         activeAccount,
         activeProvider,
         activeProviderHealth,
-        activeSmtp,
         canSend,
         findProvider,
         findAccount,

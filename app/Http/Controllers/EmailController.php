@@ -25,13 +25,29 @@ class EmailController extends Controller
         $organization = CurrentOrganization::from($request);
         $user = $request->user();
 
-        $messages = $this->access->scopeMailData($organization->messages(), $user, $organization)
+        $tab = $request->string('tab')->toString() === 'receiving' ? 'receiving' : 'sending';
+        $direction = $tab === 'receiving' ? 'inbound' : 'outbound';
+        $statuses = ['delivered', 'bounced', 'suppressed', 'received'];
+        $status = $request->string('status')->toString();
+        if (! in_array($status, $statuses, true)) {
+            $status = 'all';
+        }
+        $search = trim($request->string('q')->toString());
+
+        $query = $this->access->scopeMailData($organization->messages(), $user, $organization)
+            ->where('direction', $direction)
+            ->when($status !== 'all', fn ($q) => $q->where('status', $status))
+            ->when($search !== '', function ($q) use ($search) {
+                $like = '%'.$search.'%';
+                $q->where(fn ($w) => $w
+                    ->where('subject', 'like', $like)
+                    ->orWhere('to', 'like', $like)
+                    ->orWhere('from_email', 'like', $like));
+            })
             ->latest()
-            ->limit(100)
-            ->get()
-            ->map(fn (Message $message) => $message->toWorkspaceArray())
-            ->values()
-            ->all();
+            ->orderByDesc('id');
+
+        $paginator = $query->paginate(15)->withQueryString();
 
         $since = now()->subDays(15);
         $outbound = $this->access->scopeMailData($organization->messages(), $user, $organization)
@@ -48,7 +64,24 @@ class EmailController extends Controller
         ];
 
         return Inertia::render('Emails/Index', [
-            'emails' => $messages,
+            'emails' => collect($paginator->items())
+                ->map(fn (Message $message) => $message->toWorkspaceArray())
+                ->values()
+                ->all(),
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+                'prev_url' => $paginator->previousPageUrl(),
+                'next_url' => $paginator->nextPageUrl(),
+            ],
+            'filters' => [
+                'tab' => $tab,
+                'status' => $status,
+                'q' => $search,
+            ],
             'stats' => $stats,
         ]);
     }

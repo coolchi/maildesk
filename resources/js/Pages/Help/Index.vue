@@ -163,7 +163,7 @@ const faqs = computed(() => [
             'Each request is signed with your endpoint’s secret (shown once, when you create it). The X-MailDesk-Signature header is an HMAC-SHA256 of the raw body. X-MailDesk-Signature-V2 signs the X-MailDesk-Timestamp value plus the body, so you can also reject old, replayed requests. Always compare signatures before trusting a payload.',
             'Use Send test event on the webhook page to send a signed webhook.test event and see the response straight away. Failed deliveries are retried automatically with increasing delays (up to 5 attempts). Workspace owners and admins can rotate the signing secret; the old secret stops working immediately.',
         ],
-        note: 'Delivered, bounced, complained, opened and clicked events only arrive when your mail provider reports them. For Resend, subscribe the webhook to email.opened and email.clicked (and enable open/click tracking) in addition to delivery events.',
+        note: 'MailDesk turns on open and click tracking for Resend domains and adds a links CNAME. Opens and clicks show up after that record verifies and the Resend webhook includes email.opened and email.clicked.',
         link: { route: 'webhooks', label: 'Open Webhooks' },
     },
     {

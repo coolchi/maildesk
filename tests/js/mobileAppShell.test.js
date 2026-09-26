@@ -91,9 +91,22 @@ describe('Mobile inbox experience', () => {
         expect(inbox).toContain('setHideMobileHeader');
         expect(inbox).toContain('data-testid="inbox-thread-toolbar"');
         expect(inbox).toContain('data-testid="inbox-thread-actions"');
+        expect(inbox.indexOf(':items="headerActions"')).toBeGreaterThan(
+            inbox.indexOf('data-testid="inbox-thread-toolbar"'),
+        );
+        expect(inbox.indexOf(':items="headerActions"')).toBeLessThan(
+            inbox.indexOf('data-testid="thread-messages"'),
+        );
         expect(inbox.indexOf('data-testid="thread-messages"')).toBeLessThan(
             inbox.indexOf('data-testid="inbox-thread-actions"'),
         );
+        const detail = inbox.slice(inbox.indexOf('data-testid="inbox-thread-detail"'));
+        expect(detail).toContain('active.to');
+        const list = inbox.slice(
+            inbox.indexOf('data-testid="inbox-thread-list"'),
+            inbox.indexOf('data-testid="inbox-thread-detail"'),
+        );
+        expect(list).not.toContain('thread.to');
     });
 
     it('keeps thread list text inside the row on narrow screens', () => {

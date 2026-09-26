@@ -46,7 +46,7 @@ watch(
     },
 );
 
-watch([name, subject, html, status], () => {
+watch([name, subject, html], () => {
     dirty.value = true;
 });
 
@@ -127,14 +127,35 @@ const save = () => {
 };
 
 const sendTest = () => {
-    toast.success('Test email queued (mock).');
+    router.post(route('templates.test', props.id), {}, {
+        preserveScroll: true,
+        onSuccess: (page) => {
+            const message = page.props.flash?.success;
+            const error = page.props.flash?.error;
+            if (error) {
+                toast.error(error);
+            } else if (message) {
+                toast.success(message);
+            }
+        },
+        onError: () => toast.error('Could not send the test email.'),
+    });
 };
 
 const publish = () => {
-    status.value = status.value === 'published' ? 'draft' : 'published';
-    toast.success(
-        status.value === 'published' ? 'Template published.' : 'Moved to draft.',
-    );
+    router.post(route('templates.publish', props.id), {}, {
+        preserveScroll: true,
+        onSuccess: (page) => {
+            const message = page.props.flash?.success;
+            const error = page.props.flash?.error;
+            if (error) {
+                toast.error(error);
+            } else if (message) {
+                toast.success(message);
+            }
+        },
+        onError: () => toast.error('Could not update the template.'),
+    });
 };
 
 const moreActions = computed(() => [

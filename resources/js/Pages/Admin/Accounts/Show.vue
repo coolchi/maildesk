@@ -4,7 +4,7 @@ import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AdminLayout from '@/Layouts/AdminLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Modal from '@/Components/Modal.vue';
-import { providerHealthForAccount } from '@/data/adminMock';
+import { providerHealthForAccount } from '@/lib/mailProviders';
 import { usePlatform } from '@/composables/usePlatform';
 import AccountUsersPanel from '@/Components/Admin/AccountUsersPanel.vue';
 import DeleteAccountPanel from '@/Components/Admin/DeleteAccountPanel.vue';

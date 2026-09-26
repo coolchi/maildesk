@@ -33,18 +33,28 @@ const submit = () => {
     <GuestLayout>
         <Head title="Log in" />
 
-        <div v-if="status" class="mb-4 text-sm font-medium text-cyan-300">
+        <div class="mb-6 text-center">
+            <h1 class="text-lg font-semibold text-white">Log in</h1>
+            <p class="mt-1.5 text-sm text-zinc-400">
+                Use the email and password for your workspace.
+            </p>
+        </div>
+
+        <div
+            v-if="status"
+            class="mb-5 rounded-lg border border-cyan-400/40 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-300"
+        >
             {{ status }}
         </div>
 
-        <form @submit.prevent="submit">
+        <form class="space-y-4" @submit.prevent="submit">
             <div>
                 <InputLabel for="email" value="Email" />
 
                 <TextInput
                     id="email"
                     type="email"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full py-2.5"
                     v-model="form.email"
                     required
                     autofocus
@@ -54,13 +64,22 @@ const submit = () => {
                 <InputError class="mt-2" :message="form.errors.email" />
             </div>
 
-            <div class="mt-4">
-                <InputLabel for="password" value="Password" />
+            <div>
+                <div class="flex items-center justify-between gap-3">
+                    <InputLabel for="password" value="Password" />
+                    <Link
+                        v-if="canResetPassword"
+                        :href="route('password.request')"
+                        class="text-sm text-zinc-400 hover:text-cyan-300"
+                    >
+                        Forgot password?
+                    </Link>
+                </div>
 
                 <TextInput
                     id="password"
                     type="password"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full py-2.5"
                     v-model="form.password"
                     required
                     autocomplete="current-password"
@@ -69,30 +88,18 @@ const submit = () => {
                 <InputError class="mt-2" :message="form.errors.password" />
             </div>
 
-            <div class="mt-4 block">
-                <label class="flex items-center">
-                    <Checkbox name="remember" v-model:checked="form.remember" />
-                    <span class="ms-2 text-sm text-zinc-400">Remember me</span>
-                </label>
-            </div>
+            <label class="flex items-center gap-2 pt-1">
+                <Checkbox name="remember" v-model:checked="form.remember" />
+                <span class="text-sm text-zinc-400">Remember me</span>
+            </label>
 
-            <div class="mt-6 flex items-center justify-between gap-3">
-                <Link
-                    v-if="canResetPassword"
-                    :href="route('password.request')"
-                    class="text-sm text-zinc-400 hover:text-cyan-300"
-                >
-                    Forgot password?
-                </Link>
-                <div v-else />
-
-                <PrimaryButton
-                    :class="{ 'opacity-25': form.processing }"
-                    :disabled="form.processing"
-                >
-                    Log in
-                </PrimaryButton>
-            </div>
+            <PrimaryButton
+                class="w-full"
+                :class="{ 'opacity-25': form.processing }"
+                :disabled="form.processing"
+            >
+                Log in
+            </PrimaryButton>
         </form>
     </GuestLayout>
 </template>

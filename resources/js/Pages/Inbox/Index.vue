@@ -941,13 +941,27 @@ const avatarTone = (thread) => {
                         <ArrowLeft :size="18" />
                     </button>
                     <div class="min-w-0 flex-1 overflow-hidden py-0.5">
-                        <h2
-                            class="break-words text-[17px] font-semibold leading-snug text-white lg:text-lg"
+                        <div class="flex items-start gap-2">
+                            <h2
+                                class="min-w-0 flex-1 break-words text-[17px] font-semibold leading-snug text-white lg:text-lg"
+                            >
+                                {{ active.subject }}
+                            </h2>
+                            <RowActions
+                                class="shrink-0"
+                                :items="headerActions"
+                                @select="onHeaderAction"
+                            />
+                        </div>
+                        <p
+                            class="mt-1.5 truncate text-sm text-zinc-400"
+                            :title="[threadFromEmail(active), active.to].filter(Boolean).join(' to ')"
                         >
-                            {{ active.subject }}
-                        </h2>
-                        <p class="mt-1.5 truncate text-sm text-zinc-400" :title="threadFromEmail(active)">
                             {{ threadFromLabel(active) }}
+                            <template v-if="active.to">
+                                <span class="mx-1 text-zinc-600">to</span>
+                                {{ active.to }}
+                            </template>
                             <span class="mx-1 text-zinc-600">·</span>
                             {{ active.updated }}
                         </p>
@@ -1148,10 +1162,6 @@ const avatarTone = (thread) => {
                             Forward
                         </button>
                     </template>
-                    <RowActions
-                        :items="headerActions"
-                        @select="onHeaderAction"
-                    />
                 </div>
                 <div
                     v-if="replyOpen"

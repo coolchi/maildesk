@@ -166,6 +166,23 @@ class DomainVerifier
         }
 
         if (filled($domain->provider_domain_id)) {
+            try {
+                $tracked = $this->resend->enableTracking(
+                    (string) $domain->provider_domain_id,
+                    isset($remote['tracking_subdomain']) ? (string) $remote['tracking_subdomain'] : null,
+                );
+            } catch (RuntimeException $e) {
+                Log::warning('Could not enable open and click tracking', [
+                    'domain' => $domain->name,
+                    'error' => $e->getMessage(),
+                ]);
+                $tracked = null;
+            }
+
+            if (is_array($tracked) && $tracked !== []) {
+                $remote = $tracked;
+            }
+
             $this->resend->triggerVerify((string) $domain->provider_domain_id);
         }
 
@@ -210,6 +227,7 @@ class DomainVerifier
                 $kind === 'SPF' && $type === 'TXT' => 'spf',
                 $kind === 'SPF' && $type === 'MX' => 'mx',
                 $kind === 'SPF' && $type === 'CNAME' => 'return_path',
+                $kind === 'TRACKING' => 'tracking',
                 str_starts_with($kind, 'RECEIV') => 'inbound_mx',
                 // Anything new the provider adds is still listed and published.
                 in_array($type, DnsRecordManager::EDITABLE_TYPES, true) && filled($record['name'] ?? null) => strtolower($type).'_'.trim((string) preg_replace('/[^a-z0-9]+/', '_', strtolower((string) $record['name'])), '_'),
@@ -231,6 +249,7 @@ class DomainVerifier
                     'mx' => 'MX (bounce / return-path)',
                     'inbound_mx' => 'MX (receiving)',
                     'return_path' => 'CNAME (return path)',
+                    'tracking' => 'CNAME (open and click tracking)',
                     default => "{$type} record",
                 },
                 'key' => $key,

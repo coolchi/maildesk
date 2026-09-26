@@ -1,7 +1,6 @@
  <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
-import { mockPlans } from '@/data/mock';
 import { usePlansModal } from '@/composables/usePlansModal';
 import { useToast } from '@/composables/useToast';
 import { Check, X } from '@lucide/vue';
@@ -47,7 +46,12 @@ onUnmounted(() => {
 
 const sharedPlans = computed(() => page.props.plans || null);
 const config = computed(
-    () => sharedPlans.value?.[mode.value] || mockPlans[mode.value],
+    () =>
+        sharedPlans.value?.[mode.value] || {
+            labels: [],
+            prices: {},
+            keys: {},
+        },
 );
 const currencies = computed(
     () => sharedPlans.value?.currencies || ['USD', 'NGN'],

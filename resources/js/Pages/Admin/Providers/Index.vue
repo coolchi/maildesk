@@ -6,7 +6,7 @@ import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Modal from '@/Components/Modal.vue';
 import ProviderTestButton from '@/Components/Admin/ProviderTestButton.vue';
-import { providerDriverPresets } from '@/data/adminMock';
+import { providerDriverPresets } from '@/lib/mailProviders';
 import { usePlatform } from '@/composables/usePlatform';
 import { useToast } from '@/composables/useToast';
 import {

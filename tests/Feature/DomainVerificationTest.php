@@ -185,6 +185,11 @@ class DomainVerificationTest extends TestCase
             && $r['region'] === 'eu-west-1'
             && $r->hasHeader('Authorization', 'Bearer re_test_key'));
         Http::assertSent(fn (HttpRequest $r) => $r->method() === 'POST' && str_ends_with($r->url(), '/domains/dom_123/verify'));
+        Http::assertSent(fn (HttpRequest $r) => $r->method() === 'PATCH'
+            && $r->url() === 'https://api.resend.com/domains/dom_123'
+            && $r['open_tracking'] === true
+            && $r['click_tracking'] === true
+            && $r['tracking_subdomain'] === 'links');
 
         $domain->refresh();
         $this->assertSame('dom_123', $domain->provider_domain_id);
@@ -340,8 +345,12 @@ class DomainVerificationTest extends TestCase
 
         $this->verify($user, $org, $domain);
 
-        $keys = array_column($domain->fresh()->dns_records['records'], 'key');
-        $this->assertContains('cname_links_in', $keys);
+        $records = $domain->fresh()->dns_records['records'];
+        $tracking = collect($records)->firstWhere('key', 'tracking');
+        $this->assertNotNull($tracking);
+        $this->assertSame('CNAME (open and click tracking)', $tracking['label']);
+        $this->assertSame('track.example.net', $tracking['value']);
+        $this->assertContains('tracking', $domain->fresh()->dns_records['required']);
     }
 
     public function test_domain_already_on_resend_account_is_adopted(): void

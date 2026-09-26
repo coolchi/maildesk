@@ -1,15 +1,20 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import { useTheme } from '@/composables/useTheme';
-import { Moon, Sun } from '@lucide/vue';
+import { Mail, Moon, Sun } from '@lucide/vue';
 
 const { theme, setTheme } = useTheme();
 </script>
 
 <template>
     <div
-        class="relative flex min-h-screen flex-col items-center justify-center bg-black px-4 py-10"
+        class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-black px-4 py-12"
     >
+        <div
+            class="pointer-events-none absolute left-1/2 top-[42%] h-[32rem] w-[32rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400/10 blur-3xl"
+            aria-hidden="true"
+        />
+
         <div class="absolute right-4 top-4">
             <div
                 class="inline-flex rounded-full border border-zinc-800 bg-zinc-950 p-0.5"
@@ -43,17 +48,25 @@ const { theme, setTheme } = useTheme();
             </div>
         </div>
 
-        <Link
-            href="/"
-            class="mb-8 text-xl font-semibold tracking-tight text-white"
-        >
-            MailDesk
-        </Link>
+        <div class="relative flex w-full max-w-md flex-col items-center">
+            <Link
+                href="/"
+                class="mb-8 flex items-center gap-2.5 text-white"
+                aria-label="MailDesk home"
+            >
+                <span
+                    class="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-cyan-300"
+                >
+                    <Mail :size="18" />
+                </span>
+                <span class="text-xl font-semibold tracking-tight">MailDesk</span>
+            </Link>
 
-        <div
-            class="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 px-6 py-6 shadow-panel"
-        >
-            <slot />
+            <div
+                class="w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-7 py-8 shadow-panel"
+            >
+                <slot />
+            </div>
         </div>
     </div>
 </template>

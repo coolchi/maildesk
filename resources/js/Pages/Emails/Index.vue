@@ -1,14 +1,19 @@
 <script setup>
-import { computed, ref } from 'vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { ref, watch } from 'vue';
+import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import { useComposeModal } from '@/composables/useComposeModal';
-import { Code2, Download, Search } from '@lucide/vue';
+import { ChevronLeft, ChevronRight, Code2, Download, Search } from '@lucide/vue';
 
 const props = defineProps({
     emails: { type: Array, default: () => [] },
+    pagination: { type: Object, default: () => ({}) },
+    filters: {
+        type: Object,
+        default: () => ({ tab: 'sending', status: 'all', q: '' }),
+    },
     stats: {
         type: Object,
         default: () => ({
@@ -21,26 +26,40 @@ const props = defineProps({
 });
 
 const { open: openCompose } = useComposeModal();
-const tab = ref('sending');
-const search = ref('');
-const status = ref('all');
+const search = ref(props.filters.q || '');
 
-const filtered = computed(() => {
-    return props.emails.filter((email) => {
-        const directionOk =
-            tab.value === 'sending'
-                ? email.direction === 'outbound'
-                : email.direction === 'inbound';
-        const statusOk = status.value === 'all' || email.status === status.value;
-        const q = search.value.trim().toLowerCase();
-        const searchOk =
-            !q ||
-            email.to?.toLowerCase().includes(q) ||
-            email.subject?.toLowerCase().includes(q) ||
-            email.from?.toLowerCase().includes(q);
-        return directionOk && statusOk && searchOk;
-    });
+const visit = (params) => {
+    router.get(
+        route('emails'),
+        {
+            tab: props.filters.tab === 'receiving' ? 'receiving' : undefined,
+            status: props.filters.status !== 'all' ? props.filters.status : undefined,
+            q: search.value.trim() || undefined,
+            ...params,
+        },
+        { preserveState: true, preserveScroll: true, replace: true },
+    );
+};
+
+let timer = null;
+watch(search, () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => visit({ page: undefined }), 300);
 });
+
+const setTab = (tab) =>
+    visit({
+        tab: tab === 'receiving' ? 'receiving' : undefined,
+        page: undefined,
+    });
+
+const setStatus = (event) => {
+    const value = event.target.value;
+    visit({
+        status: value === 'all' ? undefined : value,
+        page: undefined,
+    });
+};
 </script>
 
 <template>
@@ -87,11 +106,11 @@ const filtered = computed(() => {
                 type="button"
                 class="rounded-full px-4 py-1.5 text-sm transition"
                 :class="
-                    tab === 'sending'
+                    filters.tab !== 'receiving'
                         ? 'bg-zinc-800 text-white'
                         : 'text-zinc-400 hover:text-zinc-200'
                 "
-                @click="tab = 'sending'"
+                @click="setTab('sending')"
             >
                 Sending
             </button>
@@ -99,11 +118,11 @@ const filtered = computed(() => {
                 type="button"
                 class="rounded-full px-4 py-1.5 text-sm transition"
                 :class="
-                    tab === 'receiving'
+                    filters.tab === 'receiving'
                         ? 'bg-zinc-800 text-white'
                         : 'text-zinc-400 hover:text-zinc-200'
                 "
-                @click="tab = 'receiving'"
+                @click="setTab('receiving')"
             >
                 Receiving
             </button>
@@ -122,7 +141,11 @@ const filtered = computed(() => {
                     class="md-input pl-9"
                 />
             </div>
-            <select v-model="status" class="md-input lg:w-44">
+            <select
+                class="md-input lg:w-44"
+                :value="filters.status"
+                @change="setStatus"
+            >
                 <option value="all">All statuses</option>
                 <option value="delivered">Delivered</option>
                 <option value="bounced">Bounced</option>
@@ -149,7 +172,7 @@ const filtered = computed(() => {
                 >
                     <tr>
                         <th class="px-4 py-3 font-medium">
-                            {{ tab === 'sending' ? 'To' : 'From' }}
+                            {{ filters.tab === 'receiving' ? 'From' : 'To' }}
                         </th>
                         <th class="px-4 py-3 font-medium">Status</th>
                         <th class="px-4 py-3 font-medium">Subject</th>
@@ -159,7 +182,7 @@ const filtered = computed(() => {
                 </thead>
                 <tbody class="divide-y divide-zinc-900">
                     <tr
-                        v-for="email in filtered"
+                        v-for="email in emails"
                         :key="email.id"
                         class="transition hover:bg-white/[0.03]"
                     >
@@ -169,7 +192,9 @@ const filtered = computed(() => {
                                 class="font-medium text-zinc-200 hover:text-cyan-300"
                             >
                                 {{
-                                    tab === 'sending' ? email.to : email.from
+                                    filters.tab === 'receiving'
+                                        ? email.from
+                                        : email.to
                                 }}
                             </Link>
                         </td>
@@ -189,7 +214,7 @@ const filtered = computed(() => {
                         </td>
                         <td class="px-4 py-3 text-right text-zinc-500">⋯</td>
                     </tr>
-                    <tr v-if="!filtered.length">
+                    <tr v-if="!emails.length">
                         <td
                             colspan="5"
                             class="px-4 py-12 text-center text-zinc-500"
@@ -199,6 +224,39 @@ const filtered = computed(() => {
                     </tr>
                 </tbody>
             </table>
+        </div>
+
+        <div
+            v-if="pagination.total"
+            class="mt-4 flex items-center justify-between gap-3 text-sm text-zinc-500"
+            data-testid="emails-pagination"
+        >
+            <span class="min-w-0 truncate">
+                {{ pagination.from }}–{{ pagination.to }} of
+                {{ Number(pagination.total).toLocaleString() }}
+            </span>
+            <div class="flex shrink-0 items-center gap-2">
+                <Link
+                    v-if="pagination.prev_url"
+                    :href="pagination.prev_url"
+                    class="md-btn-ghost !px-2.5"
+                    preserve-scroll
+                    data-testid="emails-page-prev"
+                >
+                    <ChevronLeft :size="16" />
+                    <span class="hidden sm:inline">Newer</span>
+                </Link>
+                <Link
+                    v-if="pagination.next_url"
+                    :href="pagination.next_url"
+                    class="md-btn-ghost !px-2.5"
+                    preserve-scroll
+                    data-testid="emails-page-next"
+                >
+                    <span class="hidden sm:inline">Older</span>
+                    <ChevronRight :size="16" />
+                </Link>
+            </div>
         </div>
     </AppLayout>
 </template>

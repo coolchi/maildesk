@@ -264,7 +264,8 @@ html.light .divide-zinc-800 > :not([hidden]) ~ :not([hidden]),
 html.light .divide-zinc-900 > :not([hidden]) ~ :not([hidden]) {
     border-color: #e4e4e7 !important;
 }
-html.light .border-dashed.border-zinc-700 {
+html.light .border-dashed.border-zinc-700,
+html.light input[type='checkbox'].border-zinc-700 {
     border-color: #d4d4d8 !important;
 }
 html.light .text-white,

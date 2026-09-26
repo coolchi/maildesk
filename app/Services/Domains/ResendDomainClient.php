@@ -73,6 +73,28 @@ class ResendDomainClient
     }
 
     /**
+     * Turn on open and click tracking. A tracking subdomain is required before
+     * Resend will rewrite links or count opens; "links" becomes links.example.com.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function enableTracking(string $id, ?string $existingSubdomain = null): ?array
+    {
+        $payload = [
+            'open_tracking' => true,
+            'click_tracking' => true,
+        ];
+
+        if (blank($existingSubdomain)) {
+            $payload['tracking_subdomain'] = 'links';
+        }
+
+        $response = $this->send(fn (PendingRequest $http) => $http->patch("/domains/{$id}", $payload));
+
+        return $response->successful() ? (array) $response->json() : null;
+    }
+
+    /**
      * Ask Resend to re-run its own DNS verification for the domain (async).
      */
     public function triggerVerify(string $id): bool
