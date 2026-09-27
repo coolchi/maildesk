@@ -56,11 +56,7 @@ class ProcessResendInboundEmail implements ShouldQueue
         $key = config('services.resend.key');
 
         if (blank($key)) {
-            Log::warning('ProcessResendInboundEmail: RESEND_API_KEY not set', [
-                'email_id' => $this->emailId,
-            ]);
-
-            return;
+            throw new \RuntimeException('ProcessResendInboundEmail: RESEND_API_KEY is not set');
         }
 
         $apiUrl = rtrim((string) config('maildesk.inbound.resend_api_url', 'https://api.resend.com'), '/');
@@ -68,10 +64,6 @@ class ProcessResendInboundEmail implements ShouldQueue
         $content = $this->fetchContent($key, $apiUrl);
 
         if ($content === null) {
-            Log::warning('ProcessResendInboundEmail: could not fetch email content', [
-                'email_id' => $this->emailId,
-            ]);
-
             return;
         }
 
@@ -185,7 +177,12 @@ class ProcessResendInboundEmail implements ShouldQueue
     }
 
     /**
-     * @return array<string, mixed>|null
+     * Fetch email content from Resend's receiving API.
+     *
+     * @return array<string, mixed>|null Returns null only for permanent failures (404 - email not found)
+     *
+     * @throws \RuntimeException For retryable failures (5xx, 429, 401, 403)
+     * @throws ConnectionException For network failures
      */
     protected function fetchContent(string $key, string $apiUrl): ?array
     {
@@ -202,13 +199,20 @@ class ProcessResendInboundEmail implements ShouldQueue
             throw new \RuntimeException("Resend API returned {$response->status()}");
         }
 
-        if (! $response->successful()) {
-            Log::warning('ProcessResendInboundEmail: content fetch failed', [
+        if ($response->status() === 401 || $response->status() === 403) {
+            throw new \RuntimeException("Resend API authentication failed ({$response->status()}): check RESEND_API_KEY");
+        }
+
+        if ($response->status() === 404) {
+            Log::warning('ProcessResendInboundEmail: email not found (404), dropping permanently', [
                 'email_id' => $this->emailId,
-                'status' => $response->status(),
             ]);
 
             return null;
+        }
+
+        if (! $response->successful()) {
+            throw new \RuntimeException("Resend API returned unexpected status {$response->status()}");
         }
 
         $body = $response->json();
