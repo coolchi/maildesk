@@ -122,6 +122,9 @@ class ResendInboundDriver implements InboundDriver
             'in_reply_to' => $body['in_reply_to'] ?? null,
             'references' => $body['references'] ?? null,
             'reply_to' => $body['reply_to'] ?? null,
+            'received_for' => $body['received_for'] ?? null,
+            'cc' => $body['cc'] ?? null,
+            'bcc' => $body['bcc'] ?? null,
         ], fn ($v) => $v !== null && $v !== '' && $v !== []);
     }
 

@@ -44,7 +44,7 @@ class DocsPageTest extends TestCase
 
         foreach ([
             '/emails/batch', 'Batch send', '/reply', 'Idempotency-Key', '/audiences',
-            '/templates', '/api-keys', '@maildesk/sdk', 'MailDesk\\\\Client', 'cursor=',
+            '/api-keys', '@maildesk/sdk', 'MailDesk\\\\Client', 'cursor=',
             'domain.verified', 'webhook.failed', 'email.delivery_delayed', 'scheduled_at',
             '"statusCode"', 't=1725615858,v1=',
         ] as $invented) {

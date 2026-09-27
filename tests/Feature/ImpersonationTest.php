@@ -661,7 +661,7 @@ class ImpersonationTest extends TestCase
         $this->assertSame($org->id, $log->organization_id);
         $this->assertNull($log->ended_at);
 
-        $this->get(route('emails'))
+        $this->get(route('inbox'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('impersonation.active', true)

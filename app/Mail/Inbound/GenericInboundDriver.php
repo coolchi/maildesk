@@ -67,7 +67,7 @@ class GenericInboundDriver implements InboundDriver
             headers: $headers,
             attachments: self::normalizeAttachments($data['attachments'] ?? []),
             providerMessageId: $providerMessageId ?? (isset($data['id']) ? (string) $data['id'] : null),
-            envelopeRecipients: AddressParser::many($data['envelope_to'] ?? $headers['delivered-to'] ?? []),
+            envelopeRecipients: AddressParser::many($data['envelope_to'] ?? $data['received_for'] ?? $headers['delivered-to'] ?? []),
             raw: $data,
         );
     }
