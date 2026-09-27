@@ -8,6 +8,7 @@ use App\Models\Suppression;
 use App\Services\ContactWriter;
 use App\Services\SegmentMembership;
 use App\Support\CurrentOrganization;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -17,18 +18,62 @@ use Inertia\Response;
 
 class ContactController extends Controller
 {
+    public const PER_PAGE = 50;
+
+    public const IMPORT_LIMIT = 5000;
+
     public function __construct(public ContactWriter $writer) {}
 
     public function index(Request $request, SegmentMembership $membership): Response
     {
         $organization = CurrentOrganization::from($request);
 
-        $contacts = $organization->contacts()
-            ->latest()
-            ->get()
+        $search = trim((string) $request->query('search', ''));
+        $status = $request->query('status');
+        $validStatuses = ['subscribed', 'unsubscribed'];
+
+        $query = $organization->contacts()
+            ->when($search !== '', function (Builder $q) use ($search) {
+                $like = '%'.strtolower($search).'%';
+                $q->where(function (Builder $inner) use ($like) {
+                    $inner->whereRaw('lower(email) like ?', [$like])
+                        ->orWhereRaw('lower(first_name) like ?', [$like])
+                        ->orWhereRaw('lower(last_name) like ?', [$like])
+                        ->orWhereRaw('lower(company) like ?', [$like]);
+                });
+            })
+            ->when($status && in_array($status, $validStatuses, true), function (Builder $q) use ($status) {
+                if ($status === 'unsubscribed') {
+                    $q->where(function (Builder $inner) {
+                        $inner->whereNotNull('unsubscribed_at')
+                            ->orWhere('meta->status', 'unsubscribed');
+                    });
+                } else {
+                    $q->whereNull('unsubscribed_at')
+                        ->where(function (Builder $inner) {
+                            $inner->whereNull('meta->status')
+                                ->orWhere('meta->status', 'subscribed');
+                        });
+                }
+            })
+            ->latest();
+
+        $paginator = $query->paginate(self::PER_PAGE)->withQueryString();
+        $contacts = collect($paginator->items())
             ->map(fn (Contact $contact) => $contact->toWorkspaceArray())
             ->values()
             ->all();
+
+        $stats = [
+            'all' => $organization->contacts()->count(),
+            'subscribers' => $organization->contacts()
+                ->whereNull('unsubscribed_at')
+                ->where(fn (Builder $q) => $q->whereNull('meta->status')->orWhere('meta->status', 'subscribed'))
+                ->count(),
+            'unsubscribers' => $organization->contacts()
+                ->where(fn (Builder $q) => $q->whereNotNull('unsubscribed_at')->orWhere('meta->status', 'unsubscribed'))
+                ->count(),
+        ];
 
         $segments = $organization->segments()
             ->latest()
@@ -44,6 +89,19 @@ class ContactController extends Controller
 
         return Inertia::render('Audience/Index', [
             'contacts' => $contacts,
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+            'stats' => $stats,
+            'filters' => [
+                'search' => $search !== '' ? $search : null,
+                'status' => $status && in_array($status, $validStatuses, true) ? $status : null,
+            ],
             'segments' => $segments,
             'properties' => [],
             'topics' => [],
@@ -100,18 +158,20 @@ class ContactController extends Controller
         $organization = CurrentOrganization::from($request);
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimes:csv,txt', 'max:2048'],
+            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
         ]);
 
         $handle = fopen($validated['file']->getRealPath(), 'r');
         if ($handle === false) {
-            return back()->with('error', 'Could not read the uploaded file.');
+            return back()->withErrors(['file' => 'Could not read the uploaded file.']);
         }
 
         $header = null;
         $saved = 0;
         $skipped = 0;
         $rowNumber = 0;
+        $totalDataRows = 0;
+        $seenEmails = [];
 
         try {
             while (($row = fgetcsv($handle)) !== false) {
@@ -125,14 +185,15 @@ class ContactController extends Controller
                 if ($header === null) {
                     $header = $this->normalizeImportHeader($cells);
                     if (! in_array('email', $header, true)) {
-                        // Headerless file: treat first row as data with email in column 0.
                         $header = ['email', 'name', 'company'];
                         $mapped = $this->mapImportRow($header, $cells);
+                        $totalDataRows++;
                     } else {
                         continue;
                     }
                 } else {
                     $mapped = $this->mapImportRow($header, $cells);
+                    $totalDataRows++;
                 }
 
                 $email = Str::lower((string) ($mapped['email'] ?? ''));
@@ -142,7 +203,14 @@ class ContactController extends Controller
                     continue;
                 }
 
-                if ($saved >= 1000) {
+                if (isset($seenEmails[$email])) {
+                    $skipped++;
+
+                    continue;
+                }
+                $seenEmails[$email] = true;
+
+                if ($saved >= self::IMPORT_LIMIT) {
                     $skipped++;
 
                     continue;
@@ -170,9 +238,21 @@ class ContactController extends Controller
             ]);
         }
 
+        $limitExceeded = $totalDataRows > self::IMPORT_LIMIT;
         $message = $saved === 1 ? '1 contact imported.' : "{$saved} contacts imported.";
-        if ($skipped > 0) {
-            $message .= " {$skipped} row(s) skipped.";
+
+        if ($limitExceeded) {
+            $over = $totalDataRows - self::IMPORT_LIMIT;
+            $message .= " {$over} row(s) exceeded the ".number_format(self::IMPORT_LIMIT).' row limit.';
+        }
+
+        if ($skipped > 0 && ! $limitExceeded) {
+            $message .= " {$skipped} row(s) skipped (invalid or duplicate).";
+        } elseif ($skipped > 0 && $limitExceeded) {
+            $invalidSkipped = $skipped - ($totalDataRows - self::IMPORT_LIMIT);
+            if ($invalidSkipped > 0) {
+                $message .= " {$invalidSkipped} row(s) skipped (invalid or duplicate).";
+            }
         }
 
         return back()->with('success', $message);

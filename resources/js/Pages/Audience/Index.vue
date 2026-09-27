@@ -28,6 +28,9 @@ import {
 
 const props = defineProps({
     contacts: { type: Array, default: () => [] },
+    pagination: { type: Object, default: () => ({ current_page: 1, last_page: 1, total: 0 }) },
+    stats: { type: Object, default: () => ({ all: 0, subscribers: 0, unsubscribers: 0 }) },
+    filters: { type: Object, default: () => ({ search: null, status: null }) },
     segments: { type: Array, default: () => [] },
     properties: { type: Array, default: () => [] },
     topics: { type: Array, default: () => [] },
@@ -36,9 +39,11 @@ const props = defineProps({
 const toast = useToast();
 const { nlSegments } = useAiFeatures();
 const tab = ref('contacts');
-const search = ref('');
-const statusFilter = ref('all');
+const search = ref(props.filters?.search || '');
+const statusFilter = ref(props.filters?.status || 'all');
 const subFilter = ref('all');
+const isFiltering = ref(false);
+let searchTimeout = null;
 const showEmpty = ref(false);
 const showAdd = ref(false);
 const showImport = ref(false);
@@ -82,30 +87,53 @@ watch(
     { immediate: true },
 );
 
-const filteredContacts = computed(() => {
-    return contacts.value.filter((c) => {
-        const q = search.value.trim().toLowerCase();
-        const searchOk =
-            !q ||
-            c.email.toLowerCase().includes(q) ||
-            `${c.first_name} ${c.last_name}`.toLowerCase().includes(q) ||
-            (c.company || c.properties?.company || '').toLowerCase().includes(q);
-        const statusOk =
-            statusFilter.value === 'all' || c.status === statusFilter.value;
-        const subOk =
-            subFilter.value === 'all' ||
-            (subFilter.value === 'subscribed' && c.status === 'subscribed') ||
-            (subFilter.value === 'unsubscribed' && c.status === 'unsubscribed');
-        return searchOk && statusOk && subOk;
-    });
-});
+watch(
+    () => props.filters,
+    (newFilters) => {
+        if (newFilters) {
+            search.value = newFilters.search || '';
+            statusFilter.value = newFilters.status || 'all';
+        }
+    },
+);
 
-const stats = computed(() => ({
-    all: contacts.value.length,
-    subscribers: contacts.value.filter((c) => c.status === 'subscribed').length,
-    unsubscribers: contacts.value.filter((c) => c.status === 'unsubscribed')
-        .length,
-}));
+const applyFilters = (page = 1) => {
+    isFiltering.value = true;
+    const params = { page };
+    if (search.value.trim()) {
+        params.search = search.value.trim();
+    }
+    if (statusFilter.value && statusFilter.value !== 'all') {
+        params.status = statusFilter.value;
+    }
+    router.get(route('audience'), params, {
+        preserveState: true,
+        preserveScroll: true,
+        only: ['contacts', 'pagination', 'stats', 'filters'],
+        onFinish: () => {
+            isFiltering.value = false;
+        },
+    });
+};
+
+const debouncedSearch = () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        applyFilters(1);
+    }, 300);
+};
+
+watch(search, debouncedSearch);
+watch(statusFilter, () => applyFilters(1));
+
+const goToPage = (page) => {
+    if (page < 1 || page > props.pagination.last_page) return;
+    applyFilters(page);
+};
+
+const filteredContacts = computed(() => contacts.value);
+
+const stats = computed(() => props.stats || { all: 0, subscribers: 0, unsubscribers: 0 });
 
 const contactActions = (c) => [
     { id: 'edit', label: 'Edit contact', icon: Pencil },
@@ -595,6 +623,53 @@ const deleteLabel = computed(() => {
                         </tr>
                     </tbody>
                 </table>
+
+                <div
+                    v-if="pagination.last_page > 1"
+                    class="mt-4 flex flex-col items-center justify-between gap-3 border-t border-zinc-800 pt-4 sm:flex-row"
+                >
+                    <div class="text-sm text-zinc-500">
+                        Showing {{ pagination.from ?? 0 }} to {{ pagination.to ?? 0 }}
+                        of {{ pagination.total?.toLocaleString() ?? 0 }} contacts
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button
+                            type="button"
+                            class="md-btn-ghost !px-2.5"
+                            :disabled="pagination.current_page <= 1 || isFiltering"
+                            @click="goToPage(1)"
+                        >
+                            First
+                        </button>
+                        <button
+                            type="button"
+                            class="md-btn-ghost !px-2.5"
+                            :disabled="pagination.current_page <= 1 || isFiltering"
+                            @click="goToPage(pagination.current_page - 1)"
+                        >
+                            Prev
+                        </button>
+                        <span class="px-3 text-sm text-zinc-400">
+                            Page {{ pagination.current_page }} of {{ pagination.last_page }}
+                        </span>
+                        <button
+                            type="button"
+                            class="md-btn-ghost !px-2.5"
+                            :disabled="pagination.current_page >= pagination.last_page || isFiltering"
+                            @click="goToPage(pagination.current_page + 1)"
+                        >
+                            Next
+                        </button>
+                        <button
+                            type="button"
+                            class="md-btn-ghost !px-2.5"
+                            :disabled="pagination.current_page >= pagination.last_page || isFiltering"
+                            @click="goToPage(pagination.last_page)"
+                        >
+                            Last
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
