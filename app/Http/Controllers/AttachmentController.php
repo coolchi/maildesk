@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attachment;
+use App\Rules\AllowedAttachmentFile;
 use App\Services\WorkspaceAccess;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\JsonResponse;
@@ -59,7 +60,7 @@ class AttachmentController extends Controller
         CurrentOrganization::from($request);
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'max:10240'],
+            'file' => ['required', 'file', 'max:10240', new AllowedAttachmentFile],
         ]);
 
         /** @var UploadedFile $file */
