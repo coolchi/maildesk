@@ -21,6 +21,9 @@ Schedule::command('domains:recheck --all')->dailyAt('03:17')->withoutOverlapping
 // Gmail-style: permanently delete conversations left in Trash past retention.
 Schedule::command('inbox:purge-trash')->dailyAt('03:40')->withoutOverlapping();
 
+// Clean up orphaned temporary attachment uploads (files not linked to a sent message).
+Schedule::command('attachments:purge-tmp')->dailyAt('04:00')->withoutOverlapping();
+
 // End free trials → past_due lockout until Monipay payment.
 Schedule::command('billing:expire-trials')->hourly()->withoutOverlapping();
 
