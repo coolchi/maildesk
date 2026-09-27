@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ClassifyInboundMessage;
 use App\Jobs\DispatchWebhook;
+use App\Jobs\ProcessResendInboundEmail;
 use App\Models\Attachment;
 use App\Models\Domain;
 use App\Models\Mailbox;
@@ -12,6 +14,7 @@ use App\Models\Organization;
 use App\Models\Thread;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -26,6 +29,10 @@ use Tests\TestCase;
  * - Replies to existing threads (including to emails we sent)
  * - Multiple recipients (To, Cc, received_for)
  * - Attachments downloaded from Resend's API
+ *
+ * The architecture is:
+ * 1. Webhook verifies signature, dedupes, dispatches ProcessResendInboundEmail job, returns 202
+ * 2. Job fetches content from Resend API, routes using received_for/to/cc, creates message
  */
 class ResendInboundMaildeskNgTest extends TestCase
 {
@@ -37,8 +44,9 @@ class ResendInboundMaildeskNgTest extends TestCase
     {
         parent::setUp();
 
-        Queue::fake();
+        Queue::fake([DispatchWebhook::class, ProcessResendInboundEmail::class, ClassifyInboundMessage::class]);
         Storage::fake('local');
+        Cache::flush();
         config([
             'services.resend.key' => 're_test_production_key',
             'maildesk.inbound.resend_webhook_secret' => self::SECRET,
@@ -87,6 +95,22 @@ class ResendInboundMaildeskNgTest extends TestCase
         ];
     }
 
+    /**
+     * Post webhook and run the processing job to complete the email flow.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function postAndProcess(array $payload): TestResponse
+    {
+        $response = $this->postResend($payload);
+        $response->assertStatus(202)->assertJsonPath('status', 'accepted');
+
+        $emailId = $payload['data']['email_id'];
+        (new ProcessResendInboundEmail($emailId, $payload['data']))->handle();
+
+        return $response;
+    }
+
     public function test_new_email_to_mailbox_on_maildesk_ng_creates_thread(): void
     {
         $org = Organization::factory()->create();
@@ -96,25 +120,24 @@ class ResendInboundMaildeskNgTest extends TestCase
         ]);
 
         Http::fake([
-            'api.resend.com/emails/receiving/*' => Http::response([
+            'api.resend.com/emails/receiving/re_maildesk_new_1' => Http::response([
                 'object' => 'email',
                 'html' => '<p>Hello, I need help with my account.</p>',
                 'text' => 'Hello, I need help with my account.',
                 'message_id' => '<abc123@mail.example.com>',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_maildesk_new_1/attachments' => Http::response(['data' => []]),
         ]);
 
-        $response = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_maildesk_new_1',
             'from' => 'Jane Doe <jane@example.com>',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Help with my account',
         ]));
 
-        $response->assertCreated()->assertJsonPath('status', 'received');
-
-        $message = Message::query()->where('uuid', $response->json('id'))->firstOrFail();
+        $message = Message::query()->firstOrFail();
         $this->assertSame($org->id, $message->organization_id);
         $this->assertSame($mailbox->id, $message->mailbox_id);
         $this->assertSame('inbound', $message->direction);
@@ -138,14 +161,15 @@ class ResendInboundMaildeskNgTest extends TestCase
         ]);
 
         Http::fake([
-            'api.resend.com/emails/receiving/*' => Http::response([
+            'api.resend.com/emails/receiving/re_received_for_routing' => Http::response([
                 'object' => 'email',
                 'text' => 'Forwarded email',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_received_for_routing/attachments' => Http::response(['data' => []]),
         ]);
 
-        $response = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_received_for_routing',
             'from' => 'sender@external.com',
             'to' => ['original-recipient@elsewhere.com'],
@@ -153,9 +177,7 @@ class ResendInboundMaildeskNgTest extends TestCase
             'subject' => 'Forwarded via alias',
         ]));
 
-        $response->assertCreated();
-
-        $message = Message::query()->where('uuid', $response->json('id'))->firstOrFail();
+        $message = Message::query()->firstOrFail();
         $this->assertSame($mailbox->id, $message->mailbox_id);
         $this->assertSame($org->id, $message->organization_id);
     }
@@ -174,6 +196,7 @@ class ResendInboundMaildeskNgTest extends TestCase
                 'message_id' => '<first@example.com>',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_first_msg/attachments' => Http::response(['data' => []]),
             'api.resend.com/emails/receiving/re_reply_msg' => Http::response([
                 'text' => 'Reply body',
                 'message_id' => '<reply@example.com>',
@@ -181,27 +204,26 @@ class ResendInboundMaildeskNgTest extends TestCase
                 'references' => '<first@example.com>',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_reply_msg/attachments' => Http::response(['data' => []]),
         ]);
 
-        $first = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_first_msg',
             'from' => 'customer@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Original question',
         ]));
 
-        $threadId = $first->json('thread_id');
+        $firstThread = Thread::query()->firstOrFail();
 
-        $reply = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_reply_msg',
             'from' => 'customer@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Re: Original question',
         ]));
 
-        $reply->assertCreated()->assertJsonPath('thread_id', $threadId);
-
-        $this->assertSame(2, Thread::query()->findOrFail($threadId)->message_count);
+        $this->assertSame(2, $firstThread->fresh()->message_count);
         $this->assertSame(1, Thread::query()->count());
     }
 
@@ -236,22 +258,26 @@ class ResendInboundMaildeskNgTest extends TestCase
         $this->assertNotNull($outboundMessageId);
         $this->assertStringContainsString('@maildesk.ng>', $outboundMessageId);
 
-        Http::fake(['api.resend.com/*' => Http::response([
-            'text' => 'Thank you! Here is more info about my issue...',
-            'message_id' => '<customer-reply@example.com>',
-            'in_reply_to' => $outboundMessageId,
-            'references' => $outboundMessageId,
-            'received_for' => ['support@maildesk.ng'],
-        ])]);
+        Http::fake([
+            'api.resend.com/emails/receiving/re_customer_reply' => Http::response([
+                'text' => 'Thank you! Here is more info about my issue...',
+                'message_id' => '<customer-reply@example.com>',
+                'in_reply_to' => $outboundMessageId,
+                'references' => $outboundMessageId,
+                'received_for' => ['support@maildesk.ng'],
+            ]),
+            'api.resend.com/emails/receiving/re_customer_reply/attachments' => Http::response(['data' => []]),
+        ]);
 
-        $reply = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_customer_reply',
             'from' => 'customer@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Re: Your ticket #12345',
         ]));
 
-        $reply->assertCreated()->assertJsonPath('thread_id', $outbound->thread_id);
+        $reply = Message::query()->where('direction', 'inbound')->firstOrFail();
+        $this->assertSame($outbound->thread_id, $reply->thread_id);
 
         $thread = Thread::query()->findOrFail($outbound->thread_id);
         $this->assertSame(2, $thread->message_count);
@@ -270,13 +296,16 @@ class ResendInboundMaildeskNgTest extends TestCase
             'email' => 'sales@maildesk.ng',
         ]);
 
-        Http::fake(['api.resend.com/*' => Http::response([
-            'text' => 'Multi-recipient email',
-            'message_id' => '<multi@example.com>',
-            'received_for' => ['support@maildesk.ng', 'sales@maildesk.ng'],
-        ])]);
+        Http::fake([
+            'api.resend.com/emails/receiving/re_multi_recipient' => Http::response([
+                'text' => 'Multi-recipient email',
+                'message_id' => '<multi@example.com>',
+                'received_for' => ['support@maildesk.ng', 'sales@maildesk.ng'],
+            ]),
+            'api.resend.com/emails/receiving/re_multi_recipient/attachments' => Http::response(['data' => []]),
+        ]);
 
-        $response = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_multi_recipient',
             'from' => 'sender@external.com',
             'to' => ['support@maildesk.ng'],
@@ -284,9 +313,7 @@ class ResendInboundMaildeskNgTest extends TestCase
             'subject' => 'Question for support and sales',
         ]));
 
-        $response->assertCreated();
-
-        $message = Message::query()->where('uuid', $response->json('id'))->firstOrFail();
+        $message = Message::query()->firstOrFail();
         $this->assertSame($primary->id, $message->mailbox_id);
         $this->assertSame(['support@maildesk.ng'], $message->to);
         $this->assertSame(['sales@maildesk.ng'], $message->cc);
@@ -325,7 +352,7 @@ class ResendInboundMaildeskNgTest extends TestCase
             'files.resend.test/att_invoice' => Http::response($attachmentContent),
         ]);
 
-        $response = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_with_attachment',
             'from' => 'vendor@supplier.com',
             'to' => ['support@maildesk.ng'],
@@ -334,8 +361,6 @@ class ResendInboundMaildeskNgTest extends TestCase
                 ['id' => 'att_invoice', 'filename' => 'invoice.pdf', 'content_type' => 'application/pdf'],
             ],
         ]));
-
-        $response->assertCreated();
 
         $attachment = Attachment::query()->sole();
         $this->assertSame('invoice.pdf', $attachment->filename);
@@ -353,22 +378,23 @@ class ResendInboundMaildeskNgTest extends TestCase
             'name' => 'maildesk.ng',
         ]);
 
-        Http::fake(['api.resend.com/*' => Http::response([
-            'text' => 'Email to unknown alias',
-            'message_id' => '<catchall@example.com>',
-            'received_for' => ['unknown-alias@maildesk.ng'],
-        ])]);
+        Http::fake([
+            'api.resend.com/emails/receiving/re_catchall' => Http::response([
+                'text' => 'Email to unknown alias',
+                'message_id' => '<catchall@example.com>',
+                'received_for' => ['unknown-alias@maildesk.ng'],
+            ]),
+            'api.resend.com/emails/receiving/re_catchall/attachments' => Http::response(['data' => []]),
+        ]);
 
-        $response = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_catchall',
             'from' => 'external@example.com',
             'to' => ['unknown-alias@maildesk.ng'],
             'subject' => 'Catch-all test',
         ]));
 
-        $response->assertCreated();
-
-        $message = Message::query()->where('uuid', $response->json('id'))->firstOrFail();
+        $message = Message::query()->firstOrFail();
         $this->assertSame($org->id, $message->organization_id);
         $this->assertNull($message->mailbox_id);
     }
@@ -387,31 +413,34 @@ class ResendInboundMaildeskNgTest extends TestCase
                 'message_id' => '<original-thread@example.com>',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_thread_original/attachments' => Http::response(['data' => []]),
             'api.resend.com/emails/receiving/re_thread_reply' => Http::response([
                 'text' => 'Still the same conversation',
                 'message_id' => '<different-subject@example.com>',
                 'in_reply_to' => '<original-thread@example.com>',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_thread_reply/attachments' => Http::response(['data' => []]),
         ]);
 
-        $first = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_thread_original',
             'from' => 'customer@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Help needed',
         ]));
 
-        $threadId = $first->json('thread_id');
+        $firstThread = Thread::query()->firstOrFail();
 
-        $reply = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_thread_reply',
             'from' => 'customer@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Actually, a different topic',
         ]));
 
-        $reply->assertCreated()->assertJsonPath('thread_id', $threadId);
+        $this->assertSame(2, $firstThread->fresh()->message_count);
+        $this->assertSame(1, Thread::query()->count());
     }
 
     public function test_webhook_payload_without_body_fetches_from_receiving_api(): void
@@ -435,18 +464,17 @@ class ResendInboundMaildeskNgTest extends TestCase
                     ['name' => 'X-Custom-Header', 'value' => 'test-value'],
                 ],
             ]),
+            'api.resend.com/emails/receiving/re_metadata_only/attachments' => Http::response(['data' => []]),
         ]);
 
-        $response = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_metadata_only',
             'from' => 'sender@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Metadata only webhook',
         ]));
 
-        $response->assertCreated();
-
-        $message = Message::query()->where('uuid', $response->json('id'))->firstOrFail();
+        $message = Message::query()->firstOrFail();
         $this->assertSame('Full body from API', $message->text_body);
         $this->assertSame('<p>Full body from API</p>', $message->html_body);
         $this->assertSame('<fetched@example.com>', $message->message_id_header);
@@ -469,48 +497,50 @@ class ResendInboundMaildeskNgTest extends TestCase
                 'message_id' => '<ref-first@example.com>',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_ref_first/attachments' => Http::response(['data' => []]),
             'api.resend.com/emails/receiving/re_ref_second' => Http::response([
                 'text' => 'Second (reply)',
                 'message_id' => '<ref-second@example.com>',
                 'in_reply_to' => '<ref-first@example.com>',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_ref_second/attachments' => Http::response(['data' => []]),
             'api.resend.com/emails/receiving/re_ref_third' => Http::response([
                 'text' => 'Third (references only)',
                 'message_id' => '<ref-third@example.com>',
                 'references' => '<ref-first@example.com> <ref-second@example.com>',
                 'received_for' => ['support@maildesk.ng'],
             ]),
+            'api.resend.com/emails/receiving/re_ref_third/attachments' => Http::response(['data' => []]),
         ]);
 
-        $first = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_ref_first',
             'from' => 'customer@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Reference threading test',
         ]));
 
-        $threadId = $first->json('thread_id');
+        $firstThread = Thread::query()->firstOrFail();
 
-        $second = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_ref_second',
             'from' => 'customer@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Re: Reference threading test',
         ]));
 
-        $third = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_ref_third',
             'from' => 'customer@example.com',
             'to' => ['support@maildesk.ng'],
             'subject' => 'Re: Re: Reference threading test',
         ]));
 
-        $third->assertCreated()->assertJsonPath('thread_id', $threadId);
-        $this->assertSame(3, Thread::query()->findOrFail($threadId)->message_count);
+        $this->assertSame(3, $firstThread->fresh()->message_count);
     }
 
-    public function test_unroutable_email_returns_202_without_storing(): void
+    public function test_unroutable_email_is_logged_but_not_stored(): void
     {
         $org = Organization::factory()->create();
         Mailbox::factory()->create([
@@ -518,20 +548,78 @@ class ResendInboundMaildeskNgTest extends TestCase
             'email' => 'support@different-domain.com',
         ]);
 
-        Http::fake(['api.resend.com/*' => Http::response([
-            'text' => 'Email to unknown domain',
-            'message_id' => '<unroutable@example.com>',
-            'received_for' => ['random@maildesk.ng'],
-        ])]);
+        Http::fake([
+            'api.resend.com/emails/receiving/re_unroutable' => Http::response([
+                'text' => 'Email to unknown domain',
+                'message_id' => '<unroutable@example.com>',
+                'received_for' => ['random@maildesk.ng'],
+            ]),
+            'api.resend.com/emails/receiving/re_unroutable/attachments' => Http::response(['data' => []]),
+        ]);
 
-        $response = $this->postResend($this->resendPayload([
+        $this->postAndProcess($this->resendPayload([
             'email_id' => 're_unroutable',
             'from' => 'sender@example.com',
             'to' => ['random@maildesk.ng'],
             'subject' => 'To unknown mailbox',
         ]));
 
-        $response->assertStatus(202)->assertJsonPath('status', 'unroutable');
         $this->assertSame(0, Message::query()->count());
+    }
+
+    public function test_webhook_returns_202_accepted_immediately(): void
+    {
+        $org = Organization::factory()->create();
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'support@maildesk.ng',
+        ]);
+
+        Http::fake();
+
+        $response = $this->postResend($this->resendPayload([
+            'email_id' => 're_quick_ack',
+            'from' => 'sender@example.com',
+            'to' => ['support@maildesk.ng'],
+            'subject' => 'Quick acknowledgement test',
+        ]));
+
+        $response->assertStatus(202)
+            ->assertJsonPath('status', 'accepted')
+            ->assertJsonPath('email_id', 're_quick_ack');
+
+        $this->assertSame(0, Message::query()->count());
+    }
+
+    public function test_duplicate_webhook_is_deduplicated(): void
+    {
+        $org = Organization::factory()->create();
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'support@maildesk.ng',
+        ]);
+
+        Http::fake([
+            'api.resend.com/emails/receiving/re_dupe_test' => Http::response([
+                'text' => 'First delivery',
+                'message_id' => '<dupe@example.com>',
+                'received_for' => ['support@maildesk.ng'],
+            ]),
+            'api.resend.com/emails/receiving/re_dupe_test/attachments' => Http::response(['data' => []]),
+        ]);
+
+        $payload = $this->resendPayload([
+            'email_id' => 're_dupe_test',
+            'from' => 'sender@example.com',
+            'to' => ['support@maildesk.ng'],
+            'subject' => 'Duplicate test',
+        ]);
+
+        $this->postAndProcess($payload);
+        $this->assertSame(1, Message::query()->count());
+
+        $this->postResend($payload)->assertStatus(202);
+
+        $this->assertSame(1, Message::query()->count());
     }
 }

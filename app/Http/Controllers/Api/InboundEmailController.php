@@ -72,6 +72,14 @@ class InboundEmailController extends Controller
                 return response()->json(['status' => 'ignored']);
             }
 
+            // Resend emails are processed asynchronously to fetch received_for for routing.
+            if ($email->deferredProcessing) {
+                return response()->json([
+                    'status' => 'accepted',
+                    'email_id' => $email->providerMessageId,
+                ], 202);
+            }
+
             $message = $service->receive($email);
         } catch (InboundRetryException $e) {
             $this->log()->warning('Inbound email deferred for retry: '.$e->getMessage(), $context);

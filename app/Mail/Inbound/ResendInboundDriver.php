@@ -2,20 +2,28 @@
 
 namespace App\Mail\Inbound;
 
+use App\Jobs\ProcessResendInboundEmail;
 use App\Mail\DTO\InboundEmail;
 use App\Mail\Inbound\Contracts\InboundDriver;
-use App\Mail\Inbound\Exceptions\InboundRetryException;
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Psr\Log\LoggerInterface;
 
 /**
- * Handles Resend "email.received" webhooks. Resend signs webhooks with Svix;
- * the webhook carries metadata, so the body is fetched from the receiving API
- * when it is not included, and attachments via the receiving attachments API.
+ * Handles Resend "email.received" webhooks. Resend signs webhooks with Svix.
+ *
+ * The webhook only carries metadata (from, to, subject, email_id). The full
+ * content including received_for (needed for routing) must be fetched from
+ * Resend's receiving API. To avoid webhook timeouts, we:
+ *
+ * 1. Verify the signature
+ * 2. Dedupe by provider email_id
+ * 3. Dispatch ProcessResendInboundEmail job
+ * 4. Return 202 Accepted quickly
+ *
+ * The job fetches the content, routes using received_for/to/cc, creates the
+ * message and thread, and handles attachments.
  */
 class ResendInboundDriver implements InboundDriver
 {
@@ -73,6 +81,13 @@ class ResendInboundDriver implements InboundDriver
         return false;
     }
 
+    /**
+     * Parse the webhook and dispatch async processing.
+     *
+     * Returns null if this is not an email.received event (so the controller
+     * can check for delivery events). The actual email processing happens
+     * in ProcessResendInboundEmail job.
+     */
     public function parse(Request $request): ?InboundEmail
     {
         $payload = $request->json()->all();
@@ -84,162 +99,65 @@ class ResendInboundDriver implements InboundDriver
         $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
         $emailId = isset($data['email_id']) ? (string) $data['email_id'] : null;
 
-        $needsBodyFetch = $emailId !== null && empty($data['html']) && empty($data['text']);
-        $needsAttachmentFetch = $emailId !== null && $this->hasAttachmentsWithoutContent($data);
+        if ($emailId === null) {
+            $this->log()->warning('Resend inbound: email.received without email_id', $data);
 
-        $email = GenericInboundDriver::fromArray('resend', $data, $emailId);
-
-        if ($needsBodyFetch || $needsAttachmentFetch) {
-            $email->deferredFetchEmailId = $emailId;
+            return null;
         }
+
+        if ($this->isDuplicate($emailId)) {
+            $this->log()->info('Resend inbound: duplicate email_id ignored', ['email_id' => $emailId]);
+
+            return $this->createDummyEmail($emailId);
+        }
+
+        $this->markSeen($emailId);
+
+        ProcessResendInboundEmail::dispatch($emailId, $data);
+
+        $this->log()->info('Resend inbound: processing queued', [
+            'email_id' => $emailId,
+            'from' => $data['from'] ?? null,
+            'to' => $data['to'] ?? [],
+            'subject' => $data['subject'] ?? null,
+        ]);
+
+        return $this->createDummyEmail($emailId);
+    }
+
+    /**
+     * Check if we've already seen this email_id (dedupe on webhook retries).
+     */
+    protected function isDuplicate(string $emailId): bool
+    {
+        return Cache::has("resend_inbound:{$emailId}");
+    }
+
+    /**
+     * Mark this email_id as seen for 24 hours (dedupe window).
+     */
+    protected function markSeen(string $emailId): void
+    {
+        Cache::put("resend_inbound:{$emailId}", true, now()->addHours(24));
+    }
+
+    /**
+     * Create a dummy InboundEmail that signals async processing.
+     *
+     * The controller checks deferredProcessing to return 202 Accepted.
+     */
+    protected function createDummyEmail(string $emailId): InboundEmail
+    {
+        $email = new InboundEmail(
+            provider: 'resend',
+            fromEmail: '',
+            fromName: null,
+            to: [],
+        );
+        $email->deferredProcessing = true;
+        $email->providerMessageId = $emailId;
 
         return $email;
-    }
-
-    /**
-     * Fetch the body and headers, which the webhook does not carry.
-     *
-     * @return array<string, mixed>
-     *
-     * @throws InboundRetryException when Resend is unreachable or erroring
-     */
-    protected function fetchContent(string $emailId): array
-    {
-        $response = $this->api("emails/receiving/{$emailId}", $emailId, 'content');
-
-        if ($response === null) {
-            return [];
-        }
-
-        $body = $response->json();
-        $body = is_array($body['data'] ?? null) ? $body['data'] : (is_array($body) ? $body : []);
-
-        return array_filter([
-            'html' => $body['html'] ?? null,
-            'text' => $body['text'] ?? null,
-            'headers' => $body['headers'] ?? null,
-            'message_id' => $body['message_id'] ?? null,
-            'in_reply_to' => $body['in_reply_to'] ?? null,
-            'references' => $body['references'] ?? null,
-            'reply_to' => $body['reply_to'] ?? null,
-            'received_for' => $body['received_for'] ?? null,
-            'cc' => $body['cc'] ?? null,
-            'bcc' => $body['bcc'] ?? null,
-        ], fn ($v) => $v !== null && $v !== '' && $v !== []);
-    }
-
-    /**
-     * Webhooks only carry attachment metadata; download each file from its
-     * short-lived download_url. A single failed file is skipped, not fatal.
-     *
-     * @return array<int, array{filename: string, content_type: string, content: string}>
-     *
-     * @throws InboundRetryException when the attachment list cannot be fetched
-     */
-    protected function fetchAttachments(string $emailId): array
-    {
-        $response = $this->api("emails/receiving/{$emailId}/attachments", $emailId, 'attachments');
-
-        if ($response === null) {
-            return [];
-        }
-
-        $items = $response->json('data') ?? [];
-        $out = [];
-
-        foreach (is_array($items) ? $items : [] as $item) {
-            $url = is_array($item) ? ($item['download_url'] ?? null) : null;
-            if (! is_string($url) || $url === '') {
-                continue;
-            }
-
-            try {
-                $file = Http::timeout(30)->get($url);
-            } catch (ConnectionException $e) {
-                $file = null;
-            }
-
-            if ($file === null || ! $file->successful()) {
-                $this->log()->warning('Resend inbound attachment download failed', [
-                    'email_id' => $emailId,
-                    'attachment_id' => $item['id'] ?? null,
-                    'status' => $file?->status(),
-                ]);
-
-                continue;
-            }
-
-            $out[] = [
-                'filename' => (string) ($item['filename'] ?? 'attachment'),
-                'content_type' => (string) ($item['content_type'] ?? 'application/octet-stream'),
-                // GenericInboundDriver::fromArray expects base64 content.
-                'content' => base64_encode($file->body()),
-            ];
-        }
-
-        return $out;
-    }
-
-    /**
-     * GET a Resend API path. Returns null when the resource is unavailable
-     * for a permanent reason (no API key, 4xx); throws for retryable failures.
-     */
-    protected function api(string $path, string $emailId, string $what): ?Response
-    {
-        $key = config('services.resend.key');
-
-        if (blank($key)) {
-            $this->log()->error('Resend inbound: RESEND_API_KEY is not set, cannot fetch email '.$what, [
-                'email_id' => $emailId,
-            ]);
-
-            return null;
-        }
-
-        try {
-            $response = Http::withToken((string) $key)
-                ->acceptJson()
-                ->timeout(15)
-                ->get(rtrim((string) config('maildesk.inbound.resend_api_url'), '/').'/'.$path);
-        } catch (ConnectionException $e) {
-            throw new InboundRetryException("Resend API unreachable while fetching email {$what}.", previous: $e);
-        }
-
-        if ($response->serverError() || $response->status() === 429) {
-            throw new InboundRetryException("Resend API returned {$response->status()} while fetching email {$what}.");
-        }
-
-        if (! $response->successful()) {
-            $this->log()->warning('Resend inbound fetch failed', [
-                'email_id' => $emailId,
-                'what' => $what,
-                'status' => $response->status(),
-            ]);
-
-            return null;
-        }
-
-        return $response;
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    protected function hasAttachmentsWithoutContent(array $data): bool
-    {
-        $attachments = $data['attachments'] ?? [];
-
-        if (! is_array($attachments) || $attachments === []) {
-            return false;
-        }
-
-        foreach ($attachments as $attachment) {
-            if (is_array($attachment) && empty($attachment['content'])) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     protected function log(): LoggerInterface
