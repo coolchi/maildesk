@@ -254,6 +254,82 @@ class InboundEmailTest extends TestCase
         $this->assertSame(1, Thread::query()->where('organization_id', $orgA->organization_id)->count());
     }
 
+    public function test_subject_fallback_stays_within_same_mailbox(): void
+    {
+        $org = Organization::factory()->create();
+        $mailboxA = Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'sales@acme.test',
+        ]);
+        $mailboxB = Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'support@acme.test',
+        ]);
+
+        $firstId = $this->withHeader('X-MailDesk-Inbound-Secret', 'generic-secret')
+            ->postJson('/api/v1/inbound/generic', [
+                'from' => 'Jane Customer <jane@example.com>',
+                'to' => ['sales@acme.test'],
+                'subject' => 'Order inquiry',
+                'text' => 'Original message to sales',
+                'message_id' => '<sales-original@example.com>',
+            ])->assertCreated()->json('thread_id');
+
+        $secondId = $this->withHeader('X-MailDesk-Inbound-Secret', 'generic-secret')
+            ->postJson('/api/v1/inbound/generic', [
+                'from' => 'Jane Customer <jane@example.com>',
+                'to' => ['support@acme.test'],
+                'subject' => 'Re: Order inquiry',
+                'text' => 'Same subject to support mailbox',
+                'message_id' => '<support-reply@example.com>',
+            ])->assertCreated()->json('thread_id');
+
+        $this->assertNotSame($firstId, $secondId, 'Subject fallback should not match across different mailboxes');
+
+        $salesThread = Thread::query()->find($firstId);
+        $supportThread = Thread::query()->find($secondId);
+
+        $this->assertSame($mailboxA->id, $salesThread->mailbox_id);
+        $this->assertSame($mailboxB->id, $supportThread->mailbox_id);
+        $this->assertSame(2, Thread::query()->where('organization_id', $org->id)->count());
+    }
+
+    public function test_resend_duplicate_by_provider_email_id_is_ignored(): void
+    {
+        $this->mailbox();
+
+        $firstResponse = $this->postResend([
+            'type' => 'email.received',
+            'data' => [
+                'email_id' => 're_duplicate_test_123',
+                'from' => 'Jane <jane@example.com>',
+                'to' => ['support@acme.test'],
+                'subject' => 'First delivery',
+                'message_id' => '<first@example.com>',
+                'text' => 'Body text',
+            ],
+        ])->assertCreated();
+
+        $secondResponse = $this->postResend([
+            'type' => 'email.received',
+            'data' => [
+                'email_id' => 're_duplicate_test_123',
+                'from' => 'Jane <jane@example.com>',
+                'to' => ['support@acme.test'],
+                'subject' => 'Resend retry delivery',
+                'message_id' => '<different@example.com>',
+                'text' => 'Slightly different body',
+            ],
+        ])->assertOk();
+
+        $this->assertSame($firstResponse->json('id'), $secondResponse->json('id'));
+        $this->assertSame(1, Message::query()->count());
+
+        $message = Message::query()->firstOrFail();
+        $this->assertSame('re_duplicate_test_123', $message->provider_message_id);
+        $this->assertSame('First delivery', $message->subject);
+    }
+
     public function test_duplicate_deliveries_are_ignored(): void
     {
         $this->mailbox();
