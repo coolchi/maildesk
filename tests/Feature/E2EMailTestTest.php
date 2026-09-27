@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Jobs\E2EHeartbeatJob;
 use App\Jobs\ProcessResendInboundEmail;
-use App\Jobs\RunE2EMailTest;
 use App\Models\E2ETestRun;
 use App\Models\Mailbox;
 use App\Models\MailProvider;
@@ -27,7 +26,7 @@ class E2EMailTestTest extends TestCase
     {
         parent::setUp();
 
-        Queue::fake([RunE2EMailTest::class, ProcessResendInboundEmail::class]);
+        Queue::fake([ProcessResendInboundEmail::class]);
 
         config([
             'services.resend.key' => 're_test_key',
@@ -98,39 +97,102 @@ class E2EMailTestTest extends TestCase
                 ->has('runs'));
     }
 
-    public function test_admin_can_start_e2e_test(): void
+    public function test_admin_can_start_e2e_test_synchronously(): void
     {
         $user = User::factory()->create(['is_platform_admin' => true]);
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
+
+        Http::fake([
+            'api.resend.com/domains' => Http::response([
+                'data' => [['name' => 'maildesk.ng', 'status' => 'verified']],
+            ]),
+        ]);
+
+        Cache::shouldReceive('forget')->andReturnTrue();
+        Cache::shouldReceive('put')->andReturnTrue();
+        Cache::shouldReceive('get')->andReturn('alive');
 
         $response = $this->actingAs($user)
             ->postJson('/admin/system-test/start', ['include_events' => false]);
 
-        $response->assertOk()->assertJsonStructure(['run' => ['id', 'token', 'status']]);
-
-        Queue::assertPushed(RunE2EMailTest::class);
+        $response->assertOk()->assertJsonStructure(['run' => ['id', 'token', 'status'], 'phase']);
 
         $this->assertDatabaseHas('e2e_test_runs', [
             'source' => 'web',
             'user_id' => $user->id,
-            'status' => 'pending',
         ]);
     }
 
-    public function test_admin_can_poll_test_status(): void
+    public function test_admin_poll_advances_test_run(): void
     {
         $user = User::factory()->create(['is_platform_admin' => true]);
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
 
         $run = E2ETestRun::query()->create([
             'status' => 'running',
-            'token' => Str::random(32),
+            'token' => 'test_token_'.Str::random(16),
             'source' => 'web',
             'user_id' => $user->id,
+            'started_at' => now(),
+            'steps' => [
+                'preflight' => ['success' => true],
+                'heartbeat' => ['success' => true],
+                'send' => ['success' => true],
+                'receive_start' => ['started_at' => now()->toIso8601String()],
+            ],
+            'outbound_message_id' => null,
         ]);
 
         $response = $this->actingAs($user)
             ->postJson('/admin/system-test/poll', ['run_id' => $run->id]);
 
-        $response->assertOk()->assertJsonPath('run.status', 'running');
+        $response->assertOk()
+            ->assertJsonStructure(['run', 'phase', 'complete']);
+    }
+
+    public function test_poll_completes_test_when_inbound_message_arrives(): void
+    {
+        $user = User::factory()->create(['is_platform_admin' => true]);
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
+
+        $token = 'completion_test_'.Str::random(16);
+
+        $run = E2ETestRun::query()->create([
+            'status' => 'running',
+            'token' => $token,
+            'source' => 'web',
+            'user_id' => $user->id,
+            'started_at' => now(),
+            'steps' => [
+                'preflight' => ['success' => true],
+                'heartbeat' => ['success' => true],
+                'send' => ['success' => true],
+                'receive_start' => ['started_at' => now()->toIso8601String()],
+            ],
+        ]);
+
+        Message::query()->create([
+            'organization_id' => $org->id,
+            'direction' => 'inbound',
+            'status' => 'received',
+            'provider' => 'resend',
+            'from_email' => 'test@maildesk.ng',
+            'to' => ['e2e-check@maildesk.ng'],
+            'subject' => "[E2E Test] {$token}",
+            'text_body' => "Token: {$token}",
+        ]);
+
+        $response = $this->actingAs($user)
+            ->postJson('/admin/system-test/poll', ['run_id' => $run->id]);
+
+        $response->assertOk()
+            ->assertJsonPath('complete', true)
+            ->assertJsonPath('phase', 'passed');
+
+        $this->assertSame('passed', $run->fresh()->status);
     }
 
     public function test_e2e_service_fails_without_resend_api_key(): void
@@ -147,7 +209,7 @@ class E2EMailTestTest extends TestCase
         ]);
 
         $service = app(E2EMailTestService::class);
-        $result = $service->execute($run);
+        $result = $service->start($run);
 
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('RESEND_API_KEY', $result['error']);
@@ -168,10 +230,47 @@ class E2EMailTestTest extends TestCase
         ]);
 
         $service = app(E2EMailTestService::class);
-        $result = $service->execute($run);
+        $result = $service->start($run);
 
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('RESEND_WEBHOOK_SECRET', $result['error']);
+    }
+
+    public function test_e2e_service_fails_without_organization_id(): void
+    {
+        config(['maildesk.e2e.organization_id' => null]);
+
+        $run = E2ETestRun::query()->create([
+            'status' => 'pending',
+            'token' => Str::random(32),
+            'source' => 'cli',
+        ]);
+
+        $service = app(E2EMailTestService::class);
+        $result = $service->start($run);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('MAILDESK_E2E_ORGANIZATION_ID', $result['error']);
+        $this->assertStringContainsString('dedicated internal workspace', $result['hint']);
+        $this->assertSame('preflight', $run->fresh()->failed_step);
+    }
+
+    public function test_e2e_service_fails_with_nonexistent_organization(): void
+    {
+        config(['maildesk.e2e.organization_id' => 99999]);
+
+        $run = E2ETestRun::query()->create([
+            'status' => 'pending',
+            'token' => Str::random(32),
+            'source' => 'cli',
+        ]);
+
+        $service = app(E2EMailTestService::class);
+        $result = $service->start($run);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('not found', $result['error']);
+        $this->assertSame('preflight', $run->fresh()->failed_step);
     }
 
     public function test_e2e_service_creates_test_mailbox_if_missing(): void
@@ -188,7 +287,7 @@ class E2EMailTestTest extends TestCase
 
         Http::fake([
             'api.resend.com/domains' => Http::response([
-                'data' => [['name' => 'maildesk.ng', 'status' => 'verified', 'receiving' => true]],
+                'data' => [['name' => 'maildesk.ng', 'status' => 'verified']],
             ]),
         ]);
 
@@ -205,7 +304,7 @@ class E2EMailTestTest extends TestCase
         $service = app(E2EMailTestService::class);
 
         try {
-            $service->execute($run);
+            $service->start($run);
         } catch (\Throwable) {
         }
 
@@ -237,88 +336,6 @@ class E2EMailTestTest extends TestCase
         $this->assertSame('alive', Cache::get($cacheKey));
     }
 
-    public function test_run_e2e_mail_test_job_executes_service(): void
-    {
-        Queue::fake();
-
-        $org = $this->createTestOrganization();
-        config(['maildesk.e2e.organization_id' => $org->id]);
-
-        $run = E2ETestRun::query()->create([
-            'status' => 'pending',
-            'token' => Str::random(32),
-            'source' => 'web',
-        ]);
-
-        $job = new RunE2EMailTest($run->id);
-
-        config(['services.resend.key' => null]);
-
-        $job->handle(app(E2EMailTestService::class));
-
-        $run->refresh();
-        $this->assertSame('failed', $run->status);
-        $this->assertSame('preflight', $run->failed_step);
-    }
-
-    public function test_e2e_service_full_flow_with_simulated_inbound(): void
-    {
-        $org = $this->createTestOrganization();
-        config(['maildesk.e2e.organization_id' => $org->id]);
-
-        Mailbox::query()->create([
-            'organization_id' => $org->id,
-            'email' => 'e2e-check@maildesk.ng',
-            'name' => 'E2E Test',
-            'status' => 'active',
-            'inbox' => true,
-        ]);
-
-        Http::fake([
-            'api.resend.com/domains' => Http::response([
-                'data' => [['name' => 'maildesk.ng', 'status' => 'verified', 'receiving' => true]],
-            ]),
-        ]);
-
-        Cache::shouldReceive('forget')->andReturnTrue();
-        Cache::shouldReceive('get')->andReturn('alive');
-        Cache::shouldReceive('put')->andReturnTrue();
-
-        $run = E2ETestRun::query()->create([
-            'status' => 'pending',
-            'token' => 'test_token_'.Str::random(16),
-            'source' => 'cli',
-        ]);
-
-        $token = $run->token;
-
-        dispatch(function () use ($org, $token) {
-            sleep(1);
-            Message::query()->create([
-                'organization_id' => $org->id,
-                'direction' => 'inbound',
-                'status' => 'received',
-                'provider' => 'resend',
-                'from_email' => 'test@maildesk.ng',
-                'to' => ['e2e-check@maildesk.ng'],
-                'subject' => "[E2E Test] {$token}",
-                'text_body' => "Token: {$token}",
-            ]);
-        })->afterResponse();
-
-        $service = app(E2EMailTestService::class);
-        $result = $service->execute($run);
-
-        $run->refresh();
-
-        $this->assertNotNull($run->outbound_message_id);
-        $this->assertContains($run->status, ['passed', 'failed']);
-
-        if ($run->status === 'failed' && $run->failed_step === 'receive') {
-            $this->markTestSkipped('Simulated inbound timing issue in test environment');
-        }
-    }
-
     public function test_recent_runs_shown_on_admin_page(): void
     {
         $user = User::factory()->create(['is_platform_admin' => true]);
@@ -345,5 +362,236 @@ class E2EMailTestTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->has('runs', 2));
+    }
+
+    public function test_poll_endpoint_requires_platform_admin(): void
+    {
+        $user = User::factory()->create(['is_platform_admin' => false]);
+
+        $run = E2ETestRun::query()->create([
+            'status' => 'running',
+            'token' => Str::random(32),
+            'source' => 'web',
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/admin/system-test/poll', ['run_id' => $run->id])
+            ->assertForbidden();
+    }
+
+    public function test_domain_check_accepts_verified_status(): void
+    {
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
+
+        Http::fake([
+            'api.resend.com/domains' => Http::response([
+                'data' => [[
+                    'id' => 'dom_123',
+                    'name' => 'maildesk.ng',
+                    'status' => 'verified',
+                    'created_at' => '2024-01-01T00:00:00.000Z',
+                    'region' => 'us-east-1',
+                ]],
+            ]),
+        ]);
+
+        Cache::shouldReceive('forget')->andReturnTrue();
+        Cache::shouldReceive('put')->andReturnTrue();
+        Cache::shouldReceive('get')->andReturn('alive');
+
+        $run = E2ETestRun::query()->create([
+            'status' => 'pending',
+            'token' => Str::random(32),
+            'source' => 'cli',
+        ]);
+
+        $service = app(E2EMailTestService::class);
+        $result = $service->start($run);
+
+        $this->assertNotSame('preflight', $run->fresh()->failed_step);
+    }
+
+    public function test_domain_check_accepts_partially_verified_status(): void
+    {
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
+
+        Http::fake([
+            'api.resend.com/domains' => Http::response([
+                'data' => [[
+                    'id' => 'dom_456',
+                    'name' => 'maildesk.ng',
+                    'status' => 'partially_verified',
+                    'created_at' => '2024-01-01T00:00:00.000Z',
+                    'region' => 'eu-west-1',
+                ]],
+            ]),
+        ]);
+
+        Cache::shouldReceive('forget')->andReturnTrue();
+        Cache::shouldReceive('put')->andReturnTrue();
+        Cache::shouldReceive('get')->andReturn('alive');
+
+        $run = E2ETestRun::query()->create([
+            'status' => 'pending',
+            'token' => Str::random(32),
+            'source' => 'cli',
+        ]);
+
+        $service = app(E2EMailTestService::class);
+        $result = $service->start($run);
+
+        $this->assertNotSame('preflight', $run->fresh()->failed_step);
+    }
+
+    public function test_domain_check_accepts_domain_with_mx_record(): void
+    {
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
+
+        Http::fake([
+            'api.resend.com/domains' => Http::response([
+                'data' => [[
+                    'id' => 'dom_789',
+                    'name' => 'maildesk.ng',
+                    'status' => 'pending',
+                    'records' => [
+                        ['record' => 'SPF', 'name' => 'maildesk.ng', 'type' => 'TXT', 'value' => 'v=spf1 include:resend.com ~all'],
+                        ['record' => 'MX', 'name' => 'maildesk.ng', 'type' => 'MX', 'value' => '10 inbound.resend.com', 'priority' => 10],
+                        ['record' => 'DKIM', 'name' => 'resend._domainkey.maildesk.ng', 'type' => 'TXT', 'value' => 'p=MIGf...'],
+                    ],
+                ]],
+            ]),
+        ]);
+
+        Cache::shouldReceive('forget')->andReturnTrue();
+        Cache::shouldReceive('put')->andReturnTrue();
+        Cache::shouldReceive('get')->andReturn('alive');
+
+        $run = E2ETestRun::query()->create([
+            'status' => 'pending',
+            'token' => Str::random(32),
+            'source' => 'cli',
+        ]);
+
+        $service = app(E2EMailTestService::class);
+        $result = $service->start($run);
+
+        $this->assertNotSame('preflight', $run->fresh()->failed_step);
+    }
+
+    public function test_domain_check_fails_for_pending_domain_without_mx(): void
+    {
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
+
+        Http::fake([
+            'api.resend.com/domains' => Http::response([
+                'data' => [[
+                    'id' => 'dom_abc',
+                    'name' => 'maildesk.ng',
+                    'status' => 'pending',
+                    'records' => [
+                        ['record' => 'SPF', 'name' => 'maildesk.ng', 'type' => 'TXT', 'value' => 'v=spf1 include:resend.com ~all'],
+                    ],
+                ]],
+            ]),
+        ]);
+
+        Cache::shouldReceive('forget')->andReturnTrue();
+        Cache::shouldReceive('put')->andReturnTrue();
+
+        $run = E2ETestRun::query()->create([
+            'status' => 'pending',
+            'token' => Str::random(32),
+            'source' => 'cli',
+        ]);
+
+        $service = app(E2EMailTestService::class);
+        $result = $service->start($run);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('preflight', $run->fresh()->failed_step);
+        $this->assertStringContainsString('not verified', $result['error']);
+    }
+
+    public function test_single_worker_flow_advances_via_poll_with_sync_queue(): void
+    {
+        $user = User::factory()->create(['is_platform_admin' => true]);
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
+
+        Http::fake([
+            'api.resend.com/domains' => Http::response([
+                'data' => [['name' => 'maildesk.ng', 'status' => 'verified']],
+            ]),
+        ]);
+
+        Cache::shouldReceive('forget')->andReturnTrue();
+        Cache::shouldReceive('put')->andReturnTrue();
+        Cache::shouldReceive('get')->andReturn('alive');
+
+        $startResponse = $this->actingAs($user)
+            ->postJson('/admin/system-test/start', ['include_events' => false]);
+
+        $startResponse->assertOk();
+        $runData = $startResponse->json('run');
+        $runId = $runData['id'];
+        $token = $runData['token'];
+
+        $this->assertSame('running', $runData['status']);
+
+        $pollResponse1 = $this->actingAs($user)
+            ->postJson('/admin/system-test/poll', ['run_id' => $runId]);
+
+        $pollResponse1->assertOk();
+        $this->assertFalse($pollResponse1->json('complete'));
+
+        Message::query()->create([
+            'organization_id' => $org->id,
+            'direction' => 'inbound',
+            'status' => 'received',
+            'provider' => 'resend',
+            'from_email' => 'test@maildesk.ng',
+            'to' => ['e2e-check@maildesk.ng'],
+            'subject' => "[E2E Test] {$token}",
+            'text_body' => "Token: {$token}",
+        ]);
+
+        $pollResponse2 = $this->actingAs($user)
+            ->postJson('/admin/system-test/poll', ['run_id' => $runId]);
+
+        $pollResponse2->assertOk();
+        $this->assertTrue($pollResponse2->json('complete'));
+        $this->assertSame('passed', $pollResponse2->json('run.status'));
+    }
+
+    public function test_admin_page_shows_organization_id_config(): void
+    {
+        $user = User::factory()->create(['is_platform_admin' => true]);
+        $org = $this->createTestOrganization();
+        config(['maildesk.e2e.organization_id' => $org->id]);
+
+        $this->actingAs($user)
+            ->get('/admin/system-test')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Admin/SystemTest/Index')
+                ->where('config.hasOrganizationId', true)
+                ->where('config.organizationId', $org->id));
+    }
+
+    public function test_admin_page_shows_missing_organization_id(): void
+    {
+        $user = User::factory()->create(['is_platform_admin' => true]);
+        config(['maildesk.e2e.organization_id' => null]);
+
+        $this->actingAs($user)
+            ->get('/admin/system-test')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Admin/SystemTest/Index')
+                ->where('config.hasOrganizationId', false));
     }
 }

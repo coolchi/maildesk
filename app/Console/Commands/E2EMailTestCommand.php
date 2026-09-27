@@ -15,11 +15,13 @@ class E2EMailTestCommand extends Command
         {--from= : Override the sender address}
         {--mailbox= : Override the test mailbox address}';
 
-    protected $description = 'Run end-to-end mail test to verify sending and receiving work';
+    protected $description = 'Run end-to-end mail test to verify sending and receiving work. Requires a queue worker running in a separate terminal.';
 
     public function handle(E2EMailTestService $service): int
     {
         $this->info('Starting E2E mail test...');
+        $this->newLine();
+        $this->warn('Note: A queue worker must be running in a separate terminal (php artisan queue:work)');
         $this->newLine();
 
         if ($this->option('from')) {
@@ -69,7 +71,14 @@ class E2EMailTestCommand extends Command
         $steps = $run->steps ?? [];
         $timings = $run->timings ?? [];
 
-        foreach ($steps as $step => $data) {
+        $stepOrder = ['preflight', 'heartbeat', 'send', 'receive', 'events', 'cleanup'];
+
+        foreach ($stepOrder as $step) {
+            if (! isset($steps[$step])) {
+                continue;
+            }
+
+            $data = $steps[$step];
             $icon = ($data['success'] ?? false) ? '✓' : '✗';
             $time = isset($timings[$step]) ? number_format($timings[$step], 0).'ms' : '-';
             $detail = $data['detail'] ?? '';

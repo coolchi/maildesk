@@ -271,7 +271,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         Route::get('/system-test', [Admin\SystemTestController::class, 'index'])->name('system-test');
         Route::post('/system-test/start', [Admin\SystemTestController::class, 'start'])->name('system-test.start');
-        Route::get('/system-test/{run}', [Admin\SystemTestController::class, 'show'])->name('system-test.show');
         Route::post('/system-test/poll', [Admin\SystemTestController::class, 'poll'])->name('system-test.poll');
     });
 });

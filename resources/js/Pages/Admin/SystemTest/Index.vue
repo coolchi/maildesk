@@ -13,12 +13,18 @@ const isRunning = ref(false);
 const currentRun = ref(null);
 const pollInterval = ref(null);
 const includeEvents = ref(false);
+const startError = ref(null);
 
-const canRun = computed(() => props.config.hasResendKey && props.config.hasWebhookSecret);
+const canRun = computed(() =>
+    props.config.hasResendKey &&
+    props.config.hasWebhookSecret &&
+    props.config.hasOrganizationId
+);
 
 const startTest = async () => {
     isRunning.value = true;
     currentRun.value = null;
+    startError.value = null;
 
     try {
         const response = await fetch(route('admin.system-test.start'), {
@@ -33,10 +39,18 @@ const startTest = async () => {
         const data = await response.json();
         currentRun.value = data.run;
 
+        if (data.phase === 'failed') {
+            isRunning.value = false;
+            startError.value = data.error;
+            router.reload({ only: ['runs'] });
+            return;
+        }
+
         startPolling(data.run.id);
     } catch (error) {
         console.error('Failed to start test:', error);
         isRunning.value = false;
+        startError.value = error.message || 'Failed to start test';
     }
 };
 
@@ -56,7 +70,7 @@ const startPolling = (runId) => {
             if (data.run) {
                 currentRun.value = data.run;
 
-                if (data.run.status === 'passed' || data.run.status === 'failed') {
+                if (data.complete) {
                     stopPolling();
                     isRunning.value = false;
                     router.reload({ only: ['runs'] });
@@ -97,6 +111,14 @@ const statusBadgeClass = (status) => {
         default: return 'bg-zinc-500/20 text-zinc-400';
     }
 };
+
+const stepOrder = ['preflight', 'heartbeat', 'send', 'receive', 'events', 'cleanup'];
+const orderedSteps = computed(() => {
+    if (!currentRun.value?.steps) return [];
+    return stepOrder
+        .filter(step => currentRun.value.steps[step] && step !== 'receive_start')
+        .map(step => ({ name: step, ...currentRun.value.steps[step] }));
+});
 </script>
 
 <template>
@@ -125,6 +147,13 @@ const statusBadgeClass = (status) => {
                         </span>
                         <span class="text-zinc-400">RESEND_WEBHOOK_SECRET</span>
                     </div>
+                    <div class="flex items-center gap-2">
+                        <span :class="config.hasOrganizationId ? 'text-green-400' : 'text-red-400'">
+                            {{ config.hasOrganizationId ? '✓' : '✗' }}
+                        </span>
+                        <span class="text-zinc-400">MAILDESK_E2E_ORGANIZATION_ID</span>
+                        <span v-if="config.organizationId" class="text-zinc-500">({{ config.organizationId }})</span>
+                    </div>
                     <div>
                         <span class="text-zinc-500">From:</span>
                         <span class="ml-2 text-zinc-300">{{ config.from }}</span>
@@ -132,6 +161,10 @@ const statusBadgeClass = (status) => {
                     <div>
                         <span class="text-zinc-500">Test mailbox:</span>
                         <span class="ml-2 text-zinc-300">{{ config.mailbox }}</span>
+                    </div>
+                    <div>
+                        <span class="text-zinc-500">Timeout:</span>
+                        <span class="ml-2 text-zinc-300">{{ config.timeout }}s</span>
                     </div>
                 </div>
             </div>
@@ -167,9 +200,15 @@ const statusBadgeClass = (status) => {
                     <span v-else>Run Test</span>
                 </button>
 
-                <p v-if="!canRun" class="mt-2 text-sm text-red-400">
-                    Configure RESEND_API_KEY and RESEND_WEBHOOK_SECRET to run tests.
-                </p>
+                <div v-if="!canRun" class="mt-2 text-sm text-red-400">
+                    <p v-if="!config.hasResendKey">Missing RESEND_API_KEY</p>
+                    <p v-if="!config.hasWebhookSecret">Missing RESEND_WEBHOOK_SECRET</p>
+                    <p v-if="!config.hasOrganizationId">Missing MAILDESK_E2E_ORGANIZATION_ID</p>
+                </div>
+
+                <div v-if="startError" class="mt-2 rounded border border-red-500/30 bg-red-500/10 p-3">
+                    <p class="text-sm text-red-400">{{ startError }}</p>
+                </div>
             </div>
 
             <!-- Current Run Progress -->
@@ -182,13 +221,23 @@ const statusBadgeClass = (status) => {
                 </div>
 
                 <div class="space-y-2 text-sm">
-                    <div v-for="(data, step) in currentRun.steps" :key="step" class="flex items-center justify-between">
+                    <div v-for="step in orderedSteps" :key="step.name" class="flex items-center justify-between">
                         <div class="flex items-center gap-2">
-                            <span :class="stepClass(data.success)">{{ stepIcon(data.success) }}</span>
-                            <span class="text-zinc-300">{{ step }}</span>
-                            <span v-if="data.detail" class="text-xs text-zinc-500">({{ data.detail }})</span>
+                            <span :class="stepClass(step.success)">{{ stepIcon(step.success) }}</span>
+                            <span class="text-zinc-300">{{ step.name }}</span>
+                            <span v-if="step.detail" class="text-xs text-zinc-500">({{ step.detail }})</span>
                         </div>
-                        <span class="text-zinc-500">{{ formatDuration(currentRun.timings?.[step]) }}</span>
+                        <span class="text-zinc-500">{{ formatDuration(currentRun.timings?.[step.name]) }}</span>
+                    </div>
+
+                    <!-- Show waiting indicator when receiving -->
+                    <div v-if="currentRun.status === 'running' && currentRun.steps?.receive_start" class="flex items-center gap-2">
+                        <svg class="h-4 w-4 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span class="text-zinc-300">receive</span>
+                        <span class="text-xs text-zinc-500">(waiting for inbound email...)</span>
                     </div>
                 </div>
 
@@ -244,7 +293,14 @@ const statusBadgeClass = (status) => {
             <!-- CLI Instructions -->
             <div class="md-card p-6">
                 <h3 class="mb-4 text-sm font-medium text-white">CLI Usage</h3>
-                <pre class="overflow-x-auto rounded bg-zinc-900 p-3 text-sm text-zinc-300">php artisan maildesk:e2e</pre>
+                <p class="mb-2 text-xs text-zinc-400">
+                    Note: A queue worker must be running in a separate terminal.
+                </p>
+                <pre class="overflow-x-auto rounded bg-zinc-900 p-3 text-sm text-zinc-300"># Terminal 1: Start queue worker
+php artisan queue:work
+
+# Terminal 2: Run the test
+php artisan maildesk:e2e</pre>
                 <p class="mt-2 text-xs text-zinc-500">
                     Options: <code>--events</code> (test delivery events), <code>--timeout=180</code> (seconds to wait),
                     <code>--from=address</code>, <code>--mailbox=address</code>

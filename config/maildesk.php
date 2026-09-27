@@ -179,7 +179,7 @@ return [
         'from' => env('MAILDESK_E2E_FROM', env('MAIL_FROM_ADDRESS')),
         'mailbox' => env('MAILDESK_E2E_MAILBOX', 'e2e-check@maildesk.ng'),
         'timeout' => (int) env('MAILDESK_E2E_TIMEOUT', 180),
-        'organization_id' => (int) env('MAILDESK_E2E_ORGANIZATION_ID', 1),
+        'organization_id' => env('MAILDESK_E2E_ORGANIZATION_ID'),
     ],
 
 ];

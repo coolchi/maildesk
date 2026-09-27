@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\RunE2EMailTest;
 use App\Models\E2ETestRun;
+use App\Services\E2EMailTestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -22,6 +22,8 @@ class SystemTestController extends Controller
             ->get()
             ->map->toAdminArray();
 
+        $orgId = config('maildesk.e2e.organization_id');
+
         return Inertia::render('Admin/SystemTest/Index', [
             'runs' => $runs,
             'config' => [
@@ -30,11 +32,17 @@ class SystemTestController extends Controller
                 'timeout' => (int) config('maildesk.e2e.timeout', 180),
                 'hasResendKey' => filled(config('services.resend.key')),
                 'hasWebhookSecret' => filled(config('maildesk.inbound.resend_webhook_secret')),
+                'hasOrganizationId' => filled($orgId),
+                'organizationId' => $orgId,
             ],
         ]);
     }
 
-    public function start(Request $request): JsonResponse
+    /**
+     * Start a new E2E test run. Performs preflight + send synchronously (under 10s).
+     * The poll endpoint then advances the run to check for the inbound message.
+     */
+    public function start(Request $request, E2EMailTestService $service): JsonResponse
     {
         $validated = $request->validate([
             'include_events' => ['boolean'],
@@ -48,21 +56,20 @@ class SystemTestController extends Controller
             'include_events' => $validated['include_events'] ?? false,
         ]);
 
-        RunE2EMailTest::dispatch($run->id);
+        $result = $service->start($run);
 
         return response()->json([
-            'run' => $run->toAdminArray(),
+            'run' => $result['run']->toAdminArray(),
+            'phase' => $result['phase'],
+            'error' => $result['error'],
+            'hint' => $result['hint'],
         ]);
     }
 
-    public function show(E2ETestRun $run): JsonResponse
-    {
-        return response()->json([
-            'run' => $run->toAdminArray(),
-        ]);
-    }
-
-    public function poll(Request $request): JsonResponse
+    /**
+     * Poll to advance a running test: checks for inbound message arrival and timeouts.
+     */
+    public function poll(Request $request, E2EMailTestService $service): JsonResponse
     {
         $validated = $request->validate([
             'run_id' => ['required', 'integer'],
@@ -74,8 +81,14 @@ class SystemTestController extends Controller
             return response()->json(['run' => null], 404);
         }
 
+        $result = $service->advance($run);
+
         return response()->json([
-            'run' => $run->toAdminArray(),
+            'run' => $result['run']->toAdminArray(),
+            'phase' => $result['phase'],
+            'complete' => $result['complete'],
+            'error' => $result['error'],
+            'hint' => $result['hint'],
         ]);
     }
 }
