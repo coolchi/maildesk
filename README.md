@@ -218,6 +218,90 @@ npm test
 npm run build        # production frontend build
 ```
 
+## E2E Mail Test
+
+The E2E mail test (`php artisan maildesk:e2e`) verifies that the complete email pipeline works in production: sending through Resend, delivery via MX, receipt via the inbound webhook, and storage in the inbox.
+
+### Running the test
+
+**Important:** A queue worker must be running in a separate terminal.
+
+```bash
+# Terminal 1: Start the queue worker
+php artisan queue:work
+
+# Terminal 2: Run the test
+php artisan maildesk:e2e
+
+# Include delivery events test
+php artisan maildesk:e2e --events
+
+# Custom timeout (default 180 seconds)
+php artisan maildesk:e2e --timeout=300
+
+# Override addresses
+php artisan maildesk:e2e --from=test@yourdomain.com --mailbox=e2e@yourdomain.com
+```
+
+### Admin UI
+
+Platform admins can run the test from `/admin/system-test`. The page shows:
+- Configuration status (API key, webhook secret, organization ID)
+- A "Run Test" button that runs preflight+send synchronously, then polls for receipt
+- Step-by-step progress with timing (heartbeat, receive, etc.)
+- Recent test run history
+
+The admin flow does not block a queue worker: it performs preflight and send synchronously, then the poll endpoint advances the test by checking for the inbound message arrival. This works correctly with a single queue worker.
+
+### Environment variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `MAILDESK_E2E_ORGANIZATION_ID` | **Yes** | — | Workspace ID for E2E tests. Create a dedicated internal workspace (e.g., "MailDesk System") — do not use a customer workspace |
+| `MAILDESK_E2E_FROM` | No | `MAIL_FROM_ADDRESS` | Sender address for test emails |
+| `MAILDESK_E2E_MAILBOX` | No | `e2e-check@maildesk.ng` | Test mailbox to receive emails |
+| `MAILDESK_E2E_TIMEOUT` | No | `180` | Seconds to wait for inbound email |
+
+### Prerequisites
+
+1. **RESEND_API_KEY** and **RESEND_WEBHOOK_SECRET** must be set
+2. **MAILDESK_E2E_ORGANIZATION_ID** must point to a dedicated internal workspace
+3. A **queue worker** must be running (`php artisan queue:work`) in a separate process
+4. The test mailbox domain must be **verified** in Resend (status `verified` or `partially_verified`)
+5. MX records must point to Resend for the test domain
+
+### Setup recommendation
+
+Create a dedicated internal workspace for E2E tests:
+
+1. Log in as a platform admin
+2. Create a new workspace named "MailDesk System" (or similar)
+3. Note its organization ID from `/admin/accounts`
+4. Set `MAILDESK_E2E_ORGANIZATION_ID` to that ID
+
+This keeps test mailboxes and threads isolated from customer data.
+
+### Test steps
+
+1. **Preflight** — verifies config (API key, webhook secret, organization), dispatches heartbeat job, checks domain status
+2. **Heartbeat** — confirms the queue worker is processing jobs (checked during polling)
+3. **Send** — sends an email through the normal outbound pipeline
+4. **Receive** — polls for the inbound message (up to timeout)
+5. **Events** (optional) — tests delivery event webhooks
+6. **Cleanup** — moves test threads to trash
+
+### Failure hints
+
+| Failure | Likely cause |
+|---|---|
+| "RESEND_API_KEY is not set" | Add the key to `.env` |
+| "MAILDESK_E2E_ORGANIZATION_ID is not set" | Create a dedicated workspace and set its ID |
+| "Organization not found" | The workspace ID in `MAILDESK_E2E_ORGANIZATION_ID` doesn't exist |
+| "Queue worker never responded" | Start `php artisan queue:work` in a separate terminal |
+| "Domain is not verified for receiving" | Verify the domain in Resend (needs status `verified` or `partially_verified`) |
+| "Inbound message not received" | Check MX records, webhook URL, and webhook secret |
+| "Processing job failed" | Check `failed_jobs` table for details |
+
 ## Production deployment
 
 ### Required environment changes
