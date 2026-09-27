@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ClassifyInboundMessage;
 use App\Jobs\DispatchWebhook;
+use App\Jobs\ProcessResendInboundEmail;
 use App\Mail\Inbound\ResendInboundDriver;
 use App\Models\Attachment;
 use App\Models\Domain;
@@ -13,7 +15,7 @@ use App\Models\Organization;
 use App\Models\Thread;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -29,11 +31,13 @@ class InboundEmailTest extends TestCase
     {
         parent::setUp();
 
-        Queue::fake();
+        Queue::fake([DispatchWebhook::class, ProcessResendInboundEmail::class, ClassifyInboundMessage::class]);
         Storage::fake('local');
+        Cache::flush();
         config([
             'maildesk.inbound.generic_secret' => 'generic-secret',
             'maildesk.inbound.resend_webhook_secret' => self::SECRET,
+            'services.resend.key' => 're_test_key',
         ]);
     }
 
@@ -204,6 +208,36 @@ class InboundEmailTest extends TestCase
         $this->assertSame(2, Thread::query()->count());
     }
 
+    public function test_subject_matching_requires_reply_or_forward_marker(): void
+    {
+        $this->mailbox();
+        $first = $this->postGeneric([
+            'subject' => 'Quarterly report',
+            'message_id' => '<first-quarterly@example.com>',
+        ])->json('thread_id');
+
+        $second = $this->postGeneric([
+            'subject' => 'Quarterly report',
+            'message_id' => '<coincidence@example.com>',
+        ])->json('thread_id');
+
+        $this->assertNotSame($first, $second, 'Same subject without Re:/Fwd: should create new thread');
+        $this->assertSame(2, Thread::query()->count());
+
+        $replyResponse = $this->postGeneric([
+            'subject' => 'Re: Quarterly report',
+            'message_id' => '<actual-reply@example.com>',
+        ]);
+        $replyResponse->assertCreated();
+
+        $this->assertSame(2, Thread::query()->count(), 'Re: subject should thread to an existing matching thread');
+        $this->assertContains(
+            $replyResponse->json('thread_id'),
+            [$first, $second],
+            'Re: subject should thread to one of the matching threads'
+        );
+    }
+
     public function test_threads_never_cross_tenants(): void
     {
         $orgA = $this->mailbox('support@a.test');
@@ -222,6 +256,75 @@ class InboundEmailTest extends TestCase
             $reply->json('thread_id'),
         );
         $this->assertSame(1, Thread::query()->where('organization_id', $orgA->organization_id)->count());
+    }
+
+    public function test_subject_fallback_stays_within_same_mailbox(): void
+    {
+        $org = Organization::factory()->create();
+        $mailboxA = Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'sales@acme.test',
+        ]);
+        $mailboxB = Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'support@acme.test',
+        ]);
+
+        $firstId = $this->withHeader('X-MailDesk-Inbound-Secret', 'generic-secret')
+            ->postJson('/api/v1/inbound/generic', [
+                'from' => 'Jane Customer <jane@example.com>',
+                'to' => ['sales@acme.test'],
+                'subject' => 'Order inquiry',
+                'text' => 'Original message to sales',
+                'message_id' => '<sales-original@example.com>',
+            ])->assertCreated()->json('thread_id');
+
+        $secondId = $this->withHeader('X-MailDesk-Inbound-Secret', 'generic-secret')
+            ->postJson('/api/v1/inbound/generic', [
+                'from' => 'Jane Customer <jane@example.com>',
+                'to' => ['support@acme.test'],
+                'subject' => 'Re: Order inquiry',
+                'text' => 'Same subject to support mailbox',
+                'message_id' => '<support-reply@example.com>',
+            ])->assertCreated()->json('thread_id');
+
+        $this->assertNotSame($firstId, $secondId, 'Subject fallback should not match across different mailboxes');
+
+        $salesThread = Thread::query()->find($firstId);
+        $supportThread = Thread::query()->find($secondId);
+
+        $this->assertSame($mailboxA->id, $salesThread->mailbox_id);
+        $this->assertSame($mailboxB->id, $supportThread->mailbox_id);
+        $this->assertSame(2, Thread::query()->where('organization_id', $org->id)->count());
+    }
+
+    public function test_resend_duplicate_by_provider_email_id_is_deduplicated_at_webhook(): void
+    {
+        $this->mailbox();
+
+        $firstResponse = $this->postResend([
+            'type' => 'email.received',
+            'data' => [
+                'email_id' => 're_duplicate_test_123',
+                'from' => 'Jane <jane@example.com>',
+                'to' => ['support@acme.test'],
+                'subject' => 'First delivery',
+            ],
+        ])->assertStatus(202);
+
+        $secondResponse = $this->postResend([
+            'type' => 'email.received',
+            'data' => [
+                'email_id' => 're_duplicate_test_123',
+                'from' => 'Jane <jane@example.com>',
+                'to' => ['support@acme.test'],
+                'subject' => 'Resend retry delivery',
+            ],
+        ])->assertStatus(202);
+
+        $this->assertSame($firstResponse->json('email_id'), $secondResponse->json('email_id'));
+
+        Queue::assertPushedTimes(ProcessResendInboundEmail::class, 1);
     }
 
     public function test_duplicate_deliveries_are_ignored(): void
@@ -274,21 +377,32 @@ class InboundEmailTest extends TestCase
         $this->postJson('/api/v1/inbound/sendgrid', [])->assertNotFound();
     }
 
-    public function test_resend_webhook_with_valid_signature_is_stored(): void
+    public function test_resend_webhook_with_valid_signature_dispatches_job(): void
     {
         $this->mailbox();
 
-        $this->postResend([
+        Http::fake([
+            'api.resend.com/emails/receiving/re_123' => Http::response([
+                'text' => 'Body included',
+                'message_id' => '<resend-1@example.com>',
+                'received_for' => ['support@acme.test'],
+            ]),
+            'api.resend.com/emails/receiving/re_123/attachments' => Http::response(['data' => []]),
+        ]);
+
+        $payload = [
             'type' => 'email.received',
             'data' => [
                 'email_id' => 're_123',
                 'from' => 'Jane <jane@example.com>',
                 'to' => ['support@acme.test'],
                 'subject' => 'From Resend',
-                'message_id' => '<resend-1@example.com>',
-                'text' => 'Body included',
             ],
-        ])->assertCreated();
+        ];
+
+        $this->postResend($payload)->assertStatus(202)->assertJsonPath('status', 'accepted');
+
+        (new ProcessResendInboundEmail('re_123', $payload['data']))->handle();
 
         $message = Message::query()->firstOrFail();
         $this->assertSame('resend', $message->provider);
@@ -296,16 +410,10 @@ class InboundEmailTest extends TestCase
         $this->assertSame('Body included', $message->text_body);
     }
 
-    public function test_resend_fetches_body_when_webhook_has_metadata_only(): void
+    public function test_resend_webhook_returns_202_accepted_immediately(): void
     {
-        config(['services.resend.key' => 're_test_key']);
-        Http::fake([
-            'api.resend.com/emails/receiving/re_456' => Http::response([
-                'html' => '<p>Fetched body</p>',
-                'text' => 'Fetched body',
-            ]),
-        ]);
         $this->mailbox();
+        Http::fake();
 
         $this->postResend([
             'type' => 'email.received',
@@ -313,11 +421,34 @@ class InboundEmailTest extends TestCase
                 'email_id' => 're_456',
                 'from' => 'jane@example.com',
                 'to' => ['support@acme.test'],
-                'subject' => 'Metadata only',
+                'subject' => 'Quick ack',
             ],
-        ])->assertCreated();
+        ])->assertStatus(202)->assertJsonPath('status', 'accepted');
 
-        $this->assertSame('Fetched body', Message::query()->firstOrFail()->text_body);
+        $this->assertSame(0, Message::query()->count());
+    }
+
+    public function test_resend_processing_job_fetches_content_and_creates_message(): void
+    {
+        Http::fake([
+            'api.resend.com/emails/receiving/re_fetch' => Http::response([
+                'html' => '<p>Fetched body</p>',
+                'text' => 'Fetched body',
+                'received_for' => ['support@acme.test'],
+            ]),
+            'api.resend.com/emails/receiving/re_fetch/attachments' => Http::response(['data' => []]),
+        ]);
+        $this->mailbox();
+
+        $job = new ProcessResendInboundEmail('re_fetch', [
+            'from' => 'jane@example.com',
+            'to' => ['support@acme.test'],
+            'subject' => 'To be fetched',
+        ]);
+        $job->handle();
+
+        $message = Message::query()->firstOrFail();
+        $this->assertSame('Fetched body', $message->text_body);
         Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Bearer re_test_key'));
     }
 
@@ -546,7 +677,7 @@ class InboundEmailTest extends TestCase
         $this->call('POST', '/api/v1/inbound/resend', [], [], [], [
             'CONTENT_TYPE' => 'application/json',
             'HTTP_ACCEPT' => 'application/json',
-        ], json_encode($this->resendReceived(['text' => 'dev body'])))->assertCreated();
+        ], json_encode($this->resendReceived(['text' => 'dev body'])))->assertStatus(202);
     }
 
     public function test_production_with_secret_still_requires_a_valid_signature(): void
@@ -554,7 +685,7 @@ class InboundEmailTest extends TestCase
         $this->mailbox();
         $this->inProduction();
 
-        $this->postResend($this->resendReceived(['text' => 'ok']))->assertCreated();
+        $this->postResend($this->resendReceived(['text' => 'ok']))->assertStatus(202);
         $this->postResend($this->resendReceived(['text' => 'ok', 'message_id' => '<x@y>']), 'whsec_'.base64_encode('wrong'))
             ->assertUnauthorized();
     }
@@ -582,80 +713,107 @@ class InboundEmailTest extends TestCase
         $this->assertSame(0, Message::query()->count());
     }
 
-    public function test_resend_api_outage_returns_503_so_resend_retries(): void
+    public function test_resend_webhook_returns_202_immediately(): void
     {
-        config(['services.resend.key' => 're_test_key']);
         $this->mailbox();
+        Http::fake();
 
-        Http::fake(['api.resend.com/*' => Http::response(['message' => 'down'], 503)]);
-        $this->postResend($this->resendReceived())->assertStatus(503);
-
-        Http::fake(['api.resend.com/*' => fn () => throw new ConnectionException('timeout')]);
-        $this->postResend($this->resendReceived())->assertStatus(503);
+        $this->postResend($this->resendReceived())->assertStatus(202);
 
         $this->assertSame(0, Message::query()->count());
     }
 
-    public function test_resend_permanent_fetch_failure_still_stores_the_metadata(): void
+    public function test_resend_processing_job_retries_on_api_outage(): void
     {
-        config(['services.resend.key' => 're_test_key']);
+        $this->mailbox();
+
+        Http::fake(['api.resend.com/*' => Http::response(['message' => 'down'], 503)]);
+
+        $job = new ProcessResendInboundEmail('re_789', [
+            'from' => 'sender@example.com',
+            'to' => ['support@acme.test'],
+            'subject' => 'Test',
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $job->handle();
+    }
+
+    public function test_resend_permanent_fetch_failure_does_not_store_message(): void
+    {
         Http::fake(['api.resend.com/*' => Http::response(['message' => 'not found'], 404)]);
         $this->mailbox();
 
-        $this->postResend($this->resendReceived())->assertCreated();
+        $job = new ProcessResendInboundEmail('re_789', [
+            'from' => 'sender@example.com',
+            'to' => ['support@acme.test'],
+            'subject' => 'Live receive',
+        ]);
+        $job->handle();
 
-        $message = Message::query()->firstOrFail();
-        $this->assertSame('Live receive', $message->subject);
-        $this->assertSame('re_789', $message->provider_message_id);
+        $this->assertSame(0, Message::query()->count());
     }
 
-    public function test_resend_fetched_headers_are_used_for_threading(): void
+    public function test_resend_processing_job_uses_headers_for_threading(): void
     {
-        config(['services.resend.key' => 're_test_key']);
         $this->mailbox();
         $this->postGeneric(['message_id' => '<original@example.com>'])->assertCreated();
+        $originalThread = Thread::query()->firstOrFail();
 
         Http::fake([
             'api.resend.com/emails/receiving/re_789' => Http::response([
                 'object' => 'email',
                 'text' => 'Following up',
+                'in_reply_to' => '<original@example.com>',
                 'headers' => ['In-Reply-To' => '<original@example.com>'],
+                'received_for' => ['support@acme.test'],
             ]),
+            'api.resend.com/emails/receiving/re_789/attachments' => Http::response(['data' => []]),
         ]);
 
-        $this->postResend($this->resendReceived(['subject' => 'Different subject']))->assertCreated();
+        $job = new ProcessResendInboundEmail('re_789', [
+            'from' => 'sender@example.com',
+            'to' => ['support@acme.test'],
+            'subject' => 'Different subject',
+        ]);
+        $job->handle();
 
-        $this->assertSame(1, Thread::query()->count());
-        $this->assertSame(2, Thread::query()->firstOrFail()->messages()->count());
+        $resendMessage = Message::query()->where('provider_message_id', 're_789')->firstOrFail();
+        $this->assertSame($originalThread->id, $resendMessage->thread_id);
+        $this->assertSame('<original@example.com>', $resendMessage->in_reply_to);
+        $this->assertSame('Following up', $resendMessage->text_body);
     }
 
-    public function test_resend_attachments_are_downloaded_from_the_attachments_api(): void
+    public function test_resend_processing_job_downloads_attachments(): void
     {
-        config(['services.resend.key' => 're_test_key']);
         $this->mailbox();
 
         Http::fake([
+            'api.resend.com/emails/receiving/re_789' => Http::response([
+                'text' => 'See attached',
+                'received_for' => ['support@acme.test'],
+            ]),
             'api.resend.com/emails/receiving/re_789/attachments' => Http::response(['object' => 'list', 'data' => [
                 ['id' => 'att_1', 'filename' => 'invoice.pdf', 'content_type' => 'application/pdf', 'download_url' => 'https://files.resend.test/att_1'],
                 ['id' => 'att_2', 'filename' => 'broken.png', 'content_type' => 'image/png', 'download_url' => 'https://files.resend.test/att_2'],
             ]]),
-            'api.resend.com/emails/receiving/re_789' => Http::response(['text' => 'See attached']),
             'files.resend.test/att_1' => Http::response('%PDF-1.7 fake'),
             'files.resend.test/att_2' => Http::response('', 403),
         ]);
 
-        $this->postResend($this->resendReceived([
-            'attachments' => [
-                ['id' => 'att_1', 'filename' => 'invoice.pdf', 'content_type' => 'application/pdf'],
-                ['id' => 'att_2', 'filename' => 'broken.png', 'content_type' => 'image/png'],
-            ],
-        ]))->assertCreated();
+        $job = new ProcessResendInboundEmail('re_789', [
+            'from' => 'sender@example.com',
+            'to' => ['support@acme.test'],
+            'subject' => 'With attachments',
+        ]);
+        $job->handle();
 
-        // The file that downloaded is stored; the failed one is skipped, not fatal.
+        $message = Message::query()->firstOrFail();
+        $this->assertSame('See attached', $message->text_body);
+
         $attachment = Attachment::query()->sole();
         $this->assertSame('invoice.pdf', $attachment->filename);
         $this->assertSame('%PDF-1.7 fake', Storage::disk('local')->get($attachment->path));
-        $this->assertSame('See attached', Message::query()->firstOrFail()->text_body);
     }
 
     public function test_inbound_outcomes_are_logged_to_the_configured_channel(): void

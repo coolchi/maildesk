@@ -10,6 +10,17 @@ use Illuminate\Support\Str;
 class InboundEmail
 {
     /**
+     * When set, the body and/or attachments need to be fetched asynchronously.
+     */
+    public ?string $deferredFetchEmailId = null;
+
+    /**
+     * When true, the email is being processed asynchronously by a job.
+     * The controller should return 202 Accepted without storing a message.
+     */
+    public bool $deferredProcessing = false;
+
+    /**
      * @param  array<int, string>  $to
      * @param  array<int, string>  $cc
      * @param  array<int, string>  $replyTo

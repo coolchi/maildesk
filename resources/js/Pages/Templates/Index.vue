@@ -7,6 +7,7 @@ import StatusBadge from '@/Components/StatusBadge.vue';
 import EmptyState from '@/Components/EmptyState.vue';
 import RowActions from '@/Components/RowActions.vue';
 import Modal from '@/Components/Modal.vue';
+import SandboxedHtml from '@/Components/SandboxedHtml.vue';
 import { useToast } from '@/composables/useToast';
 import {
     Copy,
@@ -166,8 +167,14 @@ const thumbStyle = (tpl) => ({
                         >
                             <div
                                 class="origin-top scale-[0.55] w-[180%] -translate-x-[12%]"
-                                v-html="tpl.html"
-                            />
+                            >
+                                <SandboxedHtml
+                                    :html="tpl.html"
+                                    :min-height="300"
+                                    :auto-resize="false"
+                                    :title="`${tpl.name} preview`"
+                                />
+                            </div>
                         </div>
                         <div
                             class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-zinc-950 to-transparent"

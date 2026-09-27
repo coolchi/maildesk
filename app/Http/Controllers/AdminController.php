@@ -83,15 +83,34 @@ class AdminController extends Controller
         ]);
     }
 
-    public function accounts(): Response
+    public const ACCOUNTS_PER_PAGE = 50;
+
+    public function accounts(Request $request): Response
     {
-        $accounts = Organization::query()
+        $search = trim((string) $request->query('search', ''));
+        $status = $request->query('status');
+        $validStatuses = ['active', 'trial', 'past_due', 'suspended'];
+
+        $query = Organization::query()
             ->with('mailProvider')
-            ->orderBy('name')
-            ->get()
-            ->pipe(fn ($orgs) => app(EmailUsage::class)->attach($orgs))
-            ->map->toAdminArray()
-            ->values();
+            ->when($search !== '', function ($q) use ($search) {
+                $like = '%'.strtolower($search).'%';
+                $q->where(function ($inner) use ($like) {
+                    $inner->whereRaw('lower(name) like ?', [$like])
+                        ->orWhereRaw('lower(slug) like ?', [$like])
+                        ->orWhereRaw('lower(owner_email) like ?', [$like]);
+                });
+            })
+            ->when($status && in_array($status, $validStatuses, true), function ($q) use ($status) {
+                $q->where('status', $status);
+            })
+            ->orderBy('name');
+
+        $paginator = $query->paginate(self::ACCOUNTS_PER_PAGE)->withQueryString();
+        $orgs = collect($paginator->items());
+        $orgs = app(EmailUsage::class)->attach($orgs);
+
+        $accounts = $orgs->map->toAdminArray()->values();
 
         $providers = MailProvider::query()
             ->withCount('organizations')
@@ -100,8 +119,28 @@ class AdminController extends Controller
             ->map->toAdminArray()
             ->values();
 
+        $stats = [
+            'total' => Organization::count(),
+            'active' => Organization::where('status', 'active')->count(),
+            'trial' => Organization::where('status', 'trial')->count(),
+            'suspended' => Organization::where('status', 'suspended')->count(),
+        ];
+
         return Inertia::render('Admin/Accounts/Index', [
             'accounts' => $accounts,
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+            'filters' => [
+                'search' => $search !== '' ? $search : null,
+                'status' => $status && in_array($status, $validStatuses, true) ? $status : null,
+            ],
+            'stats' => $stats,
             'providers' => $providers,
         ]);
     }

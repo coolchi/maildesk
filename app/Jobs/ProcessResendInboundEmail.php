@@ -1,44 +1,110 @@
 <?php
 
-namespace App\Services;
+namespace App\Jobs;
 
 use App\Events\InboxUpdated;
-use App\Jobs\ClassifyInboundMessage;
-use App\Jobs\DispatchWebhook;
-use App\Jobs\FetchInboundEmailBody;
 use App\Mail\DTO\InboundEmail;
+use App\Mail\Inbound\GenericInboundDriver;
 use App\Models\Attachment;
 use App\Models\Domain;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Organization;
 use App\Models\Thread;
+use App\Services\GroupAddressService;
+use App\Services\SmartTriageService;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Throwable;
 
-class InboundEmailService
+/**
+ * Processes a Resend inbound email asynchronously.
+ *
+ * When the Resend webhook arrives, it only contains metadata. This job:
+ * 1. Fetches the full email content from Resend's receiving API
+ * 2. Routes the email using received_for, then to/cc/bcc
+ * 3. Creates the message and thread
+ * 4. Downloads and stores attachments
+ *
+ * This approach avoids webhook timeouts and allows proper routing based on
+ * the received_for field which is only available from the API.
+ */
+class ProcessResendInboundEmail implements ShouldQueue
 {
+    use Queueable;
+
+    public int $tries = 3;
+
+    public array $backoff = [5, 30, 120];
+
     /**
-     * Store a received email in the right tenant's shared inbox.
-     * Returns null when no organization owns any of the recipients.
+     * @param  array<string, mixed>  $webhookData  The data from the webhook payload
      */
-    public function receive(InboundEmail $email): ?Message
+    public function __construct(
+        public string $emailId,
+        public array $webhookData = [],
+    ) {}
+
+    public function handle(): void
     {
+        $key = config('services.resend.key');
+
+        if (blank($key)) {
+            Log::warning('ProcessResendInboundEmail: RESEND_API_KEY not set', [
+                'email_id' => $this->emailId,
+            ]);
+
+            return;
+        }
+
+        $apiUrl = rtrim((string) config('maildesk.inbound.resend_api_url', 'https://api.resend.com'), '/');
+
+        $content = $this->fetchContent($key, $apiUrl);
+
+        if ($content === null) {
+            Log::warning('ProcessResendInboundEmail: could not fetch email content', [
+                'email_id' => $this->emailId,
+            ]);
+
+            return;
+        }
+
+        $mergedData = array_merge($this->webhookData, $content);
+        $email = GenericInboundDriver::fromArray('resend', $mergedData, $this->emailId);
+
+        if ($email === null) {
+            Log::warning('ProcessResendInboundEmail: could not parse email', [
+                'email_id' => $this->emailId,
+            ]);
+
+            return;
+        }
+
         [$organization, $mailbox] = $this->resolveRecipient($email);
 
         if ($organization === null) {
-            Log::info('Inbound email dropped: no matching mailbox or domain', [
+            Log::info('ProcessResendInboundEmail: no matching mailbox or domain', [
+                'email_id' => $this->emailId,
                 'recipients' => $email->recipients(),
                 'from' => $email->fromEmail,
             ]);
 
-            return null;
+            return;
         }
 
         if ($existing = $this->findDuplicate($organization, $email)) {
-            return $existing;
+            Log::info('ProcessResendInboundEmail: duplicate ignored', [
+                'email_id' => $this->emailId,
+                'existing_message_id' => $existing->id,
+            ]);
+
+            return;
         }
 
         $message = DB::transaction(function () use ($organization, $mailbox, $email) {
@@ -82,7 +148,6 @@ class InboundEmailService
                 'last_message_at' => now(),
                 'message_count' => $thread->messages()->count(),
                 'is_read' => false,
-                // Gmail-style: a reply resurfaces the conversation in the inbox.
                 'is_trashed' => false,
                 'trashed_at' => null,
                 'is_archived' => false,
@@ -103,26 +168,55 @@ class InboundEmailService
 
         InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
 
-        // Mail to a group address (staff@...) is copied to each member via the queue.
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());
 
         if (app(SmartTriageService::class)->shouldTriage()) {
             ClassifyInboundMessage::dispatch($message->id);
         }
 
-        if ($email->deferredFetchEmailId !== null) {
-            FetchInboundEmailBody::dispatch($message->id, $email->deferredFetchEmailId);
-        }
+        $this->fetchAndStoreAttachments($message, $key, $apiUrl);
 
-        $fresh = $message->fresh(['attachments', 'thread']);
-        $fresh->wasRecentlyCreated = true;
-
-        return $fresh;
+        Log::info('ProcessResendInboundEmail: email received', [
+            'email_id' => $this->emailId,
+            'message_id' => $message->id,
+            'organization_id' => $organization->id,
+            'thread_id' => $message->thread_id,
+        ]);
     }
 
     /**
-     * Exact mailbox match first; otherwise the organization owning the domain (catch-all).
-     *
+     * @return array<string, mixed>|null
+     */
+    protected function fetchContent(string $key, string $apiUrl): ?array
+    {
+        try {
+            $response = Http::withToken($key)
+                ->acceptJson()
+                ->timeout(30)
+                ->get("{$apiUrl}/emails/receiving/{$this->emailId}");
+        } catch (ConnectionException $e) {
+            throw $e;
+        }
+
+        if ($response->serverError() || $response->status() === 429) {
+            throw new \RuntimeException("Resend API returned {$response->status()}");
+        }
+
+        if (! $response->successful()) {
+            Log::warning('ProcessResendInboundEmail: content fetch failed', [
+                'email_id' => $this->emailId,
+                'status' => $response->status(),
+            ]);
+
+            return null;
+        }
+
+        $body = $response->json();
+
+        return is_array($body['data'] ?? null) ? $body['data'] : (is_array($body) ? $body : []);
+    }
+
+    /**
      * @return array{0: ?Organization, 1: ?Mailbox}
      */
     protected function resolveRecipient(InboundEmail $email): array
@@ -179,14 +273,6 @@ class InboundEmailService
             ->first();
     }
 
-    /**
-     * Thread by In-Reply-To / References; fall back to the same sender and
-     * normalised subject in the same mailbox within the last 30 days.
-     *
-     * Subject fallback is intentionally strict: it requires a reply/forward
-     * marker (Re:, Fwd:, etc.) to prevent false matches on coincidentally
-     * similar subjects.
-     */
     protected function findThread(Organization $organization, ?Mailbox $mailbox, InboundEmail $email): ?Thread
     {
         $ids = $email->referencedMessageIds();
@@ -259,5 +345,68 @@ class InboundEmailService
                 'path' => $path,
             ]);
         }
+    }
+
+    protected function fetchAndStoreAttachments(Message $message, string $key, string $apiUrl): void
+    {
+        if ($message->attachments()->exists()) {
+            return;
+        }
+
+        try {
+            $response = Http::withToken($key)
+                ->acceptJson()
+                ->timeout(30)
+                ->get("{$apiUrl}/emails/receiving/{$this->emailId}/attachments");
+        } catch (ConnectionException) {
+            return;
+        }
+
+        if (! $response->successful()) {
+            return;
+        }
+
+        $items = $response->json('data') ?? [];
+        $disk = (string) config('maildesk.inbound.attachments_disk', 'local');
+
+        foreach (is_array($items) ? $items : [] as $item) {
+            $url = is_array($item) ? ($item['download_url'] ?? null) : null;
+
+            if (! is_string($url) || $url === '') {
+                continue;
+            }
+
+            try {
+                $file = Http::timeout(30)->get($url);
+            } catch (ConnectionException) {
+                continue;
+            }
+
+            if (! $file->successful()) {
+                continue;
+            }
+
+            $filename = (string) ($item['filename'] ?? 'attachment');
+            $path = 'attachments/'.$message->organization_id.'/inbound/'.Str::uuid().'-'.$filename;
+
+            Storage::disk($disk)->put($path, $file->body());
+
+            Attachment::query()->create([
+                'message_id' => $message->id,
+                'filename' => $filename,
+                'content_type' => (string) ($item['content_type'] ?? 'application/octet-stream'),
+                'size' => strlen($file->body()),
+                'disk' => $disk,
+                'path' => $path,
+            ]);
+        }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        Log::warning('ProcessResendInboundEmail failed', [
+            'email_id' => $this->emailId,
+            'error' => $exception?->getMessage(),
+        ]);
     }
 }

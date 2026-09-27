@@ -422,6 +422,8 @@ const onMore = (item) => {
                             <iframe
                                 title="Email preview"
                                 class="block w-full border-0 bg-zinc-100"
+                                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                referrerpolicy="no-referrer"
                                 :style="{
                                     height:
                                         device === 'mobile' ? '480px' : '520px',

@@ -218,16 +218,52 @@ npm test
 npm run build        # production frontend build
 ```
 
+## Production deployment
+
+### Required environment changes
+
+Update these values in `.env` for production:
+
+| Variable | Local value | Production value (example) |
+|---|---|---|
+| `APP_ENV` | `local` | `production` |
+| `APP_DEBUG` | `true` | `false` |
+| `APP_URL` | `http://maildesk.test` | `https://maildesk.ng` |
+| `SESSION_DOMAIN` | `.maildesk.test` | `.maildesk.ng` |
+| `SESSION_SECURE_COOKIE` | `false` | `true` |
+| `SANCTUM_STATEFUL_DOMAINS` | `maildesk.test,*.maildesk.test` | `maildesk.ng,*.maildesk.ng` |
+| `MAILDESK_BASE_DOMAIN` | `maildesk.test` | `maildesk.ng` |
+| `MAILDESK_CENTRAL_DOMAINS` | `maildesk.test` | `maildesk.ng` |
+
+### Session cookie domain
+
+The leading dot in `SESSION_DOMAIN` (e.g. `.maildesk.ng`) allows sessions to be shared across the apex domain and all subdomains. This is required for workspace switching and cross-subdomain authentication to work correctly.
+
+When changing the session domain, also update `SESSION_COOKIE` to invalidate old sessions (e.g. increment from `maildesk_session_v4` to `maildesk_session_v5`).
+
+### Queue and scheduler
+
+A queue worker and the scheduler are required:
+
+```bash
+php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+php artisan schedule:work
+```
+
+Use a process supervisor (systemd, Supervisor) to keep the queue worker running.
+
+### Database
+
+For production, use PostgreSQL or MySQL instead of SQLite.
+
 ## Known gaps / roadmap
 
 1. **Domain status accuracy** — reflect Resend's `partially_verified` state instead of showing "verified".
 2. **Open and click tracking go-live** — re-check each sending domain so the `links` CNAME is added, then subscribe the live Resend webhook to `email.opened` and `email.clicked`. Delivery-delayed events are not handled.
-3. **Email rendering** — `<style>` blocks are stripped and remote images auto-load; template and broadcast previews still use `v-html` in places.
-4. **SMTP** — no delivery or bounce event feed for SMTP-sent mail, and no inbound SMTP relay.
-5. **Webhook follow-ups** — auto-disable after repeated failures, prune old delivery rows, manual redeliver.
-6. **Billing** — Monipay is prepaid (no saved card, no automatic renewal). Each period is a new checkout.
-7. **CRM fields** — Properties and Topics audience tabs are deferred. API key export and in-app support chat are unfinished.
-8. **Production host** — the repo defaults to SQLite and `maildesk.test`. A live deploy needs Postgres or MySQL, `APP_ENV=production`, a public domain, and a running queue worker plus scheduler.
+3. **SMTP** — no delivery or bounce event feed for SMTP-sent mail, and no inbound SMTP relay.
+4. **Webhook follow-ups** — auto-disable after repeated failures, prune old delivery rows, manual redeliver.
+5. **Billing** — Monipay is prepaid (no saved card, no automatic renewal). Each period is a new checkout.
+6. **CRM fields** — Properties and Topics audience tabs are deferred. API key export and in-app support chat are unfinished.
 
 ## License
 
