@@ -218,6 +218,67 @@ npm test
 npm run build        # production frontend build
 ```
 
+## E2E Mail Test
+
+The E2E mail test (`php artisan maildesk:e2e`) verifies that the complete email pipeline works in production: sending through Resend, delivery via MX, receipt via the inbound webhook, and storage in the inbox.
+
+### Running the test
+
+```bash
+# Basic test (send and receive)
+php artisan maildesk:e2e
+
+# Include delivery events test
+php artisan maildesk:e2e --events
+
+# Custom timeout (default 180 seconds)
+php artisan maildesk:e2e --timeout=300
+
+# Override addresses
+php artisan maildesk:e2e --from=test@yourdomain.com --mailbox=e2e@yourdomain.com
+```
+
+### Admin UI
+
+Platform admins can run the test from `/admin/system-test`. The page shows:
+- Configuration status (API key, webhook secret)
+- A "Run Test" button that dispatches the test as a queued job
+- Step-by-step progress with timing
+- Recent test run history
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `MAILDESK_E2E_FROM` | `MAIL_FROM_ADDRESS` | Sender address for test emails |
+| `MAILDESK_E2E_MAILBOX` | `e2e-check@maildesk.ng` | Test mailbox to receive emails |
+| `MAILDESK_E2E_TIMEOUT` | `180` | Seconds to wait for inbound email |
+
+### Prerequisites
+
+1. **RESEND_API_KEY** and **RESEND_WEBHOOK_SECRET** must be set
+2. A **queue worker** must be running (`php artisan queue:work`)
+3. The test mailbox domain must have **receiving enabled** in Resend
+4. MX records must point to Resend for the test domain
+
+### Test steps
+
+1. **Preflight** — verifies config, queue worker health, and domain receiving status
+2. **Send** — sends an email through the normal outbound pipeline
+3. **Receive** — polls for the inbound message (up to timeout)
+4. **Events** (optional) — tests delivery event webhooks
+5. **Cleanup** — moves test threads to trash
+
+### Failure hints
+
+| Failure | Likely cause |
+|---|---|
+| "RESEND_API_KEY is not set" | Add the key to `.env` |
+| "Queue worker did not respond" | Start `php artisan queue:work` |
+| "Domain does not have receiving enabled" | Enable receiving in Resend dashboard |
+| "Inbound message not received" | Check MX records, webhook URL, and webhook secret |
+| "Processing job failed" | Check `failed_jobs` table for details |
+
 ## Production deployment
 
 ### Required environment changes
