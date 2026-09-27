@@ -177,14 +177,16 @@ class DomainVerificationTest extends TestCase
         $this->dns->txt['resend._domainkey.in.acme.test'] = [self::DKIM];
         $this->dns->txt['_dmarc.in.acme.test'] = ['v=DMARC1; p=none;'];
 
-        $this->verify($user, $org, $domain)->assertSessionHas('success');
+        $this->verify($user, $org, $domain)->assertSessionHas('error');
 
         Http::assertSent(fn (HttpRequest $r) => $r->method() === 'POST'
             && $r->url() === 'https://api.resend.com/domains'
             && $r['name'] === 'in.acme.test'
             && $r['region'] === 'eu-west-1'
             && $r->hasHeader('Authorization', 'Bearer re_test_key'));
-        Http::assertSent(fn (HttpRequest $r) => $r->method() === 'POST' && str_ends_with($r->url(), '/domains/dom_123/verify'));
+        Http::assertSent(fn (HttpRequest $r) => $r->method() === 'POST'
+            && str_ends_with($r->url(), '/domains/dom_123/verify')
+            && $r->body() === '{}');
         Http::assertSent(fn (HttpRequest $r) => $r->method() === 'PATCH'
             && $r->url() === 'https://api.resend.com/domains/dom_123'
             && $r['open_tracking'] === true
@@ -193,7 +195,7 @@ class DomainVerificationTest extends TestCase
 
         $domain->refresh();
         $this->assertSame('dom_123', $domain->provider_domain_id);
-        $this->assertSame('verified', $domain->status);
+        $this->assertSame('pending', $domain->status);
         $this->assertSame('pending', $domain->dns_records['provider']['status']);
         $this->assertSame(['spf', 'dkim', 'mx'], $domain->dns_records['required']);
         $this->assertSame([], $domain->dns_records['warnings']);
@@ -392,6 +394,71 @@ class DomainVerificationTest extends TestCase
 
         Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r->url() === 'https://api.resend.com/domains');
         Http::assertSent(fn (HttpRequest $r) => str_ends_with($r->url(), '/domains/dom_known/verify'));
+    }
+
+    public function test_stuck_partial_resend_domain_is_replaced_when_dns_already_matches(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'stuck.test',
+            'provider_domain_id' => 'dom_stuck',
+        ]);
+
+        $freshDkim = 'p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDfreshKey456';
+        $stuckRecords = [
+            ['record' => 'DKIM', 'name' => 'resend._domainkey', 'type' => 'TXT', 'value' => self::DKIM, 'status' => 'pending'],
+            ['record' => 'SPF', 'name' => 'send', 'type' => 'TXT', 'value' => 'v=spf1 include:amazonses.com ~all', 'status' => 'pending'],
+            ['record' => 'SPF', 'name' => 'send', 'type' => 'MX', 'value' => 'feedback-smtp.us-east-1.amazonses.com', 'priority' => 10, 'status' => 'pending'],
+            ['record' => 'SPF', 'name' => 'rsend', 'type' => 'CNAME', 'value' => 'send.forge.rmta.net', 'status' => 'verified'],
+        ];
+
+        Http::fake(function (HttpRequest $r) use ($stuckRecords, $freshDkim) {
+            return match (true) {
+                $r->method() === 'DELETE' && str_ends_with($r->url(), '/domains/dom_stuck') => Http::response(['id' => 'dom_stuck', 'deleted' => true]),
+                $r->method() === 'GET' && $r->url() === 'https://api.resend.com/domains' => Http::response(['data' => []]),
+                $r->method() === 'POST' && $r->url() === 'https://api.resend.com/domains' => Http::response(['id' => 'dom_fresh', 'name' => 'stuck.test', 'status' => 'not_started'], 201),
+                $r->method() === 'GET' && str_ends_with($r->url(), '/domains/dom_stuck') => Http::response([
+                    'id' => 'dom_stuck',
+                    'status' => 'partially_verified',
+                    'region' => 'us-east-1',
+                    'created_at' => now()->subHours(8)->toIso8601String(),
+                    'records' => $stuckRecords,
+                ]),
+                $r->method() === 'GET' && str_ends_with($r->url(), '/domains/dom_fresh') => Http::response([
+                    'id' => 'dom_fresh',
+                    'status' => 'not_started',
+                    'region' => 'us-east-1',
+                    'created_at' => now()->toIso8601String(),
+                    'records' => [
+                        ['record' => 'DKIM', 'name' => 'resend._domainkey', 'type' => 'TXT', 'value' => $freshDkim],
+                        ['record' => 'SPF', 'name' => 'send', 'type' => 'TXT', 'value' => 'v=spf1 include:amazonses.com ~all'],
+                        ['record' => 'SPF', 'name' => 'send', 'type' => 'MX', 'value' => 'feedback-smtp.us-east-1.amazonses.com', 'priority' => 10],
+                        ['record' => 'SPF', 'name' => 'rsend', 'type' => 'CNAME', 'value' => 'send.forge.rmta.net'],
+                    ],
+                ]),
+                $r->method() === 'PATCH' => Http::response(['id' => 'dom_fresh']),
+                str_ends_with($r->url(), '/verify') && $r->body() === '{}' => Http::response(['id' => 'dom_fresh']),
+                default => Http::response(['message' => 'unexpected '.$r->method().' '.$r->url()], 500),
+            };
+        });
+
+        $this->dns->txt['resend._domainkey.stuck.test'] = [self::DKIM];
+        $this->dns->txt['send.stuck.test'] = ['v=spf1 include:amazonses.com ~all'];
+        $this->dns->mx['send.stuck.test'] = [['host' => 'feedback-smtp.us-east-1.amazonses.com', 'priority' => 10]];
+        $this->dns->cname['rsend.stuck.test'] = ['send.forge.rmta.net'];
+
+        $this->verify($user, $org, $domain);
+
+        Http::assertSent(fn (HttpRequest $r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/domains/dom_stuck'));
+        Http::assertSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r->url() === 'https://api.resend.com/domains' && $r['region'] === 'us-east-1');
+
+        $domain->refresh();
+        $this->assertSame('dom_fresh', $domain->provider_domain_id);
+        $this->assertSame(1, $domain->dns_records['provider']['replacements']);
+        $dkim = collect($domain->dns_records['records'])->firstWhere('key', 'dkim');
+        $this->assertSame($freshDkim, $dkim['value']);
     }
 
     public function test_resend_outage_does_not_block_dns_check_and_is_reported(): void

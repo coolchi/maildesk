@@ -267,7 +267,10 @@ const verify = () => {
 
         <PageHeader :title="domain.name" description="DNS verification wizard">
             <template #actions>
-                <StatusBadge :status="statusLabel" />
+                <StatusBadge
+                    :status="statusLabel"
+                    :loading="statusLabel === 'pending'"
+                />
             </template>
         </PageHeader>
 

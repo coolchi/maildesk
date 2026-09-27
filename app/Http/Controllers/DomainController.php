@@ -131,6 +131,10 @@ class DomainController extends Controller
         $failing = strtoupper(implode(', ', $result['failing']));
         $message = "{$domain->name} is not verified yet. Not detected in DNS: {$failing}. DNS can take a while to propagate; re-check later.";
 
+        if (($result['provider_status'] ?? null) !== null && $result['provider_status'] !== 'verified' && $result['failing'] === []) {
+            $message = "{$domain->name} DNS matches, but Resend still reports {$result['provider_status']}. Wait a few minutes and verify again.";
+        }
+
         if ($result['provider_error']) {
             $message .= ' Resend registration failed: '.$result['provider_error'];
         }

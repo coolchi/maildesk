@@ -49,11 +49,15 @@ class DomainVerifier
         }
 
         $dns = $this->autoPublish($domain, $dns);
+        $this->requestProviderVerification($domain, $dns);
 
         [$checks, $results, $required] = $this->checkRecords($domain->name, $dns['records']);
 
         $failing = array_values(array_filter($required, fn (string $key) => ! ($checks[$key] ?? false)));
-        $verified = $failing === [];
+        $providerStatus = $dns['provider']['status'] ?? null;
+        // DNS can match our own placeholders while Resend still rejects the domain.
+        $waitingOnProvider = is_string($providerStatus) && $providerStatus !== 'verified';
+        $verified = $failing === [] && ! $waitingOnProvider;
         $warnings = $this->warnings($domain->name, $checks);
 
         $dns['checks'] = $checks;
@@ -64,9 +68,9 @@ class DomainVerifier
         $dns['provider_error'] = $providerError;
 
         $domain->forceFill([
-            'status' => $verified ? 'verified' : 'failed',
+            'status' => $verified ? 'verified' : ($failing === [] && $waitingOnProvider ? 'pending' : 'failed'),
             'verified_at' => $verified ? ($domain->verified_at ?? now()) : null,
-            'dns_records' => $dns,
+            'dns_records' => $this->utf8($dns),
         ])->save();
 
         return [
@@ -75,6 +79,7 @@ class DomainVerifier
             'failing' => $failing,
             'warnings' => $warnings,
             'provider_error' => $providerError,
+            'provider_status' => is_string($providerStatus) ? $providerStatus : null,
         ];
     }
 
@@ -117,11 +122,6 @@ class DomainVerifier
             // Resolved lazily: the record manager itself depends on this class.
             $counts = app(DnsRecordManager::class)->apply($domain, $connection);
             $dns['auto_publish'] = [...$counts, 'error' => null, 'at' => now()->toIso8601String()];
-
-            if ($counts['created'] + $counts['updated'] > 0 && filled($domain->provider_domain_id) && $this->shouldSyncWithResend($domain)) {
-                // Ask the provider to look again now that the records exist.
-                $this->resend->triggerVerify((string) $domain->provider_domain_id);
-            }
         } catch (DnsProviderException $e) {
             Log::warning('Automatic DNS publish failed', ['domain' => $domain->name, 'error' => $e->getMessage()]);
             $dns['auto_publish'] = ['created' => 0, 'updated' => 0, 'error' => $e->getMessage(), 'at' => now()->toIso8601String()];
@@ -135,6 +135,76 @@ class DomainVerifier
         return $domain->provider === 'resend'
             && (bool) config('maildesk.domains.register_with_provider', true)
             && $this->resend->isConfigured();
+    }
+
+    /**
+     * Ask Resend to check only after DNS has been published, and skip domains
+     * it already accepts. Verifying earlier latches a "missing SPF" result
+     * that this same domain never clears.
+     *
+     * @param  array<string, mixed>  $dns
+     */
+    private function requestProviderVerification(Domain $domain, array $dns): void
+    {
+        if (! $this->shouldSyncWithResend($domain) || blank($domain->provider_domain_id)) {
+            return;
+        }
+
+        if (($dns['provider']['status'] ?? null) === 'verified') {
+            return;
+        }
+
+        $this->resend->triggerVerify((string) $domain->provider_domain_id);
+    }
+
+    /**
+     * Resend leaves some domains on "partially verified" even after every
+     * record is publicly visible. A new domain verifies; retrying the old one
+     * does not. Pending for more than 15 minutes with DNS already correct is
+     * the same stuck state.
+     *
+     * @param  array<string, mixed>  $remote
+     */
+    private function shouldReplaceStuck(Domain $domain, array $remote, int $replacements): bool
+    {
+        if ($replacements >= 2 || blank($domain->provider_domain_id)) {
+            return false;
+        }
+
+        $status = (string) ($remote['status'] ?? '');
+        $terminal = in_array($status, ['partially_verified', 'partially_failed', 'failed'], true);
+        $createdAt = isset($remote['created_at']) ? strtotime((string) $remote['created_at']) : false;
+        $pendingTooLong = $status === 'pending' && $createdAt !== false && $createdAt <= now()->subMinutes(15)->getTimestamp();
+
+        if (! $terminal && ! $pendingTooLong) {
+            return false;
+        }
+
+        $records = (array) ($remote['records'] ?? []);
+        $unfinished = array_filter(
+            $records,
+            fn ($record) => is_array($record) && isset($record['status']) && $record['status'] !== 'verified',
+        );
+
+        if ($unfinished === []) {
+            return false;
+        }
+
+        $rows = $this->rowsFromResend($records, $domain->name);
+
+        if ($rows === []) {
+            return false;
+        }
+
+        [$checks, , $required] = $this->checkRecords($domain->name, $rows);
+
+        foreach ($required as $key) {
+            if (! ($checks[$key] ?? false)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -165,9 +235,26 @@ class DomainVerifier
             }
         }
 
+        $replacements = (int) data_get($domain->dns_records, 'provider.replacements', 0);
+        $replaced = false;
+
+        if (is_array($remote ?? null) && $this->shouldReplaceStuck($domain, $remote, $replacements)) {
+            $oldId = (string) $domain->provider_domain_id;
+            $region = isset($remote['region']) ? (string) $remote['region'] : $domain->organization?->region;
+            Log::warning('Replacing Resend domain that is stuck short of verified', [
+                'domain' => $domain->name,
+                'resend_id' => $oldId,
+                'status' => $remote['status'] ?? null,
+            ]);
+            $remote = $this->resend->replace($oldId, $domain->name, $region);
+            $domain->forceFill(['provider_domain_id' => (string) $remote['id']])->save();
+            $replacements++;
+            $replaced = true;
+        }
+
         if (filled($domain->provider_domain_id)) {
             try {
-                $tracked = $this->resend->enableTracking(
+                $this->resend->enableTracking(
                     (string) $domain->provider_domain_id,
                     isset($remote['tracking_subdomain']) ? (string) $remote['tracking_subdomain'] : null,
                 );
@@ -176,14 +263,17 @@ class DomainVerifier
                     'domain' => $domain->name,
                     'error' => $e->getMessage(),
                 ]);
-                $tracked = null;
             }
 
-            if (is_array($tracked) && $tracked !== []) {
-                $remote = $tracked;
-            }
+            // The tracking update often returns a domain payload with no DNS
+            // records. Re-read the domain so we publish Resend's records, not
+            // the local placeholders. Verification is requested only after
+            // those records have been published.
+            $fresh = $this->resend->get((string) $domain->provider_domain_id);
 
-            $this->resend->triggerVerify((string) $domain->provider_domain_id);
+            if (is_array($fresh)) {
+                $remote = $fresh;
+            }
         }
 
         $remote ??= [];
@@ -193,6 +283,8 @@ class DomainVerifier
             'id' => $domain->provider_domain_id,
             'status' => $remote['status'] ?? null,
             'region' => $remote['region'] ?? null,
+            'replacements' => $replacements,
+            'replaced' => $replaced,
         ];
 
         $rows = $this->rowsFromResend((array) ($remote['records'] ?? []), $domain->name);
@@ -410,6 +502,31 @@ class DomainVerifier
         }
 
         return $this->normalize($txt) === $this->normalize($expected);
+    }
+
+    /**
+     * DNS answers can contain bytes that are not valid UTF-8. Drop those
+     * before the JSON column is written so verification never 500s.
+     */
+    private function utf8(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            $clean = [];
+
+            foreach ($value as $key => $item) {
+                $clean[$key] = $this->utf8($item);
+            }
+
+            return $clean;
+        }
+
+        if (! is_string($value) || mb_check_encoding($value, 'UTF-8')) {
+            return $value;
+        }
+
+        $clean = iconv('UTF-8', 'UTF-8//IGNORE', $value);
+
+        return is_string($clean) ? $clean : '';
     }
 
     private function normalize(string $value): string

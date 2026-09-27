@@ -143,6 +143,10 @@ class Message extends Model
             'click_count' => (int) ($this->meta['click_count'] ?? 0),
             'direction' => $this->direction,
             'log' => $this->direction === 'inbound' ? 'INBOUND' : 'POST /emails',
+            'error' => in_array($this->status, ['failed', 'bounced', 'complained', 'suppressed'], true)
+                ? (data_get($this->meta, 'bounce.message') ?? data_get($this->meta, 'error'))
+                : null,
+            'can_retry' => $this->status === 'failed' && $this->direction === 'outbound',
             'attachments' => [],
         ];
 

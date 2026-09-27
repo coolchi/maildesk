@@ -1,6 +1,9 @@
 <script setup>
+import { LoaderCircle } from '@lucide/vue';
+
 const props = defineProps({
     status: { type: String, required: true },
+    loading: { type: Boolean, default: false },
 });
 
 const styles = {
@@ -73,6 +76,12 @@ const labels = {
             labels[status] ? '' : 'capitalize',
         ]"
     >
+        <LoaderCircle
+            v-if="loading"
+            :size="11"
+            class="mr-1 animate-spin"
+            aria-hidden="true"
+        />
         {{ labels[status] || status }}
     </span>
 </template>

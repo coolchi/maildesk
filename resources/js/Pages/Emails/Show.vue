@@ -2,18 +2,19 @@
 import AttachmentList from '@/Components/AttachmentList.vue';
 import EmailFrame from '@/Components/EmailFrame.vue';
 import { computed, ref } from 'vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
+import { useToast } from '@/composables/useToast';
 import {
     ArrowLeft,
     CheckCircle2,
     Code2,
     Copy,
-    FileText,
     Mail,
     MoreHorizontal,
     Paperclip,
+    RotateCw,
     Send,
 } from '@lucide/vue';
 
@@ -64,6 +65,34 @@ const insightEvents = computed(() => {
     });
 });
 
+const toast = useToast();
+const resending = ref(false);
+
+const resend = () => {
+    if (resending.value || !email.value.can_retry) return;
+
+    resending.value = true;
+    router.post(
+        route('emails.retry', email.value.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: (page) => {
+                const error = page.props.flash?.error;
+                if (error) {
+                    toast.error(error);
+                    return;
+                }
+                toast.success(page.props.flash?.success || 'Email resent.');
+            },
+            onError: () => toast.error('Could not resend this email.'),
+            onFinish: () => {
+                resending.value = false;
+            },
+        },
+    );
+};
+
 const copyId = async () => {
     try {
         await navigator.clipboard.writeText(email.value.id);
@@ -107,12 +136,32 @@ const copyId = async () => {
                         <h1 class="mt-1 text-2xl font-semibold text-white">
                             {{ email.to }}
                         </h1>
-                        <div class="mt-2">
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
                             <StatusBadge :status="email.status" />
+                            <p
+                                v-if="email.error"
+                                class="text-xs text-rose-300"
+                            >
+                                {{ email.error }}
+                            </p>
                         </div>
                     </div>
                 </div>
                 <div class="flex gap-2">
+                    <button
+                        v-if="email.can_retry"
+                        type="button"
+                        class="md-btn-primary"
+                        :disabled="resending"
+                        data-testid="resend-button"
+                        @click="resend"
+                    >
+                        <RotateCw
+                            :size="16"
+                            :class="{ 'animate-spin': resending }"
+                        />
+                        {{ resending ? 'Resending…' : 'Resend' }}
+                    </button>
                     <Link :href="route('docs')" class="md-btn-ghost">
                         <Code2 :size="16" />
                     </Link>
@@ -375,7 +424,24 @@ Date: {{ email.sent_at }}
                         <span class="text-xs text-zinc-500">{{
                             email.sent_at
                         }}</span>
+                        <button
+                            v-if="email.can_retry"
+                            type="button"
+                            class="md-btn-primary !px-3 !py-1.5 text-xs"
+                            :disabled="resending"
+                            data-testid="resend-button"
+                            @click="resend"
+                        >
+                            <RotateCw
+                                :size="13"
+                                :class="{ 'animate-spin': resending }"
+                            />
+                            {{ resending ? 'Resending…' : 'Resend' }}
+                        </button>
                     </div>
+                    <p v-if="email.error" class="text-sm text-rose-300">
+                        {{ email.error }}
+                    </p>
                     <h1 class="text-2xl font-semibold tracking-tight text-white">
                         {{ email.subject || '(no subject)' }}
                     </h1>

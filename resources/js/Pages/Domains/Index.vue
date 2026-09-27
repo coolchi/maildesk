@@ -193,7 +193,10 @@ const empty = computed(() => !domains.value.length);
                             </Link>
                         </td>
                         <td class="px-4 py-3">
-                            <StatusBadge :status="domain.status" />
+                            <StatusBadge
+                                :status="domain.status"
+                                :loading="domain.status === 'pending'"
+                            />
                         </td>
                         <td class="px-4 py-3 text-zinc-400">
                             {{ domain.region }}

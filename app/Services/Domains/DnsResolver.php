@@ -130,14 +130,49 @@ class DnsResolver
 
     /**
      * DoH returns TXT data as one or more quoted strings: "v=spf1 ..." "...".
+     * Cloudflare escapes each non-ASCII byte as \DDD (decimal), not C octal.
      */
     private function joinTxt(string $data): string
     {
         if (preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"/', $data, $m) && $m[1] !== []) {
-            return implode('', array_map('stripcslashes', $m[1]));
+            return implode('', array_map($this->unescapeTxt(...), $m[1]));
         }
 
         return trim($data, '"');
+    }
+
+    private function unescapeTxt(string $value): string
+    {
+        $out = '';
+        $length = strlen($value);
+
+        for ($i = 0; $i < $length; $i++) {
+            if ($value[$i] !== '\\' || $i + 1 >= $length) {
+                $out .= $value[$i];
+
+                continue;
+            }
+
+            $next = $value[$i + 1];
+
+            if (ctype_digit($next)) {
+                $digits = '';
+
+                while ($i + 1 < $length && ctype_digit($value[$i + 1]) && strlen($digits) < 3) {
+                    $digits .= $value[++$i];
+                }
+
+                $byte = (int) $digits;
+                $out .= $byte <= 255 ? chr($byte) : '\\'.$digits;
+
+                continue;
+            }
+
+            $out .= stripcslashes('\\'.$next);
+            $i++;
+        }
+
+        return $out;
     }
 
     /**

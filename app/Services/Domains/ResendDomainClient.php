@@ -63,6 +63,55 @@ class ResendDomainClient
     }
 
     /**
+     * Delete a domain Resend has left stuck and register a fresh one.
+     *
+     * A domain that reaches partially verified with the right DNS in place
+     * does not finish on its own. A new domain, with a new DKIM key, does.
+     *
+     * @return array<string, mixed>
+     */
+    public function replace(string $oldId, string $name, ?string $region = null): array
+    {
+        $removed = $this->send(fn (PendingRequest $http) => $http->delete("/domains/{$oldId}"));
+
+        if (! $removed->successful() && $removed->status() !== 404) {
+            throw new RuntimeException(sprintf(
+                'Resend refused to delete %s (HTTP %d): %s',
+                $name,
+                $removed->status(),
+                (string) ($removed->json('message') ?? 'unknown error'),
+            ));
+        }
+
+        $existing = $this->findByName($name);
+
+        // The domain we just removed can linger in the list. Adopting it would
+        // put us back on the stuck domain. Only adopt a different id.
+        if ($existing !== null && (string) ($existing['id'] ?? '') !== $oldId) {
+            return $this->get((string) $existing['id']) ?? $existing;
+        }
+
+        $payload = ['name' => $name];
+
+        if ($region !== null && in_array($region, self::REGIONS, true)) {
+            $payload['region'] = $region;
+        }
+
+        $response = $this->send(fn (PendingRequest $http) => $http->post('/domains', $payload));
+
+        if ($response->successful()) {
+            return $this->get((string) $response->json('id')) ?? (array) $response->json();
+        }
+
+        throw new RuntimeException(sprintf(
+            'Resend refused to recreate %s (HTTP %d): %s',
+            $name,
+            $response->status(),
+            (string) ($response->json('message') ?? 'unknown error'),
+        ));
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function get(string $id): ?array
@@ -99,7 +148,11 @@ class ResendDomainClient
      */
     public function triggerVerify(string $id): bool
     {
-        return $this->send(fn (PendingRequest $http) => $http->post("/domains/{$id}/verify"))->successful();
+        // Resend rejects a JSON array. Laravel's post() with no payload sends [],
+        // so send an empty object or verification never restarts.
+        return $this->send(fn (PendingRequest $http) => $http
+            ->withBody('{}', 'application/json')
+            ->post("/domains/{$id}/verify"))->successful();
     }
 
     /**

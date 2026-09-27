@@ -35,6 +35,23 @@ class DnsResolverTest extends TestCase
             && $r->hasHeader('Accept', 'application/dns-json'));
     }
 
+    public function test_txt_decimal_byte_escapes_stay_valid_utf8(): void
+    {
+        Http::fake(['1.1.1.1/*' => Http::response([
+            'Status' => 0,
+            'Answer' => [[
+                'name' => 'resend._domainkey.maildesk.ng',
+                'type' => 16,
+                'data' => '"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQMockDkimKey\\226\\128\\166"',
+            ]],
+        ])]);
+
+        $txt = (new DnsResolver)->txt('resend._domainkey.maildesk.ng');
+
+        $this->assertSame(['p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQMockDkimKey…'], $txt);
+        $this->assertTrue(mb_check_encoding($txt[0], 'UTF-8'));
+    }
+
     public function test_mx_records_are_parsed_from_the_public_resolver(): void
     {
         Http::fake(['1.1.1.1/*' => Http::response([
