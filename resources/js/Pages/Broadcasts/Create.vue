@@ -4,6 +4,7 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
+import SandboxedHtml from '@/Components/SandboxedHtml.vue';
 import { useToast } from '@/composables/useToast';
 import { useAiFeatures } from '@/composables/useAiFeatures';
 import { ArrowLeft, Send, Sparkles } from '@lucide/vue';
@@ -339,9 +340,14 @@ const send = () => {
             <div>
                 <div class="mb-2 text-xs text-zinc-500">Preview</div>
                 <div
-                    class="overflow-hidden rounded-xl border border-zinc-800 bg-white p-6 text-zinc-900 shadow"
-                    v-html="form.html"
-                />
+                    class="overflow-hidden rounded-xl border border-zinc-800 bg-white shadow"
+                >
+                    <SandboxedHtml
+                        :html="form.html"
+                        :min-height="200"
+                        title="Broadcast preview"
+                    />
+                </div>
             </div>
         </div>
     </AppLayout>
