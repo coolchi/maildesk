@@ -739,7 +739,7 @@ class InboundEmailTest extends TestCase
         $job->handle();
     }
 
-    public function test_resend_permanent_fetch_failure_does_not_store_message(): void
+    public function test_resend_permanent_fetch_failure_404_does_not_store_message(): void
     {
         Http::fake(['api.resend.com/*' => Http::response(['message' => 'not found'], 404)]);
         $this->mailbox();
@@ -752,6 +752,54 @@ class InboundEmailTest extends TestCase
         $job->handle();
 
         $this->assertSame(0, Message::query()->count());
+    }
+
+    public function test_resend_processing_job_throws_when_api_key_missing(): void
+    {
+        config(['services.resend.key' => null]);
+        $this->mailbox();
+
+        $job = new ProcessResendInboundEmail('re_missing_key', [
+            'from' => 'sender@example.com',
+            'to' => ['support@acme.test'],
+            'subject' => 'Test',
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('RESEND_API_KEY is not set');
+        $job->handle();
+    }
+
+    public function test_resend_processing_job_throws_on_401_unauthorized(): void
+    {
+        Http::fake(['api.resend.com/*' => Http::response(['message' => 'Unauthorized'], 401)]);
+        $this->mailbox();
+
+        $job = new ProcessResendInboundEmail('re_bad_key', [
+            'from' => 'sender@example.com',
+            'to' => ['support@acme.test'],
+            'subject' => 'Test',
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('authentication failed (401)');
+        $job->handle();
+    }
+
+    public function test_resend_processing_job_throws_on_403_forbidden(): void
+    {
+        Http::fake(['api.resend.com/*' => Http::response(['message' => 'Forbidden'], 403)]);
+        $this->mailbox();
+
+        $job = new ProcessResendInboundEmail('re_forbidden', [
+            'from' => 'sender@example.com',
+            'to' => ['support@acme.test'],
+            'subject' => 'Test',
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('authentication failed (403)');
+        $job->handle();
     }
 
     public function test_resend_processing_job_uses_headers_for_threading(): void
