@@ -18,7 +18,5 @@ return new class extends Migration
             ->update(['trashed_at' => DB::raw('updated_at')]);
     }
 
-    public function down(): void
-    {
-    }
+    public function down(): void {}
 };
