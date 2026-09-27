@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Events\InboxUpdated;
 use App\Jobs\ClassifyInboundMessage;
 use App\Jobs\DispatchWebhook;
+use App\Jobs\FetchInboundEmailBody;
 use App\Mail\DTO\InboundEmail;
 use App\Models\Attachment;
 use App\Models\Domain;
@@ -107,6 +108,10 @@ class InboundEmailService
 
         if (app(SmartTriageService::class)->shouldTriage()) {
             ClassifyInboundMessage::dispatch($message->id);
+        }
+
+        if ($email->deferredFetchEmailId !== null) {
+            FetchInboundEmailBody::dispatch($message->id, $email->deferredFetchEmailId);
         }
 
         $fresh = $message->fresh(['attachments', 'thread']);

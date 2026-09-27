@@ -84,15 +84,16 @@ class ResendInboundDriver implements InboundDriver
         $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
         $emailId = isset($data['email_id']) ? (string) $data['email_id'] : null;
 
-        if ($emailId !== null && empty($data['html']) && empty($data['text'])) {
-            $data = array_merge($data, $this->fetchContent($emailId));
+        $needsBodyFetch = $emailId !== null && empty($data['html']) && empty($data['text']);
+        $needsAttachmentFetch = $emailId !== null && $this->hasAttachmentsWithoutContent($data);
+
+        $email = GenericInboundDriver::fromArray('resend', $data, $emailId);
+
+        if ($needsBodyFetch || $needsAttachmentFetch) {
+            $email->deferredFetchEmailId = $emailId;
         }
 
-        if ($emailId !== null && $this->hasAttachmentsWithoutContent($data)) {
-            $data['attachments'] = $this->fetchAttachments($emailId);
-        }
-
-        return GenericInboundDriver::fromArray('resend', $data, $emailId);
+        return $email;
     }
 
     /**

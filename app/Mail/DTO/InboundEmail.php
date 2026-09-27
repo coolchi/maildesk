@@ -10,6 +10,11 @@ use Illuminate\Support\Str;
 class InboundEmail
 {
     /**
+     * When set, the body and/or attachments need to be fetched asynchronously.
+     */
+    public ?string $deferredFetchEmailId = null;
+
+    /**
      * @param  array<int, string>  $to
      * @param  array<int, string>  $cc
      * @param  array<int, string>  $replyTo
