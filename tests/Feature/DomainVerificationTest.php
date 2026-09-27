@@ -306,10 +306,21 @@ class DomainVerificationTest extends TestCase
             ['record' => 'SPF', 'name' => 'send.in', 'type' => 'TXT', 'value' => '"v=spf1 include:amazonses.com ~all"'],
             ['record' => 'SPF', 'name' => 'rsend.in', 'type' => 'CNAME', 'value' => 'send.forge.rmta.net'],
         ];
-        Http::fake([
-            'api.resend.com/domains/dom_c/verify' => Http::response(['id' => 'dom_c']),
-            'api.resend.com/domains/dom_c' => Http::response(['id' => 'dom_c', 'status' => 'partially_verified', 'records' => $records]),
-        ]);
+
+        // Track whether DNS CNAME is set to simulate Resend verification state
+        $cnameAdded = false;
+
+        Http::fake(function (HttpRequest $r) use ($records, &$cnameAdded) {
+            return match (true) {
+                str_ends_with($r->url(), '/verify') => Http::response(['id' => 'dom_c']),
+                str_ends_with($r->url(), '/domains/dom_c') => Http::response([
+                    'id' => 'dom_c',
+                    'status' => $cnameAdded ? 'verified' : 'partially_verified',
+                    'records' => $records,
+                ]),
+                default => Http::response(['message' => 'unexpected '.$r->url()], 500),
+            };
+        });
 
         $this->dns->mx['send.in.acme.test'] = [['host' => 'feedback-smtp.eu-west-1.amazonses.com', 'priority' => 10]];
         $this->dns->txt['send.in.acme.test'] = ['v=spf1 include:amazonses.com ~all'];
@@ -326,7 +337,9 @@ class DomainVerificationTest extends TestCase
         $this->assertSame('send.forge.rmta.net', $row['value']);
         $this->assertContains('rsend.in.acme.test', $row['hosts']);
 
+        // After adding the CNAME, Resend reports the domain as verified
         $this->dns->cname['rsend.in.acme.test'] = ['send.forge.rmta.net'];
+        $cnameAdded = true;
         $this->verify($user, $org, $domain);
         $this->assertSame('verified', $domain->fresh()->status);
     }

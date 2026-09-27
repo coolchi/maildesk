@@ -7,6 +7,7 @@ use App\Jobs\SendBroadcastRecipient;
 use App\Models\Broadcast;
 use App\Models\BroadcastRecipient;
 use App\Models\Contact;
+use App\Models\MailProvider;
 use App\Models\Message;
 use App\Models\Organization;
 use App\Models\Segment;
@@ -25,7 +26,11 @@ class BroadcastSendingTest extends TestCase
     private function member(): array
     {
         $user = User::factory()->create();
-        $org = Organization::factory()->create(['default_provider' => 'array']);
+        $provider = MailProvider::factory()->create(['key' => 'array_'.uniqid(), 'driver' => 'array', 'status' => 'active']);
+        $org = Organization::factory()->create([
+            'default_provider' => 'array',
+            'mail_provider_id' => $provider->id,
+        ]);
         $org->users()->attach($user->id, ['role' => 'owner']);
 
         return [$user, $org];

@@ -28,7 +28,12 @@ class AccountSuspensionTest extends TestCase
     private function member(string $status = 'active'): array
     {
         $user = User::factory()->create(['password' => 'secret-password']);
-        $org = Organization::factory()->create(['status' => $status, 'default_provider' => 'array']);
+        $provider = MailProvider::factory()->create(['key' => 'array_'.uniqid(), 'driver' => 'array', 'status' => 'active']);
+        $org = Organization::factory()->create([
+            'status' => $status,
+            'default_provider' => 'array',
+            'mail_provider_id' => $provider->id,
+        ]);
         $org->users()->attach($user->id, ['role' => 'owner']);
 
         return [$user, $org];
@@ -83,12 +88,13 @@ class AccountSuspensionTest extends TestCase
     public function test_user_with_another_active_workspace_is_moved_off_the_suspended_one(): void
     {
         [$user, $suspended] = $this->member('suspended');
-        $active = Organization::factory()->create(['status' => 'active']);
+        $provider = MailProvider::factory()->create(['key' => 'array_fallback', 'driver' => 'array', 'status' => 'active']);
+        $active = Organization::factory()->create(['status' => 'active', 'mail_provider_id' => $provider->id]);
         $active->users()->attach($user->id, ['role' => 'member']);
 
         $this->actingAs($user)
             ->withSession(['current_organization_id' => $suspended->id])
-            ->get('/emails')
+            ->get('/inbox')
             ->assertOk();
 
         $this->assertAuthenticatedAs($user);

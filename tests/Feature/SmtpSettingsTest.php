@@ -90,10 +90,10 @@ class SmtpSettingsTest extends TestCase
         $this->as($member, $other)->put(route('settings.smtp.update'), $this->validPayload())->assertForbidden();
         $this->assertNull($this->smtpConfig($other));
 
+        // Members cannot access settings pages - they require 'manage' ability
         $this->as($member, $other)
             ->get(route('settings', 'smtp'))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->where('smtp.can_manage', false));
+            ->assertForbidden();
     }
 
     public function test_password_is_encrypted_at_rest(): void
