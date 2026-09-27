@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin;
 use App\Http\Controllers\Admin\AccountLifecycleController;
 use App\Http\Controllers\Admin\AccountUserController;
 use App\Http\Controllers\Admin\PlanController;
@@ -267,6 +268,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/settings', [PlatformSettingsController::class, 'update'])->name('settings.update');
         Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])
             ->middleware([RequireFreshPassword::class, 'throttle:10,1'])->name('impersonate');
+
+        Route::get('/system-test', [Admin\SystemTestController::class, 'index'])->name('system-test');
+        Route::post('/system-test/start', [Admin\SystemTestController::class, 'start'])->name('system-test.start');
+        Route::get('/system-test/{run}', [Admin\SystemTestController::class, 'show'])->name('system-test.show');
+        Route::post('/system-test/poll', [Admin\SystemTestController::class, 'poll'])->name('system-test.poll');
     });
 });
 
