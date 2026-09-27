@@ -204,6 +204,36 @@ class InboundEmailTest extends TestCase
         $this->assertSame(2, Thread::query()->count());
     }
 
+    public function test_subject_matching_requires_reply_or_forward_marker(): void
+    {
+        $this->mailbox();
+        $first = $this->postGeneric([
+            'subject' => 'Quarterly report',
+            'message_id' => '<first-quarterly@example.com>',
+        ])->json('thread_id');
+
+        $second = $this->postGeneric([
+            'subject' => 'Quarterly report',
+            'message_id' => '<coincidence@example.com>',
+        ])->json('thread_id');
+
+        $this->assertNotSame($first, $second, 'Same subject without Re:/Fwd: should create new thread');
+        $this->assertSame(2, Thread::query()->count());
+
+        $replyResponse = $this->postGeneric([
+            'subject' => 'Re: Quarterly report',
+            'message_id' => '<actual-reply@example.com>',
+        ]);
+        $replyResponse->assertCreated();
+
+        $this->assertSame(2, Thread::query()->count(), 'Re: subject should thread to an existing matching thread');
+        $this->assertContains(
+            $replyResponse->json('thread_id'),
+            [$first, $second],
+            'Re: subject should thread to one of the matching threads'
+        );
+    }
+
     public function test_threads_never_cross_tenants(): void
     {
         $orgA = $this->mailbox('support@a.test');

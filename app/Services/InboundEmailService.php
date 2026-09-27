@@ -177,6 +177,10 @@ class InboundEmailService
     /**
      * Thread by In-Reply-To / References; fall back to the same sender and
      * normalised subject in the same mailbox within the last 30 days.
+     *
+     * Subject fallback is intentionally strict: it requires a reply/forward
+     * marker (Re:, Fwd:, etc.) to prevent false matches on coincidentally
+     * similar subjects.
      */
     protected function findThread(Organization $organization, ?Mailbox $mailbox, InboundEmail $email): ?Thread
     {
@@ -198,8 +202,7 @@ class InboundEmailService
         $subject = $this->normalizeSubject($email->subject);
         $isReply = $subject !== Str::lower(trim($email->subject));
 
-        // Subject fallback only for replies/forwards ("Re:", "Fwd:") or when reply headers exist but matched nothing.
-        if ($subject === '' || (! $isReply && $ids === [])) {
+        if ($subject === '' || ! $isReply) {
             return null;
         }
 
