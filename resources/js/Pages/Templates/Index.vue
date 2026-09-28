@@ -79,16 +79,8 @@ const createTemplate = () => {
     });
 };
 
-const usingSample = ref('');
-
 const useSample = (sampleItem) => {
-    if (usingSample.value) return;
-    usingSample.value = sampleItem.key;
-    router.post(
-        route('templates.samples.store'),
-        { sample_key: sampleItem.key },
-        { onFinish: () => { usingSample.value = ''; } },
-    );
+    router.visit(route('templates.samples.edit', { sample: sampleItem.key }));
 };
 
 const accents = ref({});
@@ -187,6 +179,9 @@ const confirmDelete = () => {
 };
 
 const designName = (tpl) => catalog.value.find((design) => design.key === tpl.design_key)?.name || '';
+
+const thumbBackground = (designKey) =>
+    catalog.value.find((design) => design.key === designKey)?.background || '#ffffff';
 
 const thumbHtml = (tpl) => {
     const html = apply(tpl.html || '', tpl.design_key || '');
@@ -317,7 +312,10 @@ const thumbHtml = (tpl) => {
                     :key="sampleItem.key"
                     class="md-card overflow-hidden"
                 >
-                    <div class="md-template-thumb pointer-events-none bg-zinc-950">
+                    <div
+                        class="md-template-thumb pointer-events-none"
+                        :style="{ backgroundColor: thumbBackground(sampleItem.design_key) }"
+                    >
                         <div class="md-template-thumb-scale">
                             <SandboxedHtml
                                 :html="apply(sampleItem.html, sampleItem.design_key)"
@@ -336,10 +334,9 @@ const thumbHtml = (tpl) => {
                         <button
                             type="button"
                             class="md-btn-ghost !px-3 !py-1.5 text-xs"
-                            :disabled="usingSample === sampleItem.key"
                             @click="useSample(sampleItem)"
                         >
-                            {{ usingSample === sampleItem.key ? 'Copying…' : 'Use sample' }}
+                            Use sample
                         </button>
                     </div>
                 </article>
@@ -391,7 +388,10 @@ const thumbHtml = (tpl) => {
                     :href="route('templates.edit', tpl.id)"
                     class="block"
                 >
-                    <div class="md-template-thumb pointer-events-none bg-zinc-950">
+                    <div
+                        class="md-template-thumb pointer-events-none"
+                        :style="{ backgroundColor: thumbBackground(tpl.design_key) }"
+                    >
                         <div class="md-template-thumb-scale">
                             <SandboxedHtml
                                 :html="thumbHtml(tpl)"

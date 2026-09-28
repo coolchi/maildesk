@@ -17,6 +17,8 @@ const props = defineProps({
     title: { type: String, default: 'Email content' },
     /** When false, always show the full body (e.g. raw preview). */
     collapseQuotes: { type: Boolean, default: true },
+    /** Page color behind the letter. Empty keeps the default white frame. */
+    background: { type: String, default: '' },
 });
 
 const frame = ref(null);
@@ -61,9 +63,19 @@ const displayText = computed(() => {
     return split.value.visible;
 });
 
-const srcdoc = computed(() =>
-    isHtmlMessage.value ? buildSrcdoc(displayHtml.value) : '',
+const frameBackground = computed(() =>
+    /^#[0-9a-fA-F]{6}$/.test(props.background) ? props.background : '',
 );
+
+const srcdoc = computed(() => {
+    if (!isHtmlMessage.value) {
+        return '';
+    }
+    const extra = frameBackground.value
+        ? `html,body{background:${frameBackground.value} !important;}`
+        : '';
+    return buildSrcdoc(displayHtml.value, extra);
+});
 
 /** Remount the frame when quote visibility changes so height is remeasured. */
 const frameKey = computed(() =>
@@ -140,8 +152,13 @@ watch(expanded, async () => {
             :sandbox="SANDBOX"
             :title="title"
             referrerpolicy="no-referrer"
-            class="block w-full min-w-0 max-w-full rounded-xl border-0 bg-white"
-            :style="{ height: `${height}px`, colorScheme: 'light' }"
+            class="block w-full min-w-0 max-w-full rounded-xl border-0"
+            :class="frameBackground ? '' : 'bg-white'"
+            :style="{
+                height: `${height}px`,
+                colorScheme: 'light',
+                backgroundColor: frameBackground || undefined,
+            }"
             data-testid="email-frame"
             @load="onLoad"
         />

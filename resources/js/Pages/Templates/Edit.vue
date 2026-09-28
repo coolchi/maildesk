@@ -25,7 +25,8 @@ import {
 } from '@lucide/vue';
 
 const props = defineProps({
-    id: { type: [String, Number], required: true },
+    id: { type: [String, Number], default: null },
+    sampleKey: { type: String, default: '' },
     template: { type: Object, required: true },
 });
 
@@ -34,7 +35,7 @@ const toast = useToast();
 const showTest = ref(false);
 const testTo = ref('');
 const sendingTest = ref(false);
-const { apply, defaultKey } = useDesigns();
+const { apply, defaultKey, find } = useDesigns();
 
 const name = ref(props.template.name || '');
 const subject = ref(props.template.subject || '');
@@ -42,6 +43,7 @@ const status = ref(props.template.status || 'published');
 const html = ref(props.template.html || '');
 const designKey = ref(props.template.design_key || '');
 const frameDesign = computed(() => designKey.value || defaultKey.value || '');
+const unsavedSample = computed(() => !props.id && props.sampleKey !== '');
 const mode = ref('design'); // design | code
 const device = ref('desktop');
 const dirty = ref(false);
@@ -73,6 +75,10 @@ const variables = [
     { key: 'amount', sample: '$49.00' },
     { key: 'paid_at', sample: 'Sep 6, 2026' },
 ];
+
+const previewBackground = computed(
+    () => find(frameDesign.value)?.background || '#ffffff',
+);
 
 const previewHtml = computed(() => {
     let body = html.value || '';
@@ -115,27 +121,61 @@ const copyHtml = async () => {
     }
 };
 
+const sampleUnchanged = () =>
+    unsavedSample.value
+    && name.value === (props.template.name || '')
+    && subject.value === (props.template.subject || '')
+    && html.value === (props.template.html || '')
+    && (designKey.value || '') === (props.template.design_key || '');
+
 const save = () => {
-    router.put(
-        route('templates.update', props.id),
-        {
-            name: name.value,
-            subject: subject.value,
-            html: html.value,
-            design_key: designKey.value || null,
-        },
-        {
-            preserveScroll: true,
-            onSuccess: () => {
-                dirty.value = false;
-                toast.success('Template saved.');
+    if (sampleUnchanged()) {
+        toast.info('Nothing was saved. Edit the sample first.');
+        return;
+    }
+
+    const payload = {
+        name: name.value,
+        subject: subject.value,
+        html: html.value,
+        design_key: designKey.value || null,
+    };
+
+    if (unsavedSample.value) {
+        router.post(
+            route('templates.samples.store'),
+            { ...payload, sample_key: props.sampleKey },
+            {
+                onSuccess: (visit) => {
+                    const error = visit.props.flash?.error;
+                    if (error) {
+                        toast.error(error);
+                        return;
+                    }
+                    dirty.value = false;
+                    toast.success('Draft saved.');
+                },
+                onError: () => toast.error('Could not save template.'),
             },
-            onError: () => toast.error('Could not save template.'),
+        );
+        return;
+    }
+
+    router.put(route('templates.update', props.id), payload, {
+        preserveScroll: true,
+        onSuccess: () => {
+            dirty.value = false;
+            toast.success('Template saved.');
         },
-    );
+        onError: () => toast.error('Could not save template.'),
+    });
 };
 
 const openTest = () => {
+    if (unsavedSample.value) {
+        toast.info('Edit the sample and save a draft before sending a test.');
+        return;
+    }
     testTo.value = page.props.auth?.user?.email || '';
     showTest.value = true;
 };
@@ -167,6 +207,10 @@ const sendTest = () => {
 };
 
 const publish = () => {
+    if (unsavedSample.value) {
+        toast.info('Edit the sample and save a draft before publishing.');
+        return;
+    }
     router.post(route('templates.publish', props.id), {}, {
         preserveScroll: true,
         onSuccess: (page) => {
@@ -221,7 +265,7 @@ const onMore = (item) => {
                         class="min-w-0 flex-1 bg-transparent text-xl font-semibold tracking-tight text-white outline-none placeholder:text-zinc-600 sm:flex-none sm:text-2xl"
                         placeholder="Template name"
                     />
-                    <StatusBadge :status="status" />
+                    <StatusBadge v-if="!unsavedSample" :status="status" />
                     <span
                         v-if="dirty"
                         class="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300"
@@ -450,13 +494,16 @@ const onMore = (item) => {
                                     }}</span>
                                 </div>
                             </div>
-                            <EmailFrame
-                                :key="device"
-                                :html="previewHtml"
-                                :collapse-quotes="false"
-                                :min-height="160"
-                                title="Email preview"
-                            />
+                            <div :style="{ backgroundColor: previewBackground }">
+                                <EmailFrame
+                                    :key="device"
+                                    :html="previewHtml"
+                                    :background="previewBackground"
+                                    :collapse-quotes="false"
+                                    :min-height="160"
+                                    title="Email preview"
+                                />
+                            </div>
                         </div>
                         <p
                             class="mt-3 text-center text-[11px] text-zinc-600"

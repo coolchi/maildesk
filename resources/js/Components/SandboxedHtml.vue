@@ -89,7 +89,8 @@ defineExpose({ resize });
         :sandbox="SANDBOX"
         :title="title"
         referrerpolicy="no-referrer"
-        class="block w-full border-0 bg-white"
+        class="block w-full border-0"
+        :class="fit ? 'bg-transparent' : 'bg-white'"
         :style="{
             height: `${autoResize ? height : minHeight}px`,
             colorScheme: 'light',

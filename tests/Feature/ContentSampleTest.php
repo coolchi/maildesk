@@ -51,15 +51,45 @@ class ContentSampleTest extends TestCase
             'name' => 'acme.test',
         ]);
 
+        $sample = ContentSamples::find('renewal');
+        $this->assertNotNull($sample);
+
         $this->actingAs($user)
             ->withSession(['current_organization_id' => $org->id])
-            ->post(route('templates.samples.store'), ['sample_key' => 'renewal'])
+            ->get(route('templates.samples.edit', ['sample' => 'renewal']))
+            ->assertOk();
+
+        $this->assertSame(0, Template::query()->where('organization_id', $org->id)->count());
+
+        $this->actingAs($user)
+            ->withSession(['current_organization_id' => $org->id])
+            ->post(route('templates.samples.store'), [
+                'sample_key' => 'renewal',
+                'name' => $sample['name'],
+                'subject' => $sample['subject'],
+                'html' => $sample['html'],
+                'design_key' => $sample['design_key'],
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(0, Template::query()->where('organization_id', $org->id)->count());
+
+        $this->actingAs($user)
+            ->withSession(['current_organization_id' => $org->id])
+            ->post(route('templates.samples.store'), [
+                'sample_key' => 'renewal',
+                'name' => $sample['name'],
+                'subject' => 'Changed subject',
+                'html' => $sample['html'],
+                'design_key' => $sample['design_key'],
+            ])
             ->assertRedirect();
 
         $template = Template::query()->where('organization_id', $org->id)->firstOrFail();
         $this->assertSame('Renewal reminder', $template->name);
         $this->assertSame('midnight', $template->design_key);
         $this->assertStringContainsString('renewal.png', $template->html);
+        $this->assertSame('Changed subject', $template->subject);
         $this->assertSame('draft', $template->status);
     }
 }

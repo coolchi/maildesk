@@ -168,6 +168,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/templates/designs/default', [TemplateController::class, 'updateDefaultDesign'])->name('templates.design-default');
     Route::put('/templates/designs/color', [TemplateController::class, 'updateDesignColor'])->name('templates.design-color');
     Route::post('/templates', [TemplateController::class, 'store'])->name('templates.store');
+    Route::get('/templates/samples/{sample}', [TemplateController::class, 'editSample'])->name('templates.samples.edit');
     Route::post('/templates/samples', [TemplateController::class, 'storeFromSample'])->name('templates.samples.store');
     Route::post('/templates/images', [TemplateController::class, 'uploadImage'])->middleware('throttle:30,1')->name('templates.images');
     Route::get('/templates/{template}/edit', [TemplateController::class, 'edit'])->name('templates.edit');

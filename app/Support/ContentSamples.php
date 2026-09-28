@@ -46,6 +46,36 @@ class ContentSamples
     }
 
     /**
+     * True when the stored fields are still an untouched catalog sample.
+     */
+    public static function matches(string $name, string $subject, string $html, ?string $designKey): bool
+    {
+        $designKey = DesignTemplates::normalize($designKey);
+
+        foreach (self::all() as $sample) {
+            if ($sample['name'] === $name
+                && $sample['subject'] === $subject
+                && $sample['html'] === $html
+                && DesignTemplates::normalize($sample['design_key']) === $designKey) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array{name: string, subject: string, html: string, design_key: string}  $sample
+     */
+    public static function sameAs(array $sample, string $name, string $subject, string $html, ?string $designKey): bool
+    {
+        return $sample['name'] === $name
+            && $sample['subject'] === $subject
+            && $sample['html'] === $html
+            && DesignTemplates::normalize($sample['design_key']) === DesignTemplates::normalize($designKey);
+    }
+
+    /**
      * @return array{key: string, name: string, description: string, subject: string, design_key: string, html: string}
      */
     private static function welcome(): array

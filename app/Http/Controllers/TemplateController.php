@@ -69,27 +69,60 @@ class TemplateController extends Controller
         return redirect()->route('templates.edit', $template)->with('success', 'Template created.');
     }
 
+    public function editSample(Request $request, string $sample): Response
+    {
+        CurrentOrganization::from($request);
+
+        $found = ContentSamples::find($sample);
+        abort_unless($found !== null, 404);
+
+        return Inertia::render('Templates/Edit', [
+            'id' => null,
+            'sampleKey' => $found['key'],
+            'template' => [
+                'name' => $found['name'],
+                'subject' => $found['subject'],
+                'html' => $found['html'],
+                'design_key' => DesignTemplates::normalize($found['design_key']),
+                'status' => 'sample',
+            ],
+        ]);
+    }
+
     public function storeFromSample(Request $request): RedirectResponse
     {
         $organization = CurrentOrganization::from($request);
 
         $validated = $request->validate([
             'sample_key' => ['required', 'string', 'max:40'],
+            'name' => ['required', 'string', 'max:180'],
+            'subject' => ['nullable', 'string', 'max:255'],
+            'html' => ['nullable', 'string'],
+            'design_key' => ['nullable', 'string', 'max:40'],
         ]);
 
         $sample = ContentSamples::find($validated['sample_key']);
         abort_unless($sample !== null, 404);
 
+        $name = $validated['name'];
+        $subject = $validated['subject'] ?? '';
+        $html = $validated['html'] ?? '';
+        $designKey = DesignTemplates::normalize($validated['design_key'] ?? null);
+
+        if (ContentSamples::sameAs($sample, $name, $subject, $html, $designKey)) {
+            return back()->with('error', 'Nothing was saved. Edit the sample first.');
+        }
+
         $template = Template::query()->create([
             'organization_id' => $organization->id,
-            'name' => $sample['name'],
-            'subject' => $sample['subject'],
-            'html' => $sample['html'],
-            'design_key' => DesignTemplates::normalize($sample['design_key']),
+            'name' => $name,
+            'subject' => $subject,
+            'html' => $html,
+            'design_key' => $designKey,
             'status' => 'draft',
         ]);
 
-        return redirect()->route('templates.edit', $template)->with('success', 'Sample copied. Edit the words and images, then save.');
+        return redirect()->route('templates.edit', $template)->with('success', 'Draft saved.');
     }
 
     public function uploadImage(Request $request): JsonResponse
@@ -138,6 +171,13 @@ class TemplateController extends Controller
             'status' => ['sometimes', 'in:draft,published'],
         ]);
 
+        $wasSample = ContentSamples::matches(
+            $template->name,
+            (string) $template->subject,
+            (string) $template->html,
+            $template->design_key,
+        );
+
         $template->fill([
             'name' => $validated['name'],
             'subject' => $validated['subject'] ?? '',
@@ -150,6 +190,13 @@ class TemplateController extends Controller
 
         if (isset($validated['status'])) {
             $template->status = $validated['status'];
+        } elseif ($wasSample && ! ContentSamples::matches(
+            $template->name,
+            (string) $template->subject,
+            (string) $template->html,
+            $template->design_key,
+        )) {
+            $template->status = 'draft';
         }
 
         $template->save();
