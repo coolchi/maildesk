@@ -188,9 +188,14 @@ const confirmDelete = () => {
 
 const designName = (tpl) => catalog.value.find((design) => design.key === tpl.design_key)?.name || '';
 
-const thumbStyle = (tpl) => ({
-    background: `linear-gradient(145deg, ${tpl.accent || '#22d3ee'}22, #09090b 55%)`,
-});
+const thumbHtml = (tpl) => {
+    const html = apply(tpl.html || '', tpl.design_key || '');
+    if (tpl.design_key) {
+        return html;
+    }
+
+    return `<div style="padding:28px 24px;background:#ffffff;font:16px/1.65 Segoe UI,Helvetica,Arial,sans-serif;color:#18181b;">${html}</div>`;
+};
 </script>
 
 <template>
@@ -312,21 +317,16 @@ const thumbStyle = (tpl) => ({
                     :key="sampleItem.key"
                     class="md-card overflow-hidden"
                 >
-                    <div class="sample-thumb relative h-44 overflow-hidden bg-zinc-900">
-                        <div
-                            class="pointer-events-none absolute left-1/2 top-1/2 w-[560px] origin-center"
-                            style="transform: translate(-50%, -50%) scale(0.48)"
-                        >
+                    <div class="md-template-thumb pointer-events-none bg-zinc-950">
+                        <div class="md-template-thumb-scale">
                             <SandboxedHtml
                                 :html="apply(sampleItem.html, sampleItem.design_key)"
-                                :min-height="340"
+                                :min-height="720"
                                 :auto-resize="false"
+                                fit
                                 :title="`${sampleItem.name} preview`"
                             />
                         </div>
-                        <div
-                            class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-zinc-950 to-transparent"
-                        />
                     </div>
                     <div class="space-y-3 border-t border-zinc-800 p-4">
                         <div>
@@ -391,28 +391,16 @@ const thumbStyle = (tpl) => ({
                     :href="route('templates.edit', tpl.id)"
                     class="block"
                 >
-                    <div
-                        class="relative flex h-44 items-center justify-center overflow-hidden p-4"
-                        :style="thumbStyle(tpl)"
-                    >
-                        <div
-                            class="pointer-events-none w-full max-w-[220px] scale-[0.72] origin-top overflow-hidden rounded-lg border border-zinc-700/50 bg-white shadow-lg"
-                            style="height: 160px"
-                        >
-                            <div
-                                class="origin-top scale-[0.55] w-[180%] -translate-x-[12%]"
-                            >
-                                <SandboxedHtml
-                                    :html="apply(tpl.html, tpl.design_key)"
-                                    :min-height="300"
-                                    :auto-resize="false"
-                                    :title="`${tpl.name} preview`"
-                                />
-                            </div>
+                    <div class="md-template-thumb pointer-events-none bg-zinc-950">
+                        <div class="md-template-thumb-scale">
+                            <SandboxedHtml
+                                :html="thumbHtml(tpl)"
+                                :min-height="720"
+                                :auto-resize="false"
+                                fit
+                                :title="`${tpl.name} preview`"
+                            />
                         </div>
-                        <div
-                            class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-zinc-950 to-transparent"
-                        />
                     </div>
                 </Link>
                 <div class="border-t border-zinc-800 p-4">
@@ -478,7 +466,21 @@ const thumbStyle = (tpl) => ({
 </template>
 
 <style>
-.sample-thumb iframe {
-    height: 340px;
+.md-template-thumb {
+    position: relative;
+    height: 11rem;
+    overflow: hidden;
+    container-type: inline-size;
+}
+
+.md-template-thumb-scale {
+    --thumb-scale: min(0.36, (100cqi - 48px) / 600px);
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    width: 600px;
+    transform-origin: top left;
+    transform: translateX(calc(-300px * var(--thumb-scale))) scale(var(--thumb-scale));
 }
 </style>
+

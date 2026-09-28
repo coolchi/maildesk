@@ -36,18 +36,45 @@ const primaryLabel = computed(() =>
 const scrolled = ref(false);
 const menuOpen = ref(false);
 const activeNav = ref('');
+
+const nav = [
+    { href: '#ai', label: 'AI' },
+    { href: '#features', label: 'Product' },
+    { href: '#developers', label: 'Developers' },
+    { href: '/docs/send', label: 'Docs' },
+];
+
 const updateActiveNav = () => {
     const mark = window.innerHeight * 0.28;
     let current = '';
     for (const item of nav) {
+        if (!item.href.startsWith('#')) continue;
         const section = document.querySelector(item.href);
         if (!section) continue;
         if (section.getBoundingClientRect().top <= mark) current = item.href;
     }
     activeNav.value = current;
 };
+let revealFrame;
+const revealVisible = () => {
+    document.querySelectorAll('.lp-reveal').forEach((node) => {
+        if ('shown' in node.dataset) return;
+        const rect = node.getBoundingClientRect();
+        const visible = rect.bottom > 0 && rect.top < window.innerHeight * 0.92;
+        if (!visible) return;
+        node.dataset.shown = '';
+        const settle = (event) => {
+            if (event.target !== node) return;
+            node.dataset.settled = '';
+            node.removeEventListener('animationend', settle);
+        };
+        node.addEventListener('animationend', settle);
+    });
+};
+
 const onScroll = () => {
     scrolled.value = window.scrollY > 8;
+    revealVisible();
     updateActiveNav();
 };
 const closeMenu = () => {
@@ -91,7 +118,6 @@ const resetHeroTilt = () => {
     stage.classList.remove('is-active');
 };
 
-let revealObserver;
 onMounted(() => {
     window.addEventListener('keydown', onKeydown);
 
@@ -99,48 +125,19 @@ onMounted(() => {
         '(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)',
     ).matches;
 
-    onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
-
-    const nodes = document.querySelectorAll('.lp-reveal');
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce || !('IntersectionObserver' in window)) {
-        nodes.forEach((node) => node.classList.add('is-shown'));
-        return;
-    }
-
-    revealObserver = new IntersectionObserver(
-        (entries) => {
-            entries.forEach((entry) => {
-                if (!entry.isIntersecting) return;
-                entry.target.classList.add('is-shown');
-                const settle = (event) => {
-                    if (event.target !== entry.target) return;
-                    entry.target.classList.add('is-settled');
-                    entry.target.removeEventListener('animationend', settle);
-                };
-                entry.target.addEventListener('animationend', settle);
-                revealObserver.unobserve(entry.target);
-            });
-        },
-        { threshold: 0.18, rootMargin: '0px 0px -32px 0px' },
-    );
-    nodes.forEach((node) => revealObserver.observe(node));
+    window.addEventListener('resize', revealVisible, { passive: true });
+    onScroll();
+    revealFrame = requestAnimationFrame(revealVisible);
 });
 onUnmounted(() => {
     window.removeEventListener('scroll', onScroll);
+    window.removeEventListener('resize', revealVisible);
     window.removeEventListener('keydown', onKeydown);
-    revealObserver?.disconnect();
+    cancelAnimationFrame(revealFrame);
 });
 
 const openFaq = ref(0);
-
-const nav = [
-    { href: '#ai', label: 'AI' },
-    { href: '#features', label: 'Product' },
-    { href: '#developers', label: 'Developers' },
-    { href: '/docs/send', label: 'Docs' },
-];
 
 const aiPoints = [
     {

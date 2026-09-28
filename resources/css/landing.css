@@ -230,12 +230,12 @@ html.light .lp-hero-stage.is-active .lp-hero-glare {
         transform: translateY(18px);
     }
 
-    .lp-reveal.is-shown {
+    .lp-reveal[data-shown] {
         animation: lp-rise 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
         animation-delay: var(--d, 0s);
     }
 
-    .lp-reveal.is-settled {
+    .lp-reveal[data-settled] {
         animation: none;
         opacity: 1;
         transform: none;

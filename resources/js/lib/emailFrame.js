@@ -40,13 +40,13 @@ const QUOTE_SELECTOR = [
 const PLAIN_QUOTE_RE =
     /(?:^|\n)(?:On .{10,200} wrote:|-{2,}\s*Original Message\s*-{2,}|_{5,}|From:\s.+\nSent:\s)/i;
 
-export function buildSrcdoc(html) {
+export function buildSrcdoc(html, extraStyle = '') {
     return [
         '<!doctype html><html><head><meta charset="utf-8">',
         '<meta name="color-scheme" content="light only">',
         "<meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'\">",
         '<base target="_blank">',
-        `<style>${BASE_STYLE}</style>`,
+        `<style>${BASE_STYLE}${extraStyle}</style>`,
         '</head><body><div id="md-fit">',
         html ?? '',
         '</div></body></html>',
@@ -66,7 +66,7 @@ export function hardenLinks(doc) {
  * Shrink a fixed-width email (typical 600px tables) so it fits the frame.
  * Measured once per frame width so a ResizeObserver does not zoom forever.
  */
-export function fitToWidth(doc, frameWidth) {
+export function fitToWidth(doc, frameWidth, sidePadding = null) {
     const body = doc?.body;
     const target = doc.getElementById?.('md-fit') || body;
     if (!target?.style || !frameWidth || frameWidth < 40) {
@@ -74,10 +74,12 @@ export function fitToWidth(doc, frameWidth) {
     }
 
     // Side padding stays on the body so it is not scaled away on the right.
-    const sidePadding = target === body ? 0 : 32;
-    const available = Math.max(40, frameWidth - sidePadding);
+    const padding = sidePadding ?? (target === body ? 0 : 32);
+    const available = Math.max(40, frameWidth - padding);
     const zoom = Number.parseFloat(target.style.zoom || '1') || 1;
-    const visualWidth = Math.max(target.scrollWidth || 0, target.offsetWidth || 0);
+    // scrollWidth follows the current zoom. offsetWidth can stay at the
+    // unscaled size, which would make the next pass shrink the letter again.
+    const visualWidth = target.scrollWidth || target.offsetWidth || 0;
     const contentWidth = visualWidth / zoom;
     const fittedFor = Number(target.dataset.mdFitWidth || 0);
     const fittedContent = Number(target.dataset.mdFitContent || 0);
