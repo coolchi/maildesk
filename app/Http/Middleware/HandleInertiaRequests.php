@@ -10,6 +10,7 @@ use App\Services\Impersonation\ImpersonationService;
 use App\Services\PlatformSettings;
 use App\Services\TenantResolver;
 use App\Services\WorkspaceAccess;
+use App\Support\DesignTemplates;
 use App\Support\InboxSyncState;
 use App\Support\PlansCatalog;
 use Illuminate\Http\Request;
@@ -157,6 +158,10 @@ class HandleInertiaRequests extends Middleware
             'ai' => fn () => [
                 'enabled' => app(PlatformSettings::class)->aiEnabled(),
                 'features' => app(PlatformSettings::class)->aiFeatureFlags(),
+            ],
+            'designs' => fn () => [
+                'catalog' => $organization ? DesignTemplates::forClient($organization) : [],
+                'default' => $organization ? DesignTemplates::defaultKey($organization) : null,
             ],
         ];
     }

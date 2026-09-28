@@ -165,7 +165,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/automations/{automation}', [AutomationController::class, 'update'])->name('automations.update');
     Route::delete('/automations/{automation}', [AutomationController::class, 'destroy'])->name('automations.destroy');
     Route::get('/templates', [TemplateController::class, 'index'])->name('templates');
+    Route::put('/templates/designs/default', [TemplateController::class, 'updateDefaultDesign'])->name('templates.design-default');
+    Route::put('/templates/designs/color', [TemplateController::class, 'updateDesignColor'])->name('templates.design-color');
     Route::post('/templates', [TemplateController::class, 'store'])->name('templates.store');
+    Route::post('/templates/samples', [TemplateController::class, 'storeFromSample'])->name('templates.samples.store');
+    Route::post('/templates/images', [TemplateController::class, 'uploadImage'])->middleware('throttle:30,1')->name('templates.images');
     Route::get('/templates/{template}/edit', [TemplateController::class, 'edit'])->name('templates.edit');
     Route::put('/templates/{template}', [TemplateController::class, 'update'])->name('templates.update');
     Route::post('/templates/{template}/test', [TemplateController::class, 'test'])->name('templates.test');

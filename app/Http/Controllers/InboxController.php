@@ -13,6 +13,7 @@ use App\Services\ThreadTrashService;
 use App\Services\WorkspaceAccess;
 use App\Support\AddressList;
 use App\Support\CurrentOrganization;
+use App\Support\DesignTemplates;
 use App\Support\InboxSyncState;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -307,6 +308,7 @@ class InboxController extends Controller
 
         $validated = $request->validate([
             'html' => ['required', 'string', 'max:200000'],
+            'design' => ['nullable', 'string', 'max:40'],
             'cc' => ['nullable', 'string', 'max:2000', AddressList::rule()],
             'bcc' => ['nullable', 'string', 'max:2000', AddressList::rule()],
             'attachments' => ['nullable', 'array', 'max:10'],
@@ -356,6 +358,7 @@ class InboxController extends Controller
             'subject' => $subject,
             'html' => $validated['html'],
             'text' => $text,
+            'design' => DesignTemplates::defaultKey($organization),
             'headers' => $headers ?: null,
             'in_reply_to' => $last->message_id_header,
             'references' => $references ?: null,
@@ -389,6 +392,7 @@ class InboxController extends Controller
         $validated = $request->validate([
             'to' => ['required', 'string', 'max:2000', AddressList::rule()],
             'html' => ['nullable', 'string', 'max:200000'],
+            'design' => ['nullable', 'string', 'max:40'],
             'cc' => ['nullable', 'string', 'max:2000', AddressList::rule()],
             'bcc' => ['nullable', 'string', 'max:2000', AddressList::rule()],
             'message' => ['nullable', 'integer'],
@@ -456,6 +460,7 @@ class InboxController extends Controller
             'subject' => $subject,
             'html' => $html,
             'text' => $text,
+            'design' => DesignTemplates::defaultKey($organization),
             // Already placed above the forwarded block.
             'signature' => false,
             'meta' => ['forwarded_from' => $original->id],

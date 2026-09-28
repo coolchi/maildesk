@@ -36,6 +36,98 @@ const props = defineProps({
 
 const isEmail = computed(() => props.variant === 'email');
 
+const uploadEditorImage = async (file) => {
+    const body = new FormData();
+    body.append('image', file);
+    const { data } = await window.axios.post(route('templates.images'), body);
+    return data?.url || '';
+};
+
+const EmailImage = Image.extend({
+    addNodeView() {
+        return ({ node, editor, getPos }) => {
+            let current = node;
+            const dom = document.createElement('div');
+            dom.className = 'email-image-wrap';
+            const img = document.createElement('img');
+            img.className = 'email-inline-image';
+            img.src = current.attrs.src || '';
+            img.alt = current.attrs.alt || '';
+            const bar = document.createElement('div');
+            bar.className = 'email-image-actions';
+            bar.contentEditable = 'false';
+            const replace = document.createElement('button');
+            replace.type = 'button';
+            replace.textContent = 'Replace';
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.textContent = 'Remove';
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/jpeg,image/png,image/gif,image/webp';
+            input.hidden = true;
+
+            const halt = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+            };
+            replace.addEventListener('mousedown', halt);
+            remove.addEventListener('mousedown', halt);
+            replace.addEventListener('click', (event) => {
+                halt(event);
+                input.click();
+            });
+            remove.addEventListener('click', (event) => {
+                halt(event);
+                const pos = getPos();
+                if (typeof pos !== 'number') return;
+                const found = editor.state.doc.nodeAt(pos);
+                if (!found) return;
+                editor
+                    .chain()
+                    .focus()
+                    .deleteRange({ from: pos, to: pos + found.nodeSize })
+                    .run();
+            });
+            input.addEventListener('change', async () => {
+                const file = input.files?.[0];
+                input.value = '';
+                if (!file || !file.type.startsWith('image/') || file.type === 'image/svg+xml') return;
+                try {
+                    const src = await uploadEditorImage(file);
+                    const pos = getPos();
+                    if (!src || typeof pos !== 'number') return;
+                    editor
+                        .chain()
+                        .setNodeSelection(pos)
+                        .updateAttributes('image', { src, alt: file.name })
+                        .run();
+                } catch {
+                    replace.textContent = 'Failed';
+                    window.setTimeout(() => {
+                        replace.textContent = 'Replace';
+                    }, 1600);
+                }
+            });
+
+            bar.append(replace, remove, input);
+            dom.append(img, bar);
+
+            return {
+                dom,
+                stopEvent: (event) => bar.contains(event.target),
+                update(updated) {
+                    if (updated.type !== current.type) return false;
+                    current = updated;
+                    img.src = updated.attrs.src || '';
+                    img.alt = updated.attrs.alt || '';
+                    return true;
+                },
+            };
+        };
+    },
+});
+
 const editor = useEditor({
     content: model.value || '',
     extensions: [
@@ -43,7 +135,7 @@ const editor = useEditor({
         Underline,
         Link.configure({ openOnClick: false }),
         Placeholder.configure({ placeholder: props.placeholder }),
-        Image.configure({
+        EmailImage.configure({
             inline: false,
             allowBase64: true,
             HTMLAttributes: {
@@ -172,12 +264,35 @@ const insertImage = (src, alt = '') => {
         .run();
 };
 
-const onPickImage = (e) => {
+const imageError = ref('');
+let replaceFrom = null;
+
+const rememberImageSelection = () => {
+    const ed = editor.value;
+    replaceFrom = ed?.isActive('image') ? ed.state.selection.from : null;
+};
+
+const onPickImage = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !file.type.startsWith('image/')) return;
-    const url = URL.createObjectURL(file);
-    insertImage(url, file.name);
+    imageError.value = '';
+    const from = replaceFrom;
+    replaceFrom = null;
+    if (!file || !file.type.startsWith('image/') || file.type === 'image/svg+xml') return;
+    try {
+        const src = await uploadEditorImage(file);
+        if (!src || !editor.value) {
+            imageError.value = 'Could not add that image.';
+            return;
+        }
+        if (from != null) {
+            editor.value.chain().focus().setNodeSelection(from).updateAttributes('image', { src, alt: file.name }).run();
+        } else {
+            insertImage(src, file.name);
+        }
+    } catch {
+        imageError.value = 'Could not add that image.';
+    }
 };
 
 defineExpose({ insertImage });
@@ -293,16 +408,18 @@ const isReady = computed(() => !!editor.value);
             <label
                 class="cursor-pointer rounded p-1.5"
                 :class="btn(false)"
-                title="Insert image"
+                :title="editor.isActive('image') ? 'Replace image' : 'Insert image'"
+                @mousedown="rememberImageSelection"
             >
                 <ImagePlus :size="15" />
                 <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
                     class="hidden"
                     @change="onPickImage"
                 />
             </label>
+            <span v-if="imageError" class="px-1 text-xs text-rose-400">{{ imageError }}</span>
             <span
                 class="mx-1 h-4 w-px"
                 :class="isEmail ? 'bg-zinc-200' : 'bg-md-border'"
@@ -425,6 +542,40 @@ const isReady = computed(() => !!editor.value);
     max-width: 100%;
     height: auto;
     border-radius: 8px;
+    margin: 0;
+}
+.email-image-wrap {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
     margin: 0.5rem 0;
+}
+.email-image-wrap img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+.email-image-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    display: none;
+    gap: 4px;
+}
+.email-image-wrap:hover .email-image-actions,
+.email-image-wrap.ProseMirror-selectednode .email-image-actions {
+    display: flex;
+}
+.email-image-actions button {
+    border-radius: 999px;
+    background: rgba(9, 9, 11, 0.86);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1;
+    padding: 6px 8px;
+}
+.email-image-actions button:hover {
+    background: #18181b;
 }
 </style>

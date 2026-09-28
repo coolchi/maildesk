@@ -12,6 +12,7 @@ use App\Models\Organization;
 use App\Models\Suppression;
 use App\Models\Thread;
 use App\Support\AddressList;
+use App\Support\DesignTemplates;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -70,6 +71,21 @@ class EmailService
             );
             $payload['html'] = $signed['html'];
             $payload['text'] = $signed['text'];
+        }
+
+        if (is_string($payload['html'] ?? null)) {
+            $payload['html'] = DesignTemplates::fitImages($payload['html']);
+        }
+
+        $design = DesignTemplates::normalize($payload['design'] ?? null);
+        if ($design !== null) {
+            $payload['html'] = DesignTemplates::wrap(
+                $design,
+                (string) ($payload['html'] ?? ''),
+                (string) $organization->name,
+                $organization,
+            );
+            $payload['meta'] = array_merge((array) ($payload['meta'] ?? []), ['design' => $design]);
         }
 
         $suppressed = $this->firstSuppressedAddress($organization, [...$to, ...$cc, ...$bcc]);
@@ -181,7 +197,7 @@ class EmailService
             fromName: $message->from_name,
             to: $this->normalizeList($message->to ?? []),
             subject: $message->subject,
-            html: $message->html_body,
+            html: DesignTemplates::fitImages((string) $message->html_body),
             text: $message->text_body,
             cc: $message->cc,
             bcc: $message->bcc,

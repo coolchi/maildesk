@@ -5,6 +5,8 @@ import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
+import DesignFrame from '@/Components/DesignFrame.vue';
+import { useDesigns } from '@/composables/useDesigns';
 import RowActions from '@/Components/RowActions.vue';
 import AttachmentList from '@/Components/AttachmentList.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
@@ -44,6 +46,7 @@ const props = defineProps({
 });
 
 const { threadSummary } = useAiFeatures();
+const { defaultKey } = useDesigns();
 
 const page = usePage();
 const { markThreadRead, setInboxUnread, inboxUnread } = useNotifications();
@@ -1304,11 +1307,14 @@ const avatarTone = (thread) => {
                         </label>
                     </div>
                     <div class="max-h-[26vh] overflow-y-auto rounded-lg">
-                        <WysiwygEditor
-                            v-model="replyHtml"
-                            :placeholder="replyMode === 'forward' ? 'Add a note (optional)…' : 'Write a reply…'"
-                            min-height="110px"
-                        />
+                        <DesignFrame :design="defaultKey">
+                            <WysiwygEditor
+                                v-model="replyHtml"
+                                :variant="defaultKey ? 'email' : 'dark'"
+                                :placeholder="replyMode === 'forward' ? 'Add a note (optional)…' : 'Write a reply…'"
+                                min-height="110px"
+                            />
+                        </DesignFrame>
                     </div>
                     <div v-if="replyFiles.length" class="mt-2 flex flex-wrap gap-2">
                         <span

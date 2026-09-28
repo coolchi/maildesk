@@ -9,6 +9,7 @@ use App\Services\EmailService;
 use App\Services\WorkspaceAccess;
 use App\Support\AddressList;
 use App\Support\CurrentOrganization;
+use App\Support\DesignTemplates;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -203,6 +204,7 @@ class EmailController extends Controller
             'subject' => ['required', 'string', 'max:998'],
             'html' => ['nullable', 'string'],
             'text' => ['nullable', 'string'],
+            'design' => ['nullable', 'string', 'max:40'],
             'cc' => ['nullable', 'string', 'max:2000', AddressList::rule()],
             'bcc' => ['nullable', 'string', 'max:2000', AddressList::rule()],
             'reply_to' => ['nullable', 'string', 'max:255'],
@@ -242,6 +244,8 @@ class EmailController extends Controller
             'subject' => $validated['subject'],
             'html' => $validated['html'] ?? null,
             'text' => $validated['text'] ?? strip_tags($validated['html'] ?? ''),
+            'design' => DesignTemplates::normalize($validated['design'] ?? null)
+                ?? DesignTemplates::defaultKey($organization),
             'tags' => $validated['tags'] ?? null,
             'signature' => $request->boolean('signature', true),
         ];

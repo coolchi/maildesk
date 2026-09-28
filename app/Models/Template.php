@@ -17,6 +17,7 @@ class Template extends Model
         'name',
         'subject',
         'html',
+        'design_key',
         'status',
     ];
 
@@ -40,6 +41,7 @@ class Template extends Model
             'subject' => $this->subject,
             'status' => $this->status ?: 'draft',
             'html' => $this->html,
+            'design_key' => $this->design_key,
             'updated' => $this->updated_at?->diffForHumans() ?? '',
             'accent' => '#22d3ee',
         ];

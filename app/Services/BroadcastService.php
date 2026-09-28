@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\SendBroadcast;
 use App\Models\Broadcast;
+use App\Support\DesignTemplates;
 use App\Models\BroadcastRecipient;
 use App\Models\Contact;
 use App\Models\Message;
@@ -125,10 +126,12 @@ class BroadcastService
         $body = (string) $broadcast->html;
         $from = $broadcast->from ?: 'hello@'.$organization->slug.'.test';
 
-        // Signature sits above the unsubscribe footer.
+        // Signature sits inside the design, above the unsubscribe footer.
         if ($this->signatures->settings($organization)['broadcasts']) {
             $body = (string) $this->signatures->apply($body, null, $this->signatures->resolve($organization, $this->emailOf($from)))['html'];
         }
+
+        $body = DesignTemplates::wrap($broadcast->design_key, $body, (string) $organization->name, $organization);
 
         $html = $this->personalize($body, $recipient, $contact, $unsubscribeUrl);
 

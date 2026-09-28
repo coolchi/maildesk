@@ -2,6 +2,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
+import DesignFrame from '@/Components/DesignFrame.vue';
+import SandboxedHtml from '@/Components/SandboxedHtml.vue';
+import { useDesigns } from '@/composables/useDesigns';
 import {
     composeDraft,
     useComposeModal,
@@ -12,6 +15,7 @@ import { useAiFeatures } from '@/composables/useAiFeatures';
 import {
     Calendar,
     Eye,
+    EyeOff,
     File,
     Maximize2,
     Minimize2,
@@ -30,6 +34,8 @@ const { state, close, toggleMinimized, toggleExpanded } = useComposeModal();
 const { canSend, activeWorkspace, activeProviderHealth, sendingFrom } =
     useTenant();
 const { composeAssist } = useAiFeatures();
+const { defaultKey, apply } = useDesigns();
+const showMailPreview = ref(false);
 const page = usePage();
 const toast = useToast();
 const editorRef = ref(null);
@@ -67,6 +73,8 @@ const blankForm = () => ({
 
 const form = composeDraft.form;
 if (!form.value) form.value = blankForm();
+delete form.value.design;
+const previewHtml = computed(() => apply(form.value?.html || '', defaultKey.value));
 const showCc = ref(false);
 const showBcc = ref(false);
 const showReplyTo = ref(false);
@@ -117,6 +125,7 @@ const reset = () => {
         ...blankForm(),
         ...(state.defaults || {}),
     };
+    delete form.value.design;
     if (
         state.defaults?.from &&
         !fromOptions.value.includes(state.defaults.from) &&
@@ -128,6 +137,7 @@ const reset = () => {
         form.value.from = fromOptions.value[0] || form.value.from;
     }
     tagInput.value = '';
+    showMailPreview.value = false;
     clearAttachments();
     revealExtras();
 };
@@ -676,6 +686,18 @@ const submit = () => {
                                         <label class="block text-xs text-zinc-500"
                                             >Body</label
                                         >
+                                        <div class="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center gap-1 rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
+                                            :class="showMailPreview ? 'bg-zinc-800 text-white' : ''"
+                                            :title="showMailPreview ? 'Back to editor' : 'Preview mail'"
+                                            data-testid="compose-mail-preview"
+                                            @click="showMailPreview = !showMailPreview"
+                                        >
+                                            <EyeOff v-if="showMailPreview" :size="14" />
+                                            <Eye v-else :size="14" />
+                                        </button>
                                         <div
                                             v-if="composeAssist"
                                             class="flex flex-wrap gap-2"
@@ -707,13 +729,41 @@ const submit = () => {
                                                 Friendlier tone
                                             </button>
                                         </div>
+                                        </div>
                                     </div>
-                                    <WysiwygEditor
-                                        ref="editorRef"
-                                        v-model="form.html"
-                                        variant="email"
-                                        min-height="220px"
-                                    />
+                                    <div
+                                        v-if="showMailPreview"
+                                        class="overflow-hidden rounded-xl border border-zinc-700 bg-white shadow-sm"
+                                        data-testid="compose-mail-preview-card"
+                                    >
+                                        <div class="space-y-1.5 border-b border-zinc-200 bg-zinc-50 px-4 py-3">
+                                            <div class="flex gap-2 text-xs">
+                                                <span class="w-14 shrink-0 text-zinc-400">From</span>
+                                                <span class="truncate text-zinc-700">{{ form.from }}</span>
+                                            </div>
+                                            <div class="flex gap-2 text-xs">
+                                                <span class="w-14 shrink-0 text-zinc-400">To</span>
+                                                <span class="truncate text-zinc-600">{{ form.to || '—' }}</span>
+                                            </div>
+                                            <div class="flex gap-2 text-xs">
+                                                <span class="w-14 shrink-0 text-zinc-400">Subject</span>
+                                                <span class="truncate font-medium text-zinc-900">{{ form.subject || '(no subject)' }}</span>
+                                            </div>
+                                        </div>
+                                        <SandboxedHtml
+                                            :html="previewHtml"
+                                            :min-height="220"
+                                            title="Mail preview"
+                                        />
+                                    </div>
+                                    <DesignFrame v-else :design="defaultKey">
+                                        <WysiwygEditor
+                                            ref="editorRef"
+                                            v-model="form.html"
+                                            variant="email"
+                                            min-height="220px"
+                                        />
+                                    </DesignFrame>
                                 </div>
 
                                 <!-- Attachments -->

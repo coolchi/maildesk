@@ -4,6 +4,7 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import EmailFrame from '@/Components/EmailFrame.vue';
+import { useDesigns } from '@/composables/useDesigns';
 import { useToast } from '@/composables/useToast';
 import {
     ArrowLeft,
@@ -22,8 +23,11 @@ const props = defineProps({
 });
 
 const toast = useToast();
+const { apply, find } = useDesigns();
 
 const broadcast = computed(() => props.broadcast);
+const previewHtml = computed(() => apply(broadcast.value.html || '', broadcast.value.design_key));
+const designName = computed(() => find(broadcast.value.design_key)?.name || 'Plain mail');
 
 const num = (v) => Number(v || 0).toLocaleString();
 const pct = (part, whole) =>
@@ -167,7 +171,7 @@ const duplicate = () => {
                             <span class="text-zinc-300">{{ broadcast.subject }}</span>
                         </div>
                     </div>
-                    <EmailFrame :html="broadcast.html || ''" :min-height="240" title="Broadcast preview" />
+                    <EmailFrame :html="previewHtml" :min-height="240" title="Broadcast preview" />
                 </div>
                 <p class="text-xs text-zinc-500">
                     Each recipient gets a personal unsubscribe link in the footer
@@ -179,6 +183,10 @@ const duplicate = () => {
                 <section class="md-card space-y-3 p-5">
                     <h2 class="text-sm font-medium text-white">Details</h2>
                     <dl class="space-y-3 text-sm">
+                        <div class="flex justify-between gap-3">
+                            <dt class="text-zinc-500">Design</dt>
+                            <dd class="text-right text-zinc-200">{{ designName }}</dd>
+                        </div>
                         <div class="flex justify-between gap-3">
                             <dt class="text-zinc-500">Audience</dt>
                             <dd

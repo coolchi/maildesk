@@ -73,26 +73,33 @@ export function fitToWidth(doc, frameWidth) {
         return;
     }
 
-    const fittedFor = Number(target.dataset.mdFitWidth || 0);
-    if (fittedFor && Math.abs(fittedFor - frameWidth) < 8) {
-        return;
-    }
-
     // Side padding stays on the body so it is not scaled away on the right.
     const sidePadding = target === body ? 0 : 32;
     const available = Math.max(40, frameWidth - sidePadding);
+    const zoom = Number.parseFloat(target.style.zoom || '1') || 1;
+    const visualWidth = Math.max(target.scrollWidth || 0, target.offsetWidth || 0);
+    const contentWidth = visualWidth / zoom;
+    const fittedFor = Number(target.dataset.mdFitWidth || 0);
+    const fittedContent = Number(target.dataset.mdFitContent || 0);
+    const sameFrame = fittedFor && Math.abs(fittedFor - frameWidth) < 8;
 
-    target.style.zoom = '1';
-    const contentWidth = Math.max(target.scrollWidth || 0, target.offsetWidth || 0);
+    // Skip while the frame width is unchanged and the content has not grown
+    // (an image loading later must be allowed to scale again).
+    if (sameFrame && contentWidth <= fittedContent + 8) {
+        return;
+    }
 
     if (contentWidth < 40 || contentWidth <= available + 1) {
+        target.style.zoom = '1';
         target.dataset.mdFitWidth = String(Math.round(frameWidth));
+        target.dataset.mdFitContent = String(Math.round(contentWidth));
         return;
     }
 
     const scale = Math.max(0.3, Math.min(1, available / contentWidth));
     target.style.zoom = String(Math.round(scale * 1000) / 1000);
     target.dataset.mdFitWidth = String(Math.round(frameWidth));
+    target.dataset.mdFitContent = String(Math.round(contentWidth));
 }
 
 export function contentHeight(doc) {

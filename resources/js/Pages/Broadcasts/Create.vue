@@ -5,6 +5,9 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
 import SandboxedHtml from '@/Components/SandboxedHtml.vue';
+import DesignPicker from '@/Components/DesignPicker.vue';
+import DesignFrame from '@/Components/DesignFrame.vue';
+import { useDesigns } from '@/composables/useDesigns';
 import { useToast } from '@/composables/useToast';
 import { useAiFeatures } from '@/composables/useAiFeatures';
 import { ArrowLeft, Send, Sparkles } from '@lucide/vue';
@@ -16,6 +19,7 @@ const props = defineProps({
 
 const toast = useToast();
 const { broadcastAssist } = useAiFeatures();
+const { defaultKey, apply } = useDesigns();
 const step = ref(1);
 const assisting = ref(false);
 const subjectSuggestions = ref([]);
@@ -29,6 +33,7 @@ const form = ref({
     subject: '',
     from: 'Acme <hello@acme.com>',
     html: '<h2>What\'s new</h2><p>Share your announcement here…</p>',
+    design: defaultKey.value || '',
     schedule: 'now',
     brief: '',
 });
@@ -93,6 +98,7 @@ const send = () => {
             name: form.value.name,
             subject: form.value.subject,
             html: form.value.html,
+            design_key: form.value.design || null,
             segment: form.value.segment,
             from: form.value.from,
             send_now: form.value.schedule === 'now',
@@ -234,6 +240,7 @@ const send = () => {
                     <label class="mb-1.5 block text-xs text-zinc-500">From</label>
                     <input v-model="form.from" class="md-input" />
                 </div>
+                <DesignPicker v-model="form.design" />
                 <div>
                     <label class="mb-1.5 block text-xs text-zinc-500"
                         >Subject</label
@@ -261,7 +268,13 @@ const send = () => {
             </div>
             <div>
                 <label class="mb-1.5 block text-xs text-zinc-500">Body</label>
-                <WysiwygEditor v-model="form.html" min-height="280px" />
+                <DesignFrame :design="form.design">
+                    <WysiwygEditor
+                        v-model="form.html"
+                        :variant="form.design ? 'email' : 'dark'"
+                        min-height="280px"
+                    />
+                </DesignFrame>
             </div>
             <div class="flex justify-between pt-2">
                 <button type="button" class="md-btn-ghost" @click="step = 1">
@@ -343,7 +356,7 @@ const send = () => {
                     class="overflow-hidden rounded-xl border border-zinc-800 bg-white shadow"
                 >
                     <SandboxedHtml
-                        :html="form.html"
+                        :html="apply(form.html, form.design)"
                         :min-height="200"
                         title="Broadcast preview"
                     />

@@ -64,11 +64,9 @@ class ResendProvider implements MailProvider
                 $payload['reply_to'] = $this->normalizeAddresses($email->replyTo);
             }
 
-            if ($email->tags) {
-                $payload['tags'] = array_map(
-                    fn (string $tag) => ['name' => $tag, 'value' => 'true'],
-                    $email->tags,
-                );
+            $tags = $this->resendTags($email->tags ?? []);
+            if ($tags !== []) {
+                $payload['tags'] = $tags;
             }
 
             if ($email->headers) {
@@ -103,6 +101,36 @@ class ResendProvider implements MailProvider
                 error: $e->getMessage(),
             );
         }
+    }
+
+    /**
+     * Resend tag names and values may only contain ASCII letters, numbers, underscores, or dashes.
+     *
+     * @param  array<int, string>  $tags
+     * @return list<array{name: string, value: string}>
+     */
+    protected function resendTags(array $tags): array
+    {
+        $payload = [];
+
+        foreach ($tags as $tag) {
+            $name = $this->resendTagToken((string) $tag);
+            if ($name === '' || isset($payload[$name])) {
+                continue;
+            }
+
+            $payload[$name] = ['name' => $name, 'value' => 'true'];
+        }
+
+        return array_values($payload);
+    }
+
+    protected function resendTagToken(string $tag): string
+    {
+        $token = preg_replace('/[^A-Za-z0-9_-]+/', '-', $tag) ?? '';
+        $token = trim($token, '-');
+
+        return substr($token, 0, 256);
     }
 
     /**

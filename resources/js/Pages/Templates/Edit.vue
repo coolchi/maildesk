@@ -1,9 +1,14 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import Modal from '@/Components/Modal.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import WysiwygEditor from '@/Components/WysiwygEditor.vue';
+import DesignPicker from '@/Components/DesignPicker.vue';
+import DesignFrame from '@/Components/DesignFrame.vue';
+import EmailFrame from '@/Components/EmailFrame.vue';
+import { useDesigns } from '@/composables/useDesigns';
 import RowActions from '@/Components/RowActions.vue';
 import { useToast } from '@/composables/useToast';
 import {
@@ -24,12 +29,19 @@ const props = defineProps({
     template: { type: Object, required: true },
 });
 
+const page = usePage();
 const toast = useToast();
+const showTest = ref(false);
+const testTo = ref('');
+const sendingTest = ref(false);
+const { apply, defaultKey } = useDesigns();
 
 const name = ref(props.template.name || '');
 const subject = ref(props.template.subject || '');
 const status = ref(props.template.status || 'published');
 const html = ref(props.template.html || '');
+const designKey = ref(props.template.design_key || '');
+const frameDesign = computed(() => designKey.value || defaultKey.value || '');
 const mode = ref('design'); // design | code
 const device = ref('desktop');
 const dirty = ref(false);
@@ -42,11 +54,12 @@ watch(
         subject.value = tpl.subject || '';
         status.value = tpl.status || 'published';
         html.value = tpl.html || '';
+        designKey.value = tpl.design_key || '';
         dirty.value = false;
     },
 );
 
-watch([name, subject, html], () => {
+watch([name, subject, html, designKey], () => {
     dirty.value = true;
 });
 
@@ -61,17 +74,12 @@ const variables = [
     { key: 'paid_at', sample: 'Sep 6, 2026' },
 ];
 
-const previewDoc = computed(() => {
+const previewHtml = computed(() => {
     let body = html.value || '';
     for (const v of variables) {
         body = body.replaceAll(`{{${v.key}}}`, v.sample);
     }
-    // Ensure inbox-like white canvas around the email HTML
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-      html,body{margin:0;padding:0;background:#f4f4f5;min-height:100%;}
-      body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;}
-      img{max-width:100%;height:auto;}
-    </style></head><body>${body}</body></html>`;
+    return apply(body, frameDesign.value);
 });
 
 const previewSubject = computed(() => {
@@ -114,6 +122,7 @@ const save = () => {
             name: name.value,
             subject: subject.value,
             html: html.value,
+            design_key: designKey.value || null,
         },
         {
             preserveScroll: true,
@@ -126,19 +135,34 @@ const save = () => {
     );
 };
 
+const openTest = () => {
+    testTo.value = page.props.auth?.user?.email || '';
+    showTest.value = true;
+};
+
 const sendTest = () => {
-    router.post(route('templates.test', props.id), {}, {
+    const to = testTo.value.trim();
+    if (!to || sendingTest.value) return;
+    sendingTest.value = true;
+    router.post(route('templates.test', props.id), { to }, {
         preserveScroll: true,
-        onSuccess: (page) => {
-            const message = page.props.flash?.success;
-            const error = page.props.flash?.error;
+        onSuccess: (visit) => {
+            const message = visit.props.flash?.success;
+            const error = visit.props.flash?.error;
             if (error) {
                 toast.error(error);
-            } else if (message) {
-                toast.success(message);
+                return;
             }
+            showTest.value = false;
+            if (message) toast.success(message);
         },
-        onError: () => toast.error('Could not send the test email.'),
+        onError: (errors) => {
+            const message = Array.isArray(errors.to) ? errors.to[0] : errors.to;
+            toast.error(message || 'Could not send the test email.');
+        },
+        onFinish: () => {
+            sendingTest.value = false;
+        },
     });
 };
 
@@ -170,7 +194,7 @@ const moreActions = computed(() => [
 
 const onMore = (item) => {
     if (item.id === 'copy') copyHtml();
-    else if (item.id === 'test') sendTest();
+    else if (item.id === 'test') openTest();
     else if (item.id === 'publish') publish();
 };
 </script>
@@ -208,7 +232,7 @@ const onMore = (item) => {
             </div>
             <div class="flex shrink-0 flex-wrap items-center gap-2">
                 <RowActions :items="moreActions" @select="onMore" />
-                <button type="button" class="md-btn-ghost" @click="sendTest">
+                <button type="button" class="md-btn-ghost" @click="openTest">
                     <Send :size="15" />
                     Test
                 </button>
@@ -220,12 +244,18 @@ const onMore = (item) => {
         </div>
 
         <!-- Subject -->
-        <div class="mb-4">
-            <label class="mb-1.5 block text-xs text-zinc-500">Subject</label>
-            <input
-                v-model="subject"
-                class="md-input"
-                placeholder="Email subject line…"
+        <div class="mb-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
+            <div>
+                <label class="mb-1.5 block text-xs text-zinc-500">Subject</label>
+                <input
+                    v-model="subject"
+                    class="md-input"
+                    placeholder="Email subject line…"
+                />
+            </div>
+            <DesignPicker
+                v-model="designKey"
+                :plain-label="defaultKey ? 'Workspace default' : 'Plain mail'"
             />
         </div>
 
@@ -320,13 +350,14 @@ const onMore = (item) => {
                 </div>
 
                 <div class="min-h-[480px] flex-1 p-3 sm:p-4">
-                    <WysiwygEditor
-                        v-if="mode === 'design'"
-                        v-model="html"
-                        variant="email"
-                        min-height="440px"
-                        placeholder="Design your email…"
-                    />
+                    <DesignFrame v-if="mode === 'design'" :design="frameDesign">
+                        <WysiwygEditor
+                            v-model="html"
+                            variant="email"
+                            min-height="440px"
+                            placeholder="Design your email…"
+                        />
+                    </DesignFrame>
                     <textarea
                         v-else
                         v-model="html"
@@ -339,7 +370,7 @@ const onMore = (item) => {
             <!-- Preview panel -->
             <section
                 v-if="showPreview"
-                class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950"
+                class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950"
             >
                 <div
                     class="flex items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2"
@@ -419,16 +450,12 @@ const onMore = (item) => {
                                     }}</span>
                                 </div>
                             </div>
-                            <iframe
+                            <EmailFrame
+                                :key="device"
+                                :html="previewHtml"
+                                :collapse-quotes="false"
+                                :min-height="160"
                                 title="Email preview"
-                                class="block w-full border-0 bg-zinc-100"
-                                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                                referrerpolicy="no-referrer"
-                                :style="{
-                                    height:
-                                        device === 'mobile' ? '480px' : '520px',
-                                }"
-                                :srcdoc="previewDoc"
                             />
                         </div>
                         <p
@@ -440,5 +467,39 @@ const onMore = (item) => {
                 </div>
             </section>
         </div>
+
+        <Modal
+            :show="showTest"
+            title="Send a test"
+            description="Choose who should receive this template."
+            max-width="sm"
+            @close="showTest = false"
+        >
+            <form @submit.prevent="sendTest">
+                <label class="mb-1.5 block text-xs text-zinc-500" for="template-test-to">To</label>
+                <input
+                    id="template-test-to"
+                    v-model="testTo"
+                    type="email"
+                    required
+                    class="md-input"
+                    placeholder="name@company.com"
+                    autocomplete="email"
+                />
+            </form>
+            <template #footer>
+                <button type="button" class="md-btn-ghost" @click="showTest = false">
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-solid"
+                    :disabled="sendingTest || !testTo.trim()"
+                    @click="sendTest"
+                >
+                    {{ sendingTest ? 'Sending…' : 'Send test' }}
+                </button>
+            </template>
+        </Modal>
     </AppLayout>
 </template>

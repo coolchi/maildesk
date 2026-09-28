@@ -291,12 +291,8 @@ const copyId = async () => {
                     </button>
                 </div>
 
-                <div v-if="tab === 'preview'" class="bg-zinc-900/40 p-4 sm:p-6">
-                    <div
-                        class="mx-auto max-w-xl overflow-hidden rounded-xl bg-white shadow-lg"
-                    >
-                        <EmailFrame :html="email.html" title="Email preview" />
-                    </div>
+                <div v-if="tab === 'preview'" class="bg-zinc-950">
+                    <EmailFrame :html="email.html" title="Email preview" />
                 </div>
                 <pre
                     v-else-if="tab === 'plain'"

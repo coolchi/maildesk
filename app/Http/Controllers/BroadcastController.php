@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Broadcast;
 use App\Services\BroadcastService;
 use App\Support\CurrentOrganization;
+use App\Support\DesignTemplates;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -76,6 +77,7 @@ class BroadcastController extends Controller
             'name' => ['required', 'string', 'max:180'],
             'subject' => ['required_without:source_id', 'nullable', 'string', 'max:255'],
             'html' => ['required_without:source_id', 'nullable', 'string'],
+            'design_key' => ['nullable', 'string', 'max:40'],
             'segment' => ['nullable', 'string', 'max:64'],
             'from' => ['nullable', 'string', 'max:255'],
             'send_now' => ['sometimes', 'boolean'],
@@ -90,6 +92,7 @@ class BroadcastController extends Controller
                 'name' => ($validated['name'] ?: $source->name).' (copy)',
                 'subject' => $source->subject,
                 'html' => $source->html,
+                'design_key' => $source->design_key,
                 'audience' => $source->audience,
                 'from' => $source->from,
                 'status' => 'draft',
@@ -123,6 +126,7 @@ class BroadcastController extends Controller
             'name' => $validated['name'],
             'subject' => $validated['subject'],
             'html' => $validated['html'],
+            'design_key' => DesignTemplates::normalize($validated['design_key'] ?? null),
             'audience' => $audience,
             'from' => $validated['from'] ?? null,
             'status' => $status,
