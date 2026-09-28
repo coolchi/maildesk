@@ -89,7 +89,7 @@ html.light .lp {
 }
 
 .lp-hero-title {
-    font-size: clamp(3.25rem, 6.4vw, 5.5rem);
+    font-size: clamp(3.6rem, 7.4vw, 6.25rem);
 }
 
 .lp-hero-stage {
@@ -99,7 +99,7 @@ html.light .lp {
     --py: 0;
     --gx: 46%;
     --gy: 28%;
-    width: min(100%, 460px);
+    width: min(100%, 540px);
     justify-self: center;
     perspective: 680px;
 }
