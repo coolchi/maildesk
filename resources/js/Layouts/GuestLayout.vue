@@ -1,7 +1,8 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import { useTheme } from '@/composables/useTheme';
-import { Mail, Moon, Sun } from '@lucide/vue';
+import BrandLogo from '@/Components/BrandLogo.vue';
+import { Moon, Sun } from '@lucide/vue';
 
 const { theme, setTheme } = useTheme();
 </script>
@@ -49,17 +50,8 @@ const { theme, setTheme } = useTheme();
         </div>
 
         <div class="relative flex w-full max-w-md flex-col items-center">
-            <Link
-                href="/"
-                class="mb-8 flex items-center gap-2.5 text-white"
-                aria-label="MailDesk home"
-            >
-                <span
-                    class="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950 text-cyan-300"
-                >
-                    <Mail :size="18" />
-                </span>
-                <span class="text-xl font-semibold tracking-tight">MailDesk</span>
+            <Link href="/" class="mb-8 flex items-center" aria-label="MailDesk home">
+                <BrandLogo class="h-10" />
             </Link>
 
             <div

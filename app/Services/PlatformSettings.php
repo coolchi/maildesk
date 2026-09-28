@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Ai\AiManager;
+use App\Models\MailProvider;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -31,7 +32,7 @@ class PlatformSettings
     public const AI_FEATURES = [
         'smart_triage' => [
             'label' => 'Smart triage',
-            'description' => 'Classify inbound mail by priority, intent, and language.',
+            'description' => 'Classify inbound mail by priority, intent, and language. Spam and scams move to the spam folder.',
         ],
         'reply_draft' => [
             'label' => 'Reply draft',
@@ -170,6 +171,31 @@ class PlatformSettings
         $id = $this->get('default_workspace_provider_id');
 
         return is_numeric($id) ? (int) $id : null;
+    }
+
+    /**
+     * Provider assigned to a new workspace: the admin setting when that
+     * provider is still active, otherwise the active platform default.
+     */
+    public function workspaceProvider(): ?MailProvider
+    {
+        $configuredId = $this->defaultWorkspaceProviderId();
+
+        if ($configuredId) {
+            $configured = MailProvider::query()
+                ->whereKey($configuredId)
+                ->where('status', 'active')
+                ->first();
+
+            if ($configured) {
+                return $configured;
+            }
+        }
+
+        return MailProvider::query()
+            ->where('is_default', true)
+            ->where('status', 'active')
+            ->first();
     }
 
     public function trialDays(): int

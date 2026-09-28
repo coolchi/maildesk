@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import { Eye, LogOut } from '@lucide/vue';
 import { useToast } from '@/composables/useToast';
@@ -10,7 +10,30 @@ const toast = useToast();
 const state = computed(() => page.props.impersonation || null);
 const now = ref(Date.now());
 const leaving = ref(false);
+const bannerEl = ref(null);
 let timer = null;
+let observer = null;
+
+const syncOffset = () => {
+    const height = bannerEl.value?.offsetHeight || 0;
+    if (height > 0) {
+        document.documentElement.style.setProperty('--impersonation-offset', `${height}px`);
+    } else {
+        document.documentElement.style.removeProperty('--impersonation-offset');
+    }
+};
+
+const observeBanner = () => {
+    observer?.disconnect();
+    observer = null;
+    if (!bannerEl.value || typeof ResizeObserver === 'undefined') {
+        syncOffset();
+        return;
+    }
+    observer = new ResizeObserver(syncOffset);
+    observer.observe(bannerEl.value);
+    syncOffset();
+};
 
 const remainingMs = computed(() => {
     if (!state.value?.expires_at) return 0;
@@ -53,21 +76,31 @@ watch(
     { immediate: true },
 );
 
+watch(state, async () => {
+    await nextTick();
+    observeBanner();
+});
+
 onMounted(() => {
     timer = window.setInterval(() => {
         now.value = Date.now();
     }, 1000);
+    observeBanner();
 });
 
 onUnmounted(() => {
     if (timer) window.clearInterval(timer);
+    observer?.disconnect();
+    document.documentElement.style.removeProperty('--impersonation-offset');
 });
 </script>
 
 <template>
     <div
         v-if="state?.active"
+        ref="bannerEl"
         class="sticky top-0 z-[60] flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-amber-400/40 bg-amber-400 px-4 py-2 text-sm text-amber-950 shadow-lg shadow-amber-500/10"
+        style="padding-top: max(0.5rem, env(safe-area-inset-top, 0px))"
         role="status"
         data-testid="impersonation-banner"
     >

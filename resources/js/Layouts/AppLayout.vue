@@ -9,20 +9,20 @@ import FloatingComposeButton from '@/Components/FloatingComposeButton.vue';
 import MobileTabBar from '@/Components/MobileTabBar.vue';
 import MobileMoreSheet from '@/Components/MobileMoreSheet.vue';
 import CommandPalette from '@/Components/CommandPalette.vue';
-import OnboardingModal from '@/Components/OnboardingModal.vue';
 import NotificationsMenu from '@/Components/NotificationsMenu.vue';
 import Modal from '@/Components/Modal.vue';
 import CreateAccountFields from '@/Components/CreateAccountFields.vue';
 import ImpersonationBanner from '@/Components/ImpersonationBanner.vue';
+import OnboardingModal from '@/Components/OnboardingModal.vue';
 import { useTenant } from '@/composables/useTenant';
 import { usePlansModal } from '@/composables/usePlansModal';
 import { useComposeModal } from '@/composables/useComposeModal';
-import { useOnboarding } from '@/composables/useOnboarding';
 import { useCommandPalette } from '@/composables/useCommandPalette';
 import { useNotifications } from '@/composables/useNotifications';
 import { useInboxLive } from '@/composables/useInboxLive';
 import { setInboxSoundPreference, unlockInboxAudio } from '@/composables/useInboxSound';
 import { useTheme } from '@/composables/useTheme';
+import { useOnboarding } from '@/composables/useOnboarding';
 import { useToast } from '@/composables/useToast';
 import { useMobileChrome } from '@/composables/useMobileChrome';
 import {
@@ -51,15 +51,15 @@ import {
     ExternalLink,
     Moon,
     Sun,
-    Sparkles,
     Search,
     LogOut,
     Shield,
+    Sparkles,
+    ShieldAlert,
     Send,
     MailX,
     Archive,
     FilePenLine,
-    PenLine,
     Trash2,
 } from '@lucide/vue';
 
@@ -78,11 +78,11 @@ const accessState = computed(() => page.props.access || {});
 const { open: openPlans } = usePlansModal();
 
 const { open: openCompose } = useComposeModal();
-const { open: openOnboarding } = useOnboarding();
 const { open: openCommandPalette } = useCommandPalette();
 const { inboxUnread } = useNotifications();
 const { liveConnected } = useInboxLive();
 const { theme, setTheme } = useTheme();
+const { open: openOnboarding } = useOnboarding();
 const toast = useToast();
 const { hideMobileHeader } = useMobileChrome();
 
@@ -138,10 +138,9 @@ const navGroups = computed(() => {
                 { name: 'Sent', route: 'sent', icon: Send, ability: 'inbox' },
                 { name: 'Drafts', route: 'drafts', icon: FilePenLine, ability: 'mail' },
                 // Members keep Archive in Mail; admins use Inbox folder tabs instead.
+                { name: 'Spam', route: 'spam', icon: ShieldAlert, ability: 'inbox', hideWhen: 'manage' },
                 { name: 'Archive', route: 'archive', icon: Archive, ability: 'inbox', hideWhen: 'manage' },
                 { name: 'Bounced', route: 'bounced', icon: MailX, ability: 'manage' },
-                // Personal signature — mailbox members only (admins use Settings → Signature).
-                { name: 'Signature', route: 'mailbox.signature', icon: PenLine, ability: 'inbox', hideWhen: 'manage' },
                 { name: 'Profile', route: 'profile.edit', icon: User, hideWhen: 'manage' },
                 { name: 'Groups', route: 'groups', icon: UsersRound, ability: 'manage' },
                 { name: 'Users', route: 'users', icon: UserCog, ability: 'manage' },
@@ -213,6 +212,7 @@ const pageTitle = computed(() => {
     if (path.startsWith('/docs')) return 'Docs';
     if (path.startsWith('/help')) return 'Help';
     if (path.startsWith('/profile')) return 'Profile';
+    if (path.startsWith('/spam')) return 'Spam';
     if (path.startsWith('/archive')) return 'Archive';
     if (path.startsWith('/trash')) return 'Trash';
     return 'MailDesk';
@@ -276,14 +276,6 @@ const onDocClick = () => closeMenus();
 
 onMounted(() => {
     document.addEventListener('click', onDocClick);
-    try {
-        if (!localStorage.getItem('maildesk_onboarding_seen')) {
-            localStorage.setItem('maildesk_onboarding_seen', '1');
-            window.setTimeout(() => openOnboarding(), 600);
-        }
-    } catch {
-        /* ignore */
-    }
 });
 onUnmounted(() => document.removeEventListener('click', onDocClick));
 
@@ -336,7 +328,7 @@ const createTeam = () => {
         <!-- Mobile app header -->
         <header
             v-show="!hideMobileHeader"
-            class="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-zinc-800/80 bg-black/85 px-3 py-2.5 backdrop-blur-xl lg:hidden"
+            class="sticky top-[var(--impersonation-offset)] z-30 flex items-center justify-between gap-3 border-b border-zinc-800/80 bg-black/85 px-3 py-2.5 backdrop-blur-xl lg:hidden"
             style="padding-top: max(0.625rem, env(safe-area-inset-top, 0px))"
             data-testid="mobile-app-header"
         >
@@ -379,7 +371,7 @@ const createTeam = () => {
 
         <div class="lg:flex lg:items-start">
             <aside
-                class="sticky top-0 z-auto hidden h-dvh w-[248px] shrink-0 flex-col border-r border-zinc-900 bg-zinc-950/95 backdrop-blur-xl lg:flex"
+                class="sticky top-[var(--impersonation-offset)] z-auto hidden h-[calc(100dvh-var(--impersonation-offset))] w-[248px] shrink-0 flex-col border-r border-zinc-900 bg-zinc-950/95 backdrop-blur-xl lg:flex"
             >
                 <!-- Workspace switcher -->
                 <div v-if="activeWorkspace" class="relative border-b border-zinc-900/80 px-3 py-3">
@@ -655,16 +647,8 @@ const createTeam = () => {
                                     Homepage
                                     <ExternalLink :size="13" class="text-zinc-500" />
                                 </Link>
-                                <Link
-                                    v-if="user?.is_platform_admin"
-                                    :href="route('admin.dashboard')"
-                                    class="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-zinc-900 hover:text-white"
-                                    @click="accountOpen = false"
-                                >
-                                    <Shield :size="13" class="text-cyan-300" />
-                                    SaaS Admin
-                                </Link>
                                 <button
+                                    v-if="canManage"
                                     type="button"
                                     class="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-zinc-900 hover:text-white"
                                     @click="
@@ -675,6 +659,15 @@ const createTeam = () => {
                                     <Sparkles :size="13" class="text-cyan-300" />
                                     Onboarding
                                 </button>
+                                <Link
+                                    v-if="user?.is_platform_admin"
+                                    :href="route('admin.dashboard')"
+                                    class="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-zinc-900 hover:text-white"
+                                    @click="accountOpen = false"
+                                >
+                                    <Shield :size="13" class="text-cyan-300" />
+                                    SaaS Admin
+                                </Link>
                             </div>
                             <div class="border-t border-zinc-900 py-1">
                                 <Link
@@ -726,7 +719,7 @@ const createTeam = () => {
             <div class="flex min-h-screen min-w-0 flex-1 flex-col">
                 <!-- Top bar -->
                 <header
-                    class="sticky top-0 z-20 hidden items-center justify-between border-b border-zinc-900/80 bg-black/80 px-6 py-3 backdrop-blur-xl lg:flex"
+                    class="sticky top-[var(--impersonation-offset)] z-20 hidden items-center justify-between border-b border-zinc-900/80 bg-black/80 px-6 py-3 backdrop-blur-xl lg:flex"
                 >
                     <div class="animate-fade-in text-sm text-zinc-500">
                         <span class="text-zinc-600">{{
@@ -844,11 +837,11 @@ const createTeam = () => {
             </template>
         </Modal>
 
+        <OnboardingModal />
         <ToastContainer />
         <PlansModal />
         <ComposeModal />
         <FloatingComposeButton v-if="canCompose" />
         <CommandPalette />
-        <OnboardingModal />
     </div>
 </template>

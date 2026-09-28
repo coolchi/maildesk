@@ -60,6 +60,9 @@ Route::get('/', function (Request $request, TenantResolver $tenants) {
     ]);
 });
 
+// Public send-API guide. The rest of the API reference stays in the app.
+Route::get('/docs/send', [DashboardController::class, 'sendDocs'])->name('docs.send');
+
 // Public, signed unsubscribe links embedded in broadcast emails.
 Route::get('/unsubscribe/{recipient}', [UnsubscribeController::class, 'show'])
     ->whereNumber('recipient')->middleware('signed:relative')->name('unsubscribe.show');
@@ -83,6 +86,7 @@ Route::post('/invitations/{token}', [WorkspaceInvitationController::class, 'acce
     ->name('invitations.accept.store');
 
 Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('/workspaces/create', [WorkspaceController::class, 'create'])->name('workspaces.create');
     Route::post('/workspaces', [WorkspaceController::class, 'store'])->name('workspaces.store');
     Route::post('/workspace/{organization}/switch', [WorkspaceController::class, 'switch'])
         ->name('workspace.switch');
@@ -99,6 +103,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/inbox/{thread}', [InboxController::class, 'show'])->whereNumber('thread')->name('inbox.show');
     Route::patch('/inbox/{thread}/read', [InboxController::class, 'markRead'])->whereNumber('thread')->name('inbox.read');
     Route::post('/inbox/{thread}/archive', [InboxController::class, 'toggleArchive'])->whereNumber('thread')->name('inbox.archive');
+    Route::post('/inbox/{thread}/spam', [InboxController::class, 'toggleSpam'])->whereNumber('thread')->name('inbox.spam');
     Route::post('/inbox/{thread}/trash', [InboxController::class, 'toggleTrash'])->whereNumber('thread')->name('inbox.trash');
     Route::delete('/inbox/{thread}', [InboxController::class, 'destroy'])->whereNumber('thread')->name('inbox.destroy');
     Route::post('/inbox/{thread}/reply', [InboxController::class, 'reply'])->whereNumber('thread')->name('inbox.reply');
@@ -132,6 +137,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middleware('throttle:10,1')
         ->name('ai.abuse');
     Route::post('/inbox/{thread}/forward', [InboxController::class, 'forward'])->whereNumber('thread')->name('inbox.forward');
+    Route::get('/spam', [InboxController::class, 'spamIndex'])->name('spam');
     Route::get('/archive', [InboxController::class, 'archiveIndex'])->name('archive');
     Route::get('/trash', [InboxController::class, 'trashIndex'])->name('trash');
     Route::delete('/trash', [InboxController::class, 'emptyTrash'])->name('trash.empty');
@@ -152,6 +158,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/broadcasts/{broadcast}/send', [BroadcastController::class, 'send'])->name('broadcasts.send');
     Route::post('/broadcasts/{broadcast}/cancel', [BroadcastController::class, 'cancel'])->name('broadcasts.cancel');
     Route::get('/automations', [AutomationController::class, 'index'])->name('automations');
+    Route::put('/automations/auto-reply', [AutomationController::class, 'updateAutoReply'])->name('automations.auto-reply');
     Route::get('/automations/create', [AutomationController::class, 'create'])->name('automations.create');
     Route::post('/automations', [AutomationController::class, 'store'])->name('automations.store');
     Route::get('/automations/{automation}', [AutomationController::class, 'show'])->name('automations.show');
@@ -281,6 +288,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile/preferences', [ProfileController::class, 'updatePreferences'])->name('profile.preferences');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::post('/impersonate/leave', [ImpersonationController::class, 'leave'])->name('impersonate.leave');
+    Route::get('/impersonate/resume', [ImpersonationController::class, 'resume'])->name('impersonate.resume');
 });
 
 require __DIR__.'/auth.php';

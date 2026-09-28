@@ -28,7 +28,7 @@ class IdentifyTenant
         $fromHost = $this->tenants->resolveFromHost($host);
         $hostLocked = $fromHost !== null;
 
-        if ($fromHost && ! $user->isPlatformAdmin() && ! $user->organizations()->whereKey($fromHost->id)->exists()) {
+        if ($fromHost && ! $user->organizations()->whereKey($fromHost->id)->exists()) {
             // Public auth / join entry points must stay reachable so visitors can
             // switch accounts or self-register on this workspace host.
             if ($this->isPublicTenantEntryRoute($request)) {
@@ -82,6 +82,7 @@ class IdentifyTenant
             'password.email',
             'password.reset',
             'password.store',
+            'docs.send',
         ], true)) {
             return true;
         }

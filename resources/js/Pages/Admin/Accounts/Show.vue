@@ -45,6 +45,8 @@ watchEffect(() => {
 
 const showSubdomain = ref(false);
 const showProvider = ref(false);
+const showSuspend = ref(false);
+const suspending = ref(false);
 const subdomainForm = ref({ subdomain: '', customHost: '' });
 const providerId = ref('resend');
 
@@ -122,15 +124,26 @@ const saveProvider = () => {
     );
 };
 
+const suspendingTo = computed(() =>
+    account.value?.status === 'suspended' ? 'active' : 'suspended',
+);
+
 const suspend = () => {
-    const next =
-        account.value?.status === 'suspended' ? 'active' : 'suspended';
+    if (suspending.value) return;
+    const next = suspendingTo.value;
     router.put(
         route('admin.accounts.status', props.id),
         { status: next },
         {
             preserveScroll: true,
+            onStart: () => {
+                suspending.value = true;
+            },
+            onFinish: () => {
+                suspending.value = false;
+            },
             onSuccess: () => {
+                showSuspend.value = false;
                 toast.success(
                     next === 'suspended'
                         ? 'Account suspended.'
@@ -146,6 +159,7 @@ const changePlan = () => router.visit(route('admin.plans'));
 
 // ── Log in as (read-only impersonation) ────────────────────────────
 const page = usePage();
+const baseDomain = computed(() => page.props.tenant?.base_domain || 'maildesk.ng');
 const showImpersonate = ref(false);
 const impersonating = ref(false);
 const impersonateErrors = ref({});
@@ -292,7 +306,7 @@ onMounted(() => {
                     <LogIn :size="16" />
                     Log in as
                 </button>
-                <button type="button" class="md-btn-ghost" @click="suspend">
+                <button type="button" class="md-btn-ghost" @click="showSuspend = true">
                     <Ban :size="16" />
                     {{
                         account.status === 'suspended'
@@ -533,6 +547,56 @@ onMounted(() => {
         </section>
 
         <Modal
+            :show="showSuspend"
+            :title="
+                suspendingTo === 'suspended'
+                    ? `Suspend ${account.name}?`
+                    : `Reactivate ${account.name}?`
+            "
+            max-width="sm"
+            @close="showSuspend = false"
+        >
+            <p class="text-sm text-zinc-400">
+                {{
+                    suspendingTo === 'suspended'
+                        ? 'Members will be signed out and cannot sign in or send mail until you reactivate this account.'
+                        : 'Members can sign in and send mail again.'
+                }}
+            </p>
+            <template #footer>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    :disabled="suspending"
+                    @click="showSuspend = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-solid"
+                    :class="
+                        suspendingTo === 'suspended'
+                            ? '!bg-rose-500 hover:!bg-rose-400'
+                            : ''
+                    "
+                    :disabled="suspending"
+                    @click="suspend"
+                >
+                    {{
+                        suspending
+                            ? suspendingTo === 'suspended'
+                                ? 'Suspending…'
+                                : 'Reactivating…'
+                            : suspendingTo === 'suspended'
+                              ? 'Suspend account'
+                              : 'Reactivate'
+                    }}
+                </button>
+            </template>
+        </Modal>
+
+        <Modal
             :show="showImpersonate"
             title="Log in as a user"
             description="Opens this account's workspace as the selected user. The session is read-only, audited, and ends automatically after 30 minutes."
@@ -747,7 +811,7 @@ onMounted(() => {
                             placeholder="acme"
                         />
                         <span class="shrink-0 text-sm text-zinc-500"
-                            >.maildesk.test</span
+                            >.{{ baseDomain }}</span
                         >
                     </div>
                 </div>

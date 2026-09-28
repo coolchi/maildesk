@@ -40,12 +40,12 @@ const submit = () => {
             </p>
         </div>
 
-        <div
+        <p
             v-if="status"
-            class="mb-5 rounded-lg border border-cyan-400/40 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-300"
+            class="mb-5 whitespace-nowrap text-center text-sm text-zinc-500"
         >
             {{ status }}
-        </div>
+        </p>
 
         <form class="space-y-4" @submit.prevent="submit">
             <div>

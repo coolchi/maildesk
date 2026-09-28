@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watchEffect } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AdminLayout from '@/Layouts/AdminLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
@@ -16,6 +16,7 @@ const props = defineProps({
 });
 
 const toast = useToast();
+const baseDomain = computed(() => usePage().props.tenant?.base_domain || 'maildesk.ng');
 const { subdomains, hydrate } = usePlatform();
 
 watchEffect(() => {
@@ -245,7 +246,7 @@ const verify = (row) => {
         <Modal
             :show="showCreate"
             title="Add host"
-            description="Create a *.maildesk.test subdomain or attach a custom domain."
+            :description="`Create a *.${baseDomain} subdomain or attach a custom domain.`"
             @close="showCreate = false"
         >
             <div class="space-y-3">
@@ -301,7 +302,7 @@ const verify = (row) => {
                             placeholder="acme"
                         />
                         <span class="shrink-0 text-sm text-zinc-500"
-                            >.maildesk.test</span
+                            >.{{ baseDomain }}</span
                         >
                     </div>
                 </div>

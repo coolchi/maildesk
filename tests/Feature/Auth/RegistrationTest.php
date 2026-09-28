@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -27,5 +28,23 @@ class RegistrationTest extends TestCase
 
         $this->assertAuthenticated();
         $response->assertRedirect(route('dashboard', absolute: false));
+    }
+
+    public function test_new_user_without_a_workspace_is_not_sent_to_a_missing_page(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get(route('dashboard'))
+            ->assertRedirect(route('workspaces.create'));
+
+        $this->actingAs($user)
+            ->get(route('emails'))
+            ->assertRedirect(route('workspaces.create'));
+
+        $this->actingAs($user)
+            ->get(route('workspaces.create'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Workspaces/Create'));
     }
 }

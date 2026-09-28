@@ -1,6 +1,6 @@
 <script setup>
-import { ref, watch, watchEffect } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { computed, ref, watch, watchEffect } from 'vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AdminLayout from '@/Layouts/AdminLayout.vue';
 import PageHeader from '@/Components/PageHeader.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
@@ -18,6 +18,7 @@ const props = defineProps({
 });
 
 const { accounts, providers, findProvider, hydrate } = usePlatform();
+const baseDomain = computed(() => usePage().props.tenant?.base_domain || 'maildesk.ng');
 
 watchEffect(() => {
     hydrate({
@@ -178,7 +179,7 @@ const goShow = (a) => router.visit(route('admin.accounts.show', a.id));
                                 {{ providerLabel(a) }}
                             </td>
                             <td class="px-4 py-3 font-mono text-xs text-zinc-400">
-                                {{ a.subdomain }}.maildesk.test
+                                {{ a.subdomain }}.{{ baseDomain }}
                             </td>
                             <td class="px-4 py-3 tabular-nums text-zinc-300">
                                 ${{ a.mrr }}

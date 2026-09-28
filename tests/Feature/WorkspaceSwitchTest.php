@@ -130,6 +130,41 @@ class WorkspaceSwitchTest extends TestCase
         $this->assertAuthenticatedAs($user);
     }
 
+    public function test_login_on_a_workspace_host_rejects_accounts_from_other_workspaces(): void
+    {
+        config([
+            'session.domain' => '.maildesk.test',
+            'maildesk.base_domain' => 'maildesk.test',
+            'maildesk.central_domains' => ['maildesk.test'],
+            'app.url' => 'http://maildesk.test',
+        ]);
+
+        $learna = Organization::factory()->create(['subdomain' => 'learna']);
+        $member = User::factory()->create();
+        $learna->users()->attach($member->id, ['role' => 'member']);
+
+        $outsider = User::factory()->create();
+        $admin = User::factory()->platformAdmin()->create();
+
+        $this->post('http://learna.maildesk.test/login', [
+            'email' => $outsider->email,
+            'password' => 'password',
+        ])->assertSessionHasErrors('email');
+        $this->assertGuest();
+
+        $this->post('http://learna.maildesk.test/login', [
+            'email' => $admin->email,
+            'password' => 'password',
+        ])->assertSessionHasErrors('email');
+        $this->assertGuest();
+
+        $this->post('http://learna.maildesk.test/login', [
+            'email' => $member->email,
+            'password' => 'password',
+        ])->assertRedirect();
+        $this->assertAuthenticatedAs($member);
+    }
+
     public function test_non_member_cannot_switch_to_foreign_workspace(): void
     {
         $user = User::factory()->create();

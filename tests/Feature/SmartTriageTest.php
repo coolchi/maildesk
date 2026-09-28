@@ -12,6 +12,7 @@ use App\Services\PlatformSettings;
 use App\Services\SmartTriageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class SmartTriageTest extends TestCase
@@ -155,5 +156,69 @@ class SmartTriageTest extends TestCase
         $this->assertSame('sk-test-secret-key', $settings->aiApiKey());
         $this->assertTrue($settings->aiFeatureEnabled('smart_triage'));
         $this->assertNotSame('sk-test-secret-key', $settings->get('ai_api_key'));
+    }
+
+    public function test_spam_classification_moves_the_thread_out_of_the_inbox(): void
+    {
+        $this->enableSmartTriage();
+
+        $owner = User::factory()->create();
+        $org = Organization::factory()->create();
+        $org->users()->attach($owner->id, ['role' => 'owner']);
+        $thread = Thread::factory()->create([
+            'organization_id' => $org->id,
+            'subject' => 'Buy now limited offer',
+            'is_archived' => true,
+            'is_read' => false,
+        ]);
+        $message = Message::factory()->create([
+            'organization_id' => $org->id,
+            'thread_id' => $thread->id,
+            'direction' => 'inbound',
+            'status' => 'received',
+            'subject' => 'Buy now limited offer',
+            'text_body' => 'Buy now, exclusive deal.',
+            'from_email' => 'promo@example.com',
+        ]);
+
+        (new ClassifyInboundMessage($message->id))->handle(app(SmartTriageService::class));
+
+        $thread->refresh();
+        $this->assertTrue($thread->is_spam);
+        $this->assertFalse($thread->is_archived);
+        $this->assertSame('spam', $thread->ai['intent']);
+
+        $this->actingAs($owner)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('inbox'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('folder', 'inbox')
+                ->has('threads', 0));
+
+        $this->actingAs($owner)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('spam'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('folder', 'spam')
+                ->has('threads', 1)
+                ->where('threads.0.id', $thread->id)
+                ->where('threads.0.label', 'Spam'));
+
+        $this->actingAs($owner)
+            ->withSession(['current_organization_id' => $org->id])
+            ->post(route('inbox.spam', $thread->id))
+            ->assertRedirect();
+
+        $this->assertFalse($thread->fresh()->is_spam);
+
+        $this->actingAs($owner)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('inbox'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('threads', 1)
+                ->where('threads.0.id', $thread->id));
     }
 }

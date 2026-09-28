@@ -12,20 +12,15 @@ const BASE_STYLE = `
 html, body {
   background: #ffffff !important;
   color: #111827;
-  max-width: 100% !important;
-  overflow-x: hidden !important;
-  word-break: break-word;
 }
 body {
   margin: 0;
-  padding: 12px;
+  padding: 8px 16px 16px;
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   overflow-wrap: anywhere;
   -webkit-text-size-adjust: 100%;
 }
 img, video, svg { max-width: 100% !important; height: auto !important; }
-table { max-width: 100% !important; }
-td, th { word-break: break-word; }
 pre, code { white-space: pre-wrap; word-break: break-word; }
 a { word-break: break-all; }
 `;
@@ -52,9 +47,9 @@ export function buildSrcdoc(html) {
         "<meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'\">",
         '<base target="_blank">',
         `<style>${BASE_STYLE}</style>`,
-        '</head><body>',
+        '</head><body><div id="md-fit">',
         html ?? '',
-        '</body></html>',
+        '</div></body></html>',
     ].join('');
 }
 
@@ -65,6 +60,39 @@ export function hardenLinks(doc) {
         a.setAttribute('target', '_blank');
         a.setAttribute('rel', 'noopener noreferrer');
     });
+}
+
+/**
+ * Shrink a fixed-width email (typical 600px tables) so it fits the frame.
+ * Measured once per frame width so a ResizeObserver does not zoom forever.
+ */
+export function fitToWidth(doc, frameWidth) {
+    const body = doc?.body;
+    const target = doc.getElementById?.('md-fit') || body;
+    if (!target?.style || !frameWidth || frameWidth < 40) {
+        return;
+    }
+
+    const fittedFor = Number(target.dataset.mdFitWidth || 0);
+    if (fittedFor && Math.abs(fittedFor - frameWidth) < 8) {
+        return;
+    }
+
+    // Side padding stays on the body so it is not scaled away on the right.
+    const sidePadding = target === body ? 0 : 32;
+    const available = Math.max(40, frameWidth - sidePadding);
+
+    target.style.zoom = '1';
+    const contentWidth = Math.max(target.scrollWidth || 0, target.offsetWidth || 0);
+
+    if (contentWidth < 40 || contentWidth <= available + 1) {
+        target.dataset.mdFitWidth = String(Math.round(frameWidth));
+        return;
+    }
+
+    const scale = Math.max(0.3, Math.min(1, available / contentWidth));
+    target.style.zoom = String(Math.round(scale * 1000) / 1000);
+    target.dataset.mdFitWidth = String(Math.round(frameWidth));
 }
 
 export function contentHeight(doc) {

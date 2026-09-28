@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { EditorContent, useEditor } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -18,6 +18,7 @@ import {
     Redo2,
     Heading2,
     ImagePlus,
+    X,
 } from '@lucide/vue';
 
 const model = defineModel({ type: String, default: '' });
@@ -79,21 +80,87 @@ onBeforeUnmount(() => {
     editor.value?.destroy();
 });
 
-const setLink = () => {
+const linkOpen = ref(false);
+const linkUrl = ref('');
+const linkInput = ref(null);
+const editingLink = ref(false);
+const linkFieldId = `editor-link-${Math.random().toString(36).slice(2, 8)}`;
+
+const selectionText = () => {
+    const ed = editor.value;
+    if (!ed) return '';
+    const { from, to } = ed.state.selection;
+    if (from === to) return '';
+    return ed.state.doc.textBetween(from, to, ' ').trim();
+};
+
+const suggestedHref = (previous) => {
+    if (previous) return previous;
+    const text = selectionText();
+    if (!text || /\s/.test(text)) return 'https://';
+    if (/^(https?:|mailto:|tel:)/i.test(text)) return text;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return `mailto:${text}`;
+    if (/^[\w.-]+\.[a-z]{2,}(\/\S*)?$/i.test(text)) return `https://${text}`;
+    return 'https://';
+};
+
+const normalizeHref = (raw) => {
+    const url = raw.trim();
+    if (!url) return '';
+    if (/^(https?:|mailto:|tel:|#|\/)/i.test(url)) return url;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(url)) return `mailto:${url}`;
+    return `https://${url}`;
+};
+
+const closeLinkEditor = (restoreFocus = true) => {
+    linkOpen.value = false;
+    if (restoreFocus) editor.value?.commands.focus();
+};
+
+const openLinkEditor = () => {
     if (!editor.value) return;
-    const previous = editor.value.getAttributes('link').href;
-    const url = window.prompt('URL', previous || 'https://');
-    if (url === null) return;
-    if (url === '') {
-        editor.value.chain().focus().extendMarkRange('link').unsetLink().run();
+    if (linkOpen.value) {
+        closeLinkEditor();
         return;
     }
-    editor.value
-        .chain()
-        .focus()
-        .extendMarkRange('link')
-        .setLink({ href: url })
-        .run();
+    const previous = editor.value.getAttributes('link').href || '';
+    editingLink.value = Boolean(previous);
+    linkUrl.value = suggestedHref(previous);
+    linkOpen.value = true;
+    nextTick(() => {
+        linkInput.value?.focus();
+        linkInput.value?.select();
+    });
+};
+
+const applyLink = () => {
+    const ed = editor.value;
+    if (!ed) return;
+    const url = normalizeHref(linkUrl.value);
+    if (!url) {
+        ed.chain().focus().extendMarkRange('link').unsetLink().run();
+        linkOpen.value = false;
+        return;
+    }
+    const { from, to } = ed.state.selection;
+    if (from === to && !ed.isActive('link')) {
+        ed.chain()
+            .focus()
+            .insertContent({
+                type: 'text',
+                text: url.replace(/^mailto:/i, ''),
+                marks: [{ type: 'link', attrs: { href: url } }],
+            })
+            .run();
+    } else {
+        ed.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    }
+    linkOpen.value = false;
+};
+
+const removeLink = () => {
+    editor.value?.chain().focus().extendMarkRange('link').unsetLink().run();
+    linkOpen.value = false;
 };
 
 const insertImage = (src, alt = '') => {
@@ -206,9 +273,11 @@ const isReady = computed(() => !!editor.value);
             <button
                 type="button"
                 class="rounded p-1.5"
-                :class="btn(editor.isActive('link'))"
+                :class="btn(editor.isActive('link') || linkOpen)"
                 title="Link"
-                @click="setLink"
+                :aria-expanded="linkOpen"
+                data-testid="editor-link"
+                @click="openLinkEditor"
             >
                 <Link2 :size="15" />
             </button>
@@ -257,6 +326,80 @@ const isReady = computed(() => !!editor.value);
                 <Redo2 :size="15" />
             </button>
         </div>
+        <form
+            v-if="linkOpen"
+            class="flex flex-wrap items-center gap-2 border-b px-2 py-2"
+            :class="
+                isEmail
+                    ? 'border-zinc-200 bg-zinc-50'
+                    : 'border-md-border bg-black/20'
+            "
+            data-testid="editor-link-bar"
+            @submit.prevent="applyLink"
+        >
+            <label
+                class="sr-only"
+                :for="linkFieldId"
+            >Link address</label>
+            <input
+                :id="linkFieldId"
+                ref="linkInput"
+                v-model="linkUrl"
+                type="text"
+                inputmode="url"
+                autocomplete="off"
+                spellcheck="false"
+                class="min-w-[12rem] flex-1 rounded-lg border px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1"
+                :class="
+                    isEmail
+                        ? 'border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-400 focus:border-cyan-600 focus:ring-cyan-600/30'
+                        : 'border-zinc-700 bg-zinc-950 text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-400/60 focus:ring-cyan-400/40'
+                "
+                placeholder="https://example.com or name@domain.com"
+                data-testid="editor-link-url"
+                @keydown.esc.prevent="closeLinkEditor()"
+            />
+            <button
+                type="submit"
+                class="rounded-lg px-2.5 py-1.5 text-xs font-medium"
+                :class="
+                    isEmail
+                        ? 'bg-zinc-900 text-white hover:bg-zinc-700'
+                        : 'bg-cyan-400 text-zinc-950 hover:bg-cyan-300'
+                "
+                data-testid="editor-link-apply"
+            >
+                Apply
+            </button>
+            <button
+                v-if="editingLink"
+                type="button"
+                class="rounded-lg px-2 py-1.5 text-xs font-medium"
+                :class="
+                    isEmail
+                        ? 'text-rose-600 hover:bg-rose-50'
+                        : 'text-rose-300 hover:bg-rose-500/10'
+                "
+                data-testid="editor-link-remove"
+                @click="removeLink"
+            >
+                Remove
+            </button>
+            <button
+                type="button"
+                class="rounded p-1.5"
+                :class="
+                    isEmail
+                        ? 'text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900'
+                        : 'text-zinc-400 hover:bg-white/5 hover:text-white'
+                "
+                title="Cancel"
+                data-testid="editor-link-cancel"
+                @click="closeLinkEditor()"
+            >
+                <X :size="14" />
+            </button>
+        </form>
         <div
             :class="isEmail ? 'bg-white' : ''"
             :style="{ minHeight }"

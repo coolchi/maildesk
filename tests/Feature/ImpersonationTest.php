@@ -129,31 +129,35 @@ class ImpersonationTest extends TestCase
         $this->assertSame($admin->id, Auth::id());
     }
 
-    public function test_password_confirmation_is_required_and_returns_to_account_page(): void
+    public function test_password_confirmation_continues_into_the_workspace(): void
     {
         [$admin, $target, $org] = $this->scenario();
         $accountUrl = route('admin.accounts.show', $org);
 
         $this->start($admin, $target, $org, confirmed: false)
             ->assertRedirect(route('password.confirm'));
-        $this->assertSame($accountUrl, session('url.intended'));
+        $this->assertSame(route('impersonate.resume'), session('url.intended'));
+        $this->assertSame($target->id, session('impersonation.pending.user_id'));
         $this->assertSame(0, ImpersonationLog::query()->count());
 
-        // A stale (older than 10 minutes) confirmation is not enough either.
+        $this->post(route('password.confirm'), ['password' => 'password'])
+            ->assertRedirect(route('impersonate.resume'));
+
+        $this->get(route('impersonate.resume'))
+            ->assertRedirect('http://acme.maildesk.test/inbox');
+
+        $this->assertSame($target->id, Auth::id());
+        $this->assertSame($admin->id, session('impersonator_id'));
+        $this->assertNull(session('impersonation.pending'));
+
+        // A stale confirmation still asks for the password, then continues.
+        auth()->logout();
+        $this->start($admin, $target, $org, confirmed: false);
         $this->actingAs($admin)
             ->withSession(['auth.password_confirmed_at' => time() - 601])
             ->from($accountUrl)
             ->post(route('admin.impersonate', $target), ['organization_id' => $org->id, 'reason' => self::REASON])
             ->assertRedirect(route('password.confirm'));
-
-        $this->actingAs($admin)
-            ->post(route('password.confirm'), ['password' => 'password'])
-            ->assertRedirect($accountUrl);
-
-        $this->actingAs($admin)
-            ->from($accountUrl)
-            ->post(route('admin.impersonate', $target), ['organization_id' => $org->id, 'reason' => self::REASON])
-            ->assertRedirect('http://acme.maildesk.test/inbox');
     }
 
     public function test_get_is_not_allowed(): void

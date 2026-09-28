@@ -1,7 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="MailDesk">
-  <rect width="32" height="32" rx="8" fill="#09090b"/>
-  <g fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="6.5" y="9.5" width="19" height="13" rx="2"/>
-    <path d="M7 11.5 16 18l9-6.5"/>
-  </g>
+  <rect width="32" height="32" rx="7.5" fill="#09090b"/>
+  <rect x="1.7" y="1.7" width="28.6" height="28.6" rx="6.2" fill="#09090b" stroke="#22d3ee" stroke-width="2.7"/>
+  <path fill="#ffffff" d="M7.6 9.1h2.7L16 15.2 21.7 9.1h2.7v13.2l-5.1-4.7L16 20.6l-3.3-3-5.1 4.7V9.1z"/>
 </svg>

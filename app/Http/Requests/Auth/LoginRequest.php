@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Auth;
 
 use App\Services\AccountAccess;
+use App\Services\TenantResolver;
 use App\Services\WorkspaceAccess;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -69,6 +70,15 @@ class LoginRequest extends FormRequest
 
             throw ValidationException::withMessages([
                 'email' => $message,
+            ]);
+        }
+
+        $organization = app(TenantResolver::class)->resolveFromHost($this->getHost());
+        if ($user && $organization && ! $user->organizations()->whereKey($organization->id)->exists()) {
+            Auth::guard('web')->logout();
+
+            throw ValidationException::withMessages([
+                'email' => 'Sign in with an account that belongs to this workspace.',
             ]);
         }
 

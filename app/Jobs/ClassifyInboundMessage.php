@@ -26,6 +26,8 @@ class ClassifyInboundMessage implements ShouldQueue
         }
 
         $triage->classifyMessage($message);
+
+        SendAutoReply::dispatch($message->id);
     }
 
     public function failed(?Throwable $exception): void
@@ -34,5 +36,7 @@ class ClassifyInboundMessage implements ShouldQueue
             'message_id' => $this->messageId,
             'error' => $exception?->getMessage(),
         ]);
+
+        SendAutoReply::dispatch($this->messageId);
     }
 }

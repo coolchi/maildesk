@@ -16,7 +16,6 @@ import {
     Package,
     Server,
     Settings,
-    Shield,
     Sun,
     X,
 } from '@lucide/vue';
@@ -98,7 +97,7 @@ onUnmounted(() => {
                 <X v-else :size="18" />
             </button>
             <div class="flex items-center gap-2 text-sm font-medium">
-                <Shield :size="16" class="text-cyan-300" />
+                <img src="/images/brand/mark.png" alt="" class="h-7 w-7 rounded-md" />
                 SaaS Admin
             </div>
             <Link
@@ -116,11 +115,7 @@ onUnmounted(() => {
             >
                 <div class="border-b border-zinc-900 px-4 py-4">
                     <div class="flex items-center gap-2.5">
-                        <span
-                            class="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-400/15 text-cyan-300"
-                        >
-                            <Shield :size="16" />
-                        </span>
+                        <img src="/images/brand/mark.png" alt="" class="h-8 w-8 rounded-lg" />
                         <div class="min-w-0">
                             <div class="truncate text-sm font-semibold text-white">
                                 MailDesk Admin

@@ -108,7 +108,7 @@ class TenantResolver
         $fromHost = $this->resolveFromHost($host);
 
         if ($fromHost) {
-            if ($user->isPlatformAdmin() || $user->organizations()->whereKey($fromHost->id)->exists()) {
+            if ($user->organizations()->whereKey($fromHost->id)->exists()) {
                 return $fromHost->loadMissing('mailProvider');
             }
 

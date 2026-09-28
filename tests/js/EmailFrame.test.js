@@ -6,6 +6,7 @@ import {
     SANDBOX,
     buildSrcdoc,
     contentHeight,
+    fitToWidth,
     hardenLinks,
     splitQuotedHtml,
     splitQuotedText,
@@ -97,6 +98,24 @@ describe('EmailFrame', () => {
         expect(iframe.style.height).toBe('900px');
 
         wrapper.unmount();
+    });
+
+    it('shrinks a wide email to the frame and does not shrink again', () => {
+        const body = {
+            style: { zoom: '1' },
+            scrollWidth: 600,
+            offsetWidth: 600,
+            dataset: {},
+        };
+        const doc = { body };
+
+        fitToWidth(doc, 300);
+        expect(Number(body.style.zoom)).toBeCloseTo(0.5, 2);
+        expect(body.dataset.mdFitWidth).toBe('300');
+
+        body.scrollWidth = 300;
+        fitToWidth(doc, 302);
+        expect(Number(body.style.zoom)).toBeCloseTo(0.5, 2);
     });
 
     it('never shrinks below the minimum height', () => {

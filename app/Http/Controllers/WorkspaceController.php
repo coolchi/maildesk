@@ -12,10 +12,20 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
+use Inertia\Response;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class WorkspaceController extends Controller
 {
+    public function create(Request $request): Response|RedirectResponse
+    {
+        if ($request->attributes->get('organization') instanceof Organization) {
+            return redirect()->route('dashboard');
+        }
+
+        return Inertia::render('Workspaces/Create');
+    }
+
     public function store(
         Request $request,
         TenantResolver $tenants,

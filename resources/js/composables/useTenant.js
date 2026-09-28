@@ -14,7 +14,7 @@ export function useTenant() {
     // Non-secret summary of a platform SMTP provider (null otherwise); never has a password.
     const activeSmtp = computed(() => tenant.value.smtp || null);
     const activeProvider = computed(() => tenant.value.provider || null);
-    const baseDomain = computed(() => tenant.value.base_domain || 'maildesk.test');
+    const baseDomain = computed(() => tenant.value.base_domain || 'maildesk.ng');
 
     const activeProviderHealth = computed(() => {
         const provider = activeProvider.value;

@@ -15,6 +15,7 @@ import {
     Plus,
     Search,
     Trash2,
+    Reply,
     Workflow,
     Zap,
 } from '@lucide/vue';
@@ -22,10 +23,24 @@ import {
 const props = defineProps({
     automations: { type: Array, default: () => [] },
     events: { type: Array, default: () => [] },
+    autoReply: {
+        type: Object,
+        default: () => ({
+            enabled: false,
+            subject: 'Re: {{subject}}',
+            body: '',
+        }),
+    },
 });
 
 const toast = useToast();
 const tab = ref('automations');
+const autoReplyForm = ref({
+    enabled: false,
+    subject: 'Re: {{subject}}',
+    body: '',
+});
+const savingAutoReply = ref(false);
 const search = ref('');
 const statusFilter = ref('all');
 const eventSearch = ref('');
@@ -33,13 +48,29 @@ const eventSearch = ref('');
 const automations = ref([]);
 const events = ref([]);
 watch(
-    () => [props.automations, props.events],
+    () => [props.automations, props.events, props.autoReply],
     () => {
         automations.value = (props.automations || []).map((a) => ({ ...a }));
         events.value = (props.events || []).map((e) => ({ ...e }));
+        autoReplyForm.value = {
+            enabled: Boolean(props.autoReply?.enabled),
+            subject: props.autoReply?.subject || 'Re: {{subject}}',
+            body: props.autoReply?.body || '',
+        };
     },
     { immediate: true },
 );
+
+const saveAutoReply = () => {
+    savingAutoReply.value = true;
+    router.put(route('automations.auto-reply'), autoReplyForm.value, {
+        preserveScroll: true,
+        onSuccess: () => toast.success('Auto-reply saved.'),
+        onFinish: () => {
+            savingAutoReply.value = false;
+        },
+    });
+};
 
 const menuOpen = ref(null);
 const eventMenuOpen = ref(null);
@@ -239,6 +270,19 @@ const codeSnippet = `await maildesk.events.send({
                 >
                     Events
                 </button>
+                <button
+                    type="button"
+                    class="rounded-full px-4 py-1.5 text-sm transition"
+                    :class="
+                        tab === 'auto-reply'
+                            ? 'bg-white text-zinc-950'
+                            : 'text-zinc-400 hover:text-white'
+                    "
+                    data-testid="auto-reply-tab"
+                    @click="tab = 'auto-reply'"
+                >
+                    Auto-reply
+                </button>
             </div>
 
             <div class="flex items-center gap-2">
@@ -252,7 +296,7 @@ const codeSnippet = `await maildesk.events.send({
                     Create automation
                 </button>
                 <button
-                    v-else
+                    v-else-if="tab === 'events'"
                     type="button"
                     class="md-btn-solid"
                     @click="showAddEvent = true"
@@ -426,8 +470,75 @@ const codeSnippet = `await maildesk.events.send({
             </div>
         </div>
 
+        <div v-else-if="tab === 'auto-reply'" class="md-card max-w-2xl p-5" data-testid="auto-reply-panel">
+            <div class="flex items-start gap-3">
+                <div class="mt-0.5 rounded-lg border border-zinc-800 bg-zinc-900 p-2 text-cyan-300">
+                    <Reply :size="16" />
+                </div>
+                <div>
+                    <h2 class="text-sm font-medium text-white">Auto-reply</h2>
+                    <p class="mt-1 text-sm text-zinc-400">
+                        When someone emails this workspace, send one acknowledgment back.
+                        Later messages in the same conversation are not answered again.
+                    </p>
+                </div>
+            </div>
+
+            <label class="mt-5 flex items-center gap-3 text-sm text-zinc-200">
+                <input
+                    v-model="autoReplyForm.enabled"
+                    type="checkbox"
+                    class="rounded border-zinc-700 bg-zinc-950 text-cyan-400 focus:ring-cyan-400/40"
+                    data-testid="auto-reply-enabled"
+                />
+                Send an auto-reply when an email is received
+            </label>
+
+            <div class="mt-4 space-y-3">
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500" for="auto-reply-subject">Subject</label>
+                    <input
+                        id="auto-reply-subject"
+                        v-model="autoReplyForm.subject"
+                        class="md-input"
+                        maxlength="180"
+                        data-testid="auto-reply-subject"
+                    />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500" for="auto-reply-body">Message</label>
+                    <textarea
+                        id="auto-reply-body"
+                        v-model="autoReplyForm.body"
+                        rows="8"
+                        maxlength="5000"
+                        class="md-input"
+                        data-testid="auto-reply-body"
+                    />
+                    <p class="mt-1.5 text-xs text-zinc-500">
+                        Use <span class="font-mono text-zinc-400">&#123;&#123;subject&#125;&#125;</span>,
+                        <span class="font-mono text-zinc-400">&#123;&#123;sender_name&#125;&#125;</span>, and
+                        <span class="font-mono text-zinc-400">&#123;&#123;sender_email&#125;&#125;</span>.
+                        Mail from no-reply addresses, mailing lists, and other auto-replies is skipped.
+                    </p>
+                </div>
+            </div>
+
+            <div class="mt-5 flex justify-end">
+                <button
+                    type="button"
+                    class="md-btn-primary"
+                    :disabled="savingAutoReply || !autoReplyForm.subject.trim() || !autoReplyForm.body.trim()"
+                    data-testid="auto-reply-save"
+                    @click="saveAutoReply"
+                >
+                    {{ savingAutoReply ? 'Saving…' : 'Save auto-reply' }}
+                </button>
+            </div>
+        </div>
+
         <!-- Events tab -->
-        <div v-else>
+        <div v-else-if="tab === 'events'">
             <div class="mb-4">
                 <div class="relative">
                     <Search

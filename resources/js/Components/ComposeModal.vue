@@ -67,6 +67,35 @@ const blankForm = () => ({
 
 const form = composeDraft.form;
 if (!form.value) form.value = blankForm();
+const showCc = ref(false);
+const showBcc = ref(false);
+const showReplyTo = ref(false);
+const ccInput = ref(null);
+const bccInput = ref(null);
+const replyToInput = ref(null);
+
+const revealExtras = () => {
+    showCc.value = Boolean((form.value.cc || '').trim());
+    showBcc.value = Boolean((form.value.bcc || '').trim());
+    showReplyTo.value = Boolean((form.value.replyTo || '').trim());
+};
+
+const openExtra = (field) => {
+    if (field === 'cc') showCc.value = true;
+    if (field === 'bcc') showBcc.value = true;
+    if (field === 'replyTo') showReplyTo.value = true;
+    requestAnimationFrame(() => {
+        if (field === 'cc') ccInput.value?.focus();
+        if (field === 'bcc') bccInput.value?.focus();
+        if (field === 'replyTo') replyToInput.value?.focus();
+    });
+};
+
+const extraCount = computed(
+    () => Number(showCc.value) + Number(showBcc.value) + Number(showReplyTo.value),
+);
+
+revealExtras();
 const tagInput = ref('');
 /** @type {import('vue').Ref<Array<{id:number,name:string,size:number,type:string,url:string|null,isImage:boolean}>>} */
 const attachments = composeDraft.attachments;
@@ -100,6 +129,7 @@ const reset = () => {
     }
     tagInput.value = '';
     clearAttachments();
+    revealExtras();
 };
 
 watch(
@@ -515,10 +545,38 @@ const submit = () => {
                                         </select>
                                     </div>
                                     <div>
-                                        <label
-                                            class="mb-1.5 block text-xs text-zinc-500"
-                                            >To</label
-                                        >
+                                        <div class="mb-1.5 flex items-center justify-between gap-2">
+                                            <label class="block text-xs text-zinc-500">To</label>
+                                            <div class="flex items-center gap-2 text-xs">
+                                                <button
+                                                    v-if="!showCc"
+                                                    type="button"
+                                                    class="text-zinc-400 hover:text-cyan-200"
+                                                    data-testid="compose-show-cc"
+                                                    @click="openExtra('cc')"
+                                                >
+                                                    Cc
+                                                </button>
+                                                <button
+                                                    v-if="!showBcc"
+                                                    type="button"
+                                                    class="text-zinc-400 hover:text-cyan-200"
+                                                    data-testid="compose-show-bcc"
+                                                    @click="openExtra('bcc')"
+                                                >
+                                                    Bcc
+                                                </button>
+                                                <button
+                                                    v-if="!showReplyTo"
+                                                    type="button"
+                                                    class="text-zinc-400 hover:text-cyan-200"
+                                                    data-testid="compose-show-reply-to"
+                                                    @click="openExtra('replyTo')"
+                                                >
+                                                    Reply-to
+                                                </button>
+                                            </div>
+                                        </div>
                                         <input
                                             v-model="form.to"
                                             class="md-input"
@@ -527,36 +585,49 @@ const submit = () => {
                                         />
                                     </div>
                                 </div>
-                                <div class="grid gap-3 sm:grid-cols-3">
-                                    <div>
+                                <div
+                                    v-if="extraCount"
+                                    class="grid gap-3"
+                                    :class="
+                                        extraCount === 1
+                                            ? 'sm:grid-cols-1'
+                                            : extraCount === 2
+                                              ? 'sm:grid-cols-2'
+                                              : 'sm:grid-cols-3'
+                                    "
+                                >
+                                    <div v-if="showCc">
                                         <label
                                             class="mb-1.5 block text-xs text-zinc-500"
                                             >Cc</label
                                         >
                                         <input
+                                            ref="ccInput"
                                             v-model="form.cc"
                                             class="md-input"
                                             placeholder="optional"
                                         />
                                     </div>
-                                    <div>
+                                    <div v-if="showBcc">
                                         <label
                                             class="mb-1.5 block text-xs text-zinc-500"
                                             >Bcc</label
                                         >
                                         <input
+                                            ref="bccInput"
                                             v-model="form.bcc"
                                             class="md-input"
                                             placeholder="optional"
                                             data-testid="compose-bcc"
                                         />
                                     </div>
-                                    <div>
+                                    <div v-if="showReplyTo">
                                         <label
                                             class="mb-1.5 block text-xs text-zinc-500"
                                             >Reply-to</label
                                         >
                                         <input
+                                            ref="replyToInput"
                                             v-model="form.replyTo"
                                             class="md-input"
                                             placeholder="support@acme.com"

@@ -725,6 +725,9 @@ const blocksFor = computed(() => {
                             suppression list are not mailed: the message is stored with status
                             <code>suppressed</code> and the call returns <code>422</code>.
                             Attachments and scheduled sends are not available over the API.
+                            The same send guide is public at
+                            <Link :href="route('docs.send')" class="text-cyan-300 hover:underline">/docs/send</Link>,
+                            including a prompt you can paste into an AI assistant.
                         </p>
                         <div class="overflow-x-auto rounded-xl border border-zinc-800">
                             <table class="min-w-full text-left text-sm">
@@ -886,6 +889,11 @@ const blocksFor = computed(() => {
                             <li>Verify a sending domain on the Domains page.</li>
                             <li>Create an API key (Sending access is enough to send).</li>
                             <li>Replace the key and the <code>from</code> address below and run it.</li>
+                            <li>
+                                Or open the public
+                                <Link :href="route('docs.send')" class="text-cyan-300 hover:underline">send quick start</Link>
+                                and copy the AI integration prompt.
+                            </li>
                         </ol>
                     </template>
 

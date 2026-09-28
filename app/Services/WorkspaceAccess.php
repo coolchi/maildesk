@@ -39,6 +39,7 @@ class WorkspaceAccess
         'help' => 'manage',
 
         'inbox*' => 'inbox',
+        'spam' => 'inbox',
         'sent*' => 'inbox',
         'bounced*' => 'manage',
 

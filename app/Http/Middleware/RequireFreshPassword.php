@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
@@ -33,7 +34,28 @@ class RequireFreshPassword
 
         $back = url()->previous();
         $sameHost = parse_url($back, PHP_URL_HOST) === $request->getHost();
-        $request->session()->put('url.intended', $sameHost ? $back : url('/'));
+        $returnTo = $sameHost ? $back : url('/');
+
+        if ($request->routeIs('admin.impersonate', 'team.impersonate')) {
+            $target = $request->route('user');
+            $organizationId = $request->routeIs('team.impersonate')
+                ? ($request->attributes->get('organization')?->id
+                    ?? $request->session()->get('current_organization_id'))
+                : $request->input('organization_id');
+
+            $request->session()->put('impersonation.pending', [
+                'actor_id' => $request->user()?->id,
+                'user_id' => $target instanceof User ? $target->id : (int) $target,
+                'organization_id' => $organizationId ? (int) $organizationId : null,
+                'reason' => $request->input('reason'),
+                'return' => $returnTo,
+            ]);
+            $request->session()->put('url.intended', route('impersonate.resume'));
+
+            return redirect()->route('password.confirm');
+        }
+
+        $request->session()->put('url.intended', $returnTo);
 
         return redirect()->route('password.confirm');
     }

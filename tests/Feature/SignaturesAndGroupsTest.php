@@ -184,11 +184,15 @@ class SignaturesAndGroupsTest extends TestCase
         ]);
 
         $this->as($user, $org)
-            ->get(route('mailbox.signature'))
+            ->get(route('profile.edit'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->component('Mailbox/Signature')
+                ->component('Profile/Edit')
                 ->where('mailbox.email', 'desk@acme.test'));
+
+        $this->as($user, $org)
+            ->get(route('mailbox.signature'))
+            ->assertRedirect(route('profile.edit'));
 
         $this->as($user, $org)
             ->put(route('mailbox.signature.update'), [

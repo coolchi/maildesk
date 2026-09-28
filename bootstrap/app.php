@@ -3,6 +3,7 @@
 use App\Http\Middleware\ClearStaleSessionCookies;
 use App\Http\Middleware\EnsureAccountActive;
 use App\Http\Middleware\EnsurePlatformAdmin;
+use App\Http\Middleware\EnsureUserHasWorkspace;
 use App\Http\Middleware\EnsureWorkspaceAbility;
 use App\Http\Middleware\EnsureWorkspaceEntitled;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -32,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
             // Read-only + TTL enforcement and audit for admin "log in as".
             ImpersonationGuard::class,
             IdentifyTenant::class,
+            EnsureUserHasWorkspace::class,
             // Suspended / closed accounts: log out, block, refuse impersonation.
             EnsureAccountActive::class,
             // Expired trial / past_due: Settings + Billing only until payment.

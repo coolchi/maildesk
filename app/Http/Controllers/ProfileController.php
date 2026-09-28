@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Models\Organization;
+use App\Services\WorkspaceAccess;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,11 +18,28 @@ class ProfileController extends Controller
     /**
      * Display the user's profile form.
      */
-    public function edit(Request $request): Response
+    public function edit(Request $request, WorkspaceAccess $access): Response
     {
+        $mailbox = null;
+        $organization = $request->attributes->get('organization');
+
+        if ($organization instanceof Organization) {
+            $linked = $access->mailboxFor($request->user(), $organization);
+
+            if ($linked) {
+                $mailbox = [
+                    'id' => $linked->id,
+                    'email' => $linked->email,
+                    'display_name' => $linked->display_name,
+                    'signature' => (string) ($linked->signature ?? ''),
+                ];
+            }
+        }
+
         return Inertia::render('Profile/Edit', [
             'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
             'status' => session('status'),
+            'mailbox' => $mailbox,
         ]);
     }
 

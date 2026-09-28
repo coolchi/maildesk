@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 import {
     providerHealthForAccount,
     recountProviderTenants,
@@ -38,6 +39,14 @@ const activeProviders = computed(() =>
     providers.value.filter((p) => p.status === 'active'),
 );
 
+const platformBaseDomain = () => {
+    try {
+        return usePage().props.tenant?.base_domain || 'maildesk.ng';
+    } catch {
+        return 'maildesk.ng';
+    }
+};
+
 const defaultProvider = computed(
     () =>
         providers.value.find((p) => p.default && p.status === 'active') ||
@@ -61,7 +70,7 @@ const workspaces = computed(() =>
             email: a.email,
             owner: a.owner,
             subdomain: a.subdomain,
-            host: a.subdomain ? `${a.subdomain}.maildesk.test` : null,
+            host: a.subdomain ? `${a.subdomain}.${platformBaseDomain()}` : null,
             customDomain: a.customDomain,
             status: a.status,
             color: 'cyan',
@@ -209,7 +218,7 @@ const createWorkspace = ({ name, email, color = 'cyan' }) => {
         accountId: id,
         account: name,
         subdomain,
-        host: `${subdomain}.maildesk.test`,
+        host: `${subdomain}.${platformBaseDomain()}`,
         status: 'provisioning',
         ssl: false,
         created: 'just now',

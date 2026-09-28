@@ -11,12 +11,10 @@ import {
     Moon,
     Plus,
     Shield,
-    Sparkles,
     Sun,
     Trash2,
     X,
 } from '@lucide/vue';
-import { useOnboarding } from '@/composables/useOnboarding';
 import { usePlansModal } from '@/composables/usePlansModal';
 import { useTenant } from '@/composables/useTenant';
 import { useTheme } from '@/composables/useTheme';
@@ -43,7 +41,6 @@ const emit = defineEmits(['close', 'create-workspace']);
 const page = usePage();
 const user = computed(() => page.props.auth?.user);
 const abilities = computed(() => page.props.auth?.abilities || {});
-const { open: openOnboarding } = useOnboarding();
 const { open: openPlans } = usePlansModal();
 const { theme, setTheme } = useTheme();
 const toast = useToast();
@@ -385,21 +382,6 @@ const signOut = () => {
                                 </span>
                                 <span class="text-[11px] font-medium">Help</span>
                             </Link>
-                            <button
-                                type="button"
-                                class="flex flex-col items-center gap-1.5 rounded-2xl px-1 py-2.5 text-center text-zinc-300 transition active:bg-zinc-900"
-                                @click="
-                                    openOnboarding();
-                                    close();
-                                "
-                            >
-                                <span
-                                    class="flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900/80"
-                                >
-                                    <Sparkles :size="22" :stroke-width="1.85" />
-                                </span>
-                                <span class="text-[11px] font-medium">Tour</span>
-                            </button>
                             <Link
                                 v-if="user?.is_platform_admin"
                                 :href="route('admin.dashboard')"

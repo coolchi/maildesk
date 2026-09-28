@@ -20,6 +20,25 @@ class DocsPageTest extends TestCase
         return file_get_contents(resource_path('js/Pages/Docs/Index.vue'));
     }
 
+    public function test_send_quick_start_is_public(): void
+    {
+        config(['maildesk.api.rate_limit' => 77]);
+
+        $this->get(route('docs.send'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Docs/SendQuickStart')
+                ->where('rateLimit', 77)
+                ->where('apiBaseUrl', fn ($url) => str_ends_with($url, '/api/v1')));
+
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get(route('docs.send'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('Docs/SendQuickStart'));
+    }
+
     public function test_docs_page_renders_with_real_config(): void
     {
         config(['maildesk.api.rate_limit' => 77]);

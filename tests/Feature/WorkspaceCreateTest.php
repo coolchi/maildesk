@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\MailProvider;
 use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -37,6 +38,33 @@ class WorkspaceCreateTest extends TestCase
         ]);
         $this->assertEquals($org->id, session('current_organization_id'));
         $response->assertRedirect('/emails');
+    }
+
+    public function test_new_workspace_gets_the_platform_default_provider(): void
+    {
+        config([
+            'maildesk.base_domain' => 'maildesk.test',
+            'session.domain' => null,
+        ]);
+
+        $provider = MailProvider::factory()->default()->create([
+            'driver' => 'resend',
+            'status' => 'active',
+        ]);
+
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->post(route('workspaces.store'), [
+                'name' => 'Harbor Labs',
+                'subdomain' => 'harbor-labs',
+            ])
+            ->assertRedirect('/emails');
+
+        $org = Organization::query()->where('name', 'Harbor Labs')->first();
+        $this->assertSame($provider->id, $org->mail_provider_id);
+        $this->assertSame('resend', $org->default_provider);
+        $this->assertTrue($org->fresh()->toWorkspaceArray()['providerOk']);
     }
 
     public function test_create_workspace_uses_inertia_location_when_session_shared(): void

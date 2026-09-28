@@ -5,6 +5,7 @@
 @layer base {
     :root {
         color-scheme: light;
+        --impersonation-offset: 0px;
         --md-bg: 244 244 245;
         --md-panel: 255 255 255;
         --md-elevated: 255 255 255;
@@ -62,6 +63,35 @@
     html.light ::selection {
         background: rgb(8 145 178 / 0.2);
     }
+}
+
+.brand-logo {
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+}
+.brand-logo__img {
+    height: 100%;
+    width: auto;
+    display: block;
+}
+.brand-logo__light {
+    display: none;
+}
+html.light .brand-logo.is-auto .brand-logo__dark {
+    display: none;
+}
+html.light .brand-logo.is-auto .brand-logo__light {
+    display: block;
+}
+.brand-logo.is-dark .brand-logo__light {
+    display: none;
+}
+.brand-logo.is-light .brand-logo__dark {
+    display: none;
+}
+.brand-logo.is-light .brand-logo__light {
+    display: block;
 }
 
 @layer utilities {

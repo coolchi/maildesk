@@ -6,6 +6,7 @@ use App\Ai\AiManager;
 use App\Ai\DTO\AiChatRequest;
 use App\Ai\DTO\TriageResult;
 use App\Ai\Exceptions\AiException;
+use App\Events\InboxUpdated;
 use App\Models\Message;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -51,9 +52,18 @@ class SmartTriageService
             return null;
         }
 
+        $wasSpam = (bool) $thread->is_spam;
+        $isSpam = $result->intent === 'spam';
+
         $thread->forceFill([
             'ai' => array_merge($thread->ai ?? [], $result->toThreadAiArray()),
+            'is_spam' => $isSpam,
+            'is_archived' => $isSpam ? false : $thread->is_archived,
         ])->save();
+
+        if ($wasSpam !== $isSpam) {
+            InboxUpdated::dispatch($thread->organization, $thread->mailbox_id);
+        }
 
         return $result;
     }
@@ -72,6 +82,7 @@ class SmartTriageService
                         .'Respond with JSON only using keys priority, intent, language. '
                         .'priority must be one of: low, normal, high, urgent. '
                         .'intent must be one of: support, sales, billing, spam, other. '
+                        .'Use spam for unsolicited commercial mail, phishing, and scams. '
                         .'language is a short ISO 639-1 code such as en, fr, or es.',
                 ],
                 [

@@ -2,26 +2,15 @@
 import '../../css/landing.css';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { Head, Link, usePage } from '@inertiajs/vue3';
-import HeroPreview from '@/Components/Landing/HeroPreview.vue';
 import { useTheme } from '@/composables/useTheme';
+import BrandLogo from '@/Components/BrandLogo.vue';
 import {
     ArrowRight,
-    Check,
     ChevronDown,
-    Code2,
-    Globe,
-    Inbox,
-    KeyRound,
-    Mail,
-    Megaphone,
+    Menu,
     Moon,
-    Send,
-    ShieldCheck,
-    Signature,
     Sun,
-    Users,
-    UsersRound,
-    Webhook,
+    X,
 } from '@lucide/vue';
 
 const props = defineProps({
@@ -45,72 +34,172 @@ const primaryLabel = computed(() =>
 );
 
 const scrolled = ref(false);
+const menuOpen = ref(false);
+const activeNav = ref('');
+const updateActiveNav = () => {
+    const mark = window.innerHeight * 0.28;
+    let current = '';
+    for (const item of nav) {
+        const section = document.querySelector(item.href);
+        if (!section) continue;
+        if (section.getBoundingClientRect().top <= mark) current = item.href;
+    }
+    activeNav.value = current;
+};
 const onScroll = () => {
     scrolled.value = window.scrollY > 8;
+    updateActiveNav();
 };
+const closeMenu = () => {
+    menuOpen.value = false;
+};
+const onKeydown = (event) => {
+    if (event.key === 'Escape') closeMenu();
+};
+
+const heroStage = ref(null);
+let tiltEnabled = false;
+
+const onHeroPointerMove = (event) => {
+    const stage = heroStage.value;
+    if (!stage || !tiltEnabled) return;
+
+    const rect = stage.getBoundingClientRect();
+    const dx = (event.clientX - (rect.left + rect.width / 2)) / rect.width;
+    const dy = (event.clientY - (rect.top + rect.height / 2)) / rect.height;
+    const x = Math.max(-0.85, Math.min(0.85, dx));
+    const y = Math.max(-0.85, Math.min(0.85, dy));
+
+    stage.style.setProperty('--rx', `${(y * 22).toFixed(2)}deg`);
+    stage.style.setProperty('--ry', `${(-x * 28).toFixed(2)}deg`);
+    stage.style.setProperty('--px', x.toFixed(3));
+    stage.style.setProperty('--py', y.toFixed(3));
+    stage.style.setProperty('--gx', `${(50 + x * 72).toFixed(1)}%`);
+    stage.style.setProperty('--gy', `${(40 + y * 64).toFixed(1)}%`);
+    stage.classList.add('is-active');
+};
+
+const resetHeroTilt = () => {
+    const stage = heroStage.value;
+    if (!stage) return;
+    stage.style.setProperty('--rx', '0deg');
+    stage.style.setProperty('--ry', '0deg');
+    stage.style.setProperty('--px', '0');
+    stage.style.setProperty('--py', '0');
+    stage.style.setProperty('--gx', '46%');
+    stage.style.setProperty('--gy', '28%');
+    stage.classList.remove('is-active');
+};
+
+let revealObserver;
 onMounted(() => {
+    window.addEventListener('keydown', onKeydown);
+
+    tiltEnabled = window.matchMedia(
+        '(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)',
+    ).matches;
+
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
+
+    const nodes = document.querySelectorAll('.lp-reveal');
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || !('IntersectionObserver' in window)) {
+        nodes.forEach((node) => node.classList.add('is-shown'));
+        return;
+    }
+
+    revealObserver = new IntersectionObserver(
+        (entries) => {
+            entries.forEach((entry) => {
+                if (!entry.isIntersecting) return;
+                entry.target.classList.add('is-shown');
+                const settle = (event) => {
+                    if (event.target !== entry.target) return;
+                    entry.target.classList.add('is-settled');
+                    entry.target.removeEventListener('animationend', settle);
+                };
+                entry.target.addEventListener('animationend', settle);
+                revealObserver.unobserve(entry.target);
+            });
+        },
+        { threshold: 0.18, rootMargin: '0px 0px -32px 0px' },
+    );
+    nodes.forEach((node) => revealObserver.observe(node));
 });
-onUnmounted(() => window.removeEventListener('scroll', onScroll));
+onUnmounted(() => {
+    window.removeEventListener('scroll', onScroll);
+    window.removeEventListener('keydown', onKeydown);
+    revealObserver?.disconnect();
+});
 
 const openFaq = ref(0);
 
 const nav = [
-    { href: '#features', label: 'Features' },
-    { href: '#how-it-works', label: 'How it works' },
+    { href: '#ai', label: 'AI' },
+    { href: '#features', label: 'Product' },
     { href: '#developers', label: 'Developers' },
-    { href: '#faq', label: 'FAQ' },
+    { href: '/docs/send', label: 'Docs' },
 ];
 
-const highlights = [
-    'SPF, DKIM & DMARC checks',
-    'REST API with scoped keys',
-    'Signed webhooks',
-    'Resend or SMTP delivery',
+const aiPoints = [
+    {
+        icon: '/images/landing/icon-ai.png',
+        title: 'Triage',
+        body: 'Every inbound message is labeled by priority, intent and language.',
+    },
+    {
+        icon: '/images/landing/icon-shield.png',
+        title: 'Spam',
+        body: 'Scams and junk leave the inbox and sit in Spam until you say otherwise.',
+    },
+    {
+        icon: '/images/landing/icon-inbox.png',
+        title: 'Drafts',
+        body: 'A reply in the thread’s tone, ready to edit. Nothing sends itself.',
+    },
 ];
 
-// Only features that exist in the product today.
 const features = [
     {
-        icon: Send,
-        title: 'Send from your app or the dashboard',
-        body: 'POST to /api/v1/emails with an API key, or write in the rich-text composer with CC, attachments and scheduling.',
+        icon: '/images/landing/icon-send.png',
+        title: 'Send',
+        body: 'One POST from your app, or compose in the workspace.',
     },
     {
-        icon: Inbox,
-        title: 'Shared team inbox',
-        body: 'Inbound mail lands in threads your team can read, reply to and forward — with the original conversation intact.',
+        icon: '/images/landing/icon-inbox.png',
+        title: 'Inbox',
+        body: 'The team reads, replies and forwards in the same thread.',
     },
     {
-        icon: Globe,
-        title: 'Domains with DNS verification',
-        body: 'Add your domain, publish the records we generate and verify SPF, DKIM and DMARC. Cloudflare users can connect DNS directly.',
+        icon: '/images/landing/icon-domain.png',
+        title: 'Domains',
+        body: 'SPF, DKIM and DMARC, checked before the domain is called ready.',
     },
     {
-        icon: Megaphone,
-        title: 'Broadcasts',
-        body: 'Send campaigns to your audience with per-recipient delivery tracking and one-click unsubscribe links.',
-    },
-    {
-        icon: Users,
-        title: 'Audience & suppressions',
-        body: 'Keep contacts in one place. Bounced and complained addresses are suppressed automatically to protect your reputation.',
-    },
-    {
-        icon: Webhook,
+        icon: '/images/landing/icon-api.png',
         title: 'Webhooks',
-        body: 'Get sent, delivered, bounced, complained and received events pushed to your endpoint, signed with HMAC-SHA256.',
+        body: 'Delivery and inbound events, signed, pushed to your endpoint.',
     },
     {
-        icon: Signature,
-        title: 'Signatures',
-        body: 'Consistent HTML signatures per mailbox, applied to replies and — if you choose — to API sends.',
+        icon: '/images/landing/icon-marketing.png',
+        title: 'Email marketing',
+        body: 'One message to a list, a group, or the whole audience.',
     },
     {
-        icon: UsersRound,
-        title: 'Group addresses',
-        body: 'Create team@ or sales@ addresses that fan out incoming mail to every member of the group.',
+        icon: '/images/landing/icon-automation.png',
+        title: 'Automation',
+        body: 'A trigger, a wait, a send. The workflow runs on its own.',
+    },
+    {
+        icon: '/images/landing/icon-group.png',
+        title: 'Group mail',
+        body: 'A shared address. The team reads and replies in one thread.',
+    },
+    {
+        icon: '/images/landing/icon-template.png',
+        title: 'Templates',
+        body: 'Design the message once. Reuse it in every send.',
     },
 ];
 
@@ -130,15 +219,15 @@ const steps = [
 ];
 
 const devPoints = [
-    { icon: KeyRound, text: 'API keys can be scoped to a single sending domain.' },
-    { icon: Webhook, text: 'Delivery and inbound events with signed payloads.' },
-    { icon: ShieldCheck, text: 'Automatic suppression of bounced and complained addresses.' },
+    'Keys can be scoped to one sending domain.',
+    'Delivery and inbound events arrive signed.',
+    'Bounces and complaints are suppressed on their own.',
 ];
 
 const faqs = [
     {
         q: 'What is MailDesk?',
-        a: 'MailDesk combines a developer send API with a shared team inbox. Your product sends transactional mail through the API while your team reads, replies to and forwards mail in the same workspace.',
+        a: 'AI-powered business email for organizations and developers. The product sends through the API. The team works the same mail in a shared inbox.',
     },
     {
         q: 'Does MailDesk support SPF, DKIM and DMARC?',
@@ -150,7 +239,7 @@ const faqs = [
     },
     {
         q: 'How do I send email from my app?',
-        a: 'Create an API key in the dashboard and POST JSON to /api/v1/emails with a Bearer token. The in-app docs include cURL examples for sending, reading the inbox and managing domains.',
+        a: 'Create an API key in the dashboard and POST JSON to /api/v1/emails with a Bearer token. The public send guide at /docs/send has the request, the response, and a prompt you can paste into an AI assistant.',
     },
     {
         q: 'Can my whole team work from the inbox?',
@@ -160,39 +249,32 @@ const faqs = [
 </script>
 
 <template>
-    <Head title="MailDesk — Business email and a developer API in one workspace" />
+    <Head title="MailDesk — AI-powered business email" />
 
     <div class="lp relative min-h-screen overflow-x-hidden font-sans antialiased">
         <!-- Header -->
         <header
             class="lp-header sticky top-0 z-40"
-            :class="{ 'is-scrolled': scrolled }"
+            :class="{ 'is-scrolled': scrolled, 'is-open': menuOpen }"
         >
-            <div
-                class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5 sm:px-6"
-            >
-                <Link href="/" class="flex items-center gap-2.5" aria-label="MailDesk home">
-                    <span
-                        class="lp-logo flex h-8 w-8 items-center justify-center rounded-lg"
-                    >
-                        <Mail :size="16" />
-                    </span>
-                    <span class="lp-text text-[17px] font-semibold tracking-tight"
-                        >MailDesk</span
-                    >
+            <div class="lp-header-bar">
+                <Link href="/" class="lp-header-logo flex items-center" aria-label="MailDesk home">
+                    <BrandLogo class="h-9" />
                 </Link>
 
-                <nav class="hidden items-center gap-7 text-sm md:flex" aria-label="Primary">
+                <nav class="lp-header-nav" aria-label="Primary">
                     <a
                         v-for="item in nav"
                         :key="item.href"
                         :href="item.href"
                         class="lp-nav-link"
+                        :class="{ 'is-current': activeNav === item.href }"
+                        :aria-current="activeNav === item.href ? 'true' : undefined"
                         >{{ item.label }}</a
                     >
                 </nav>
 
-                <div class="flex items-center gap-2">
+                <div class="lp-header-actions">
                     <button
                         type="button"
                         class="lp-icon-btn flex h-9 w-9 items-center justify-center rounded-full"
@@ -203,6 +285,7 @@ const faqs = [
                         <Sun v-if="isDark" :size="16" />
                         <Moon v-else :size="16" />
                     </button>
+                    <span class="lp-header-rule" aria-hidden="true" />
                     <Link
                         v-if="user"
                         :href="route('dashboard')"
@@ -214,7 +297,7 @@ const faqs = [
                         <Link
                             v-if="canLogin"
                             :href="route('login')"
-                            class="lp-nav-link px-2 text-sm font-medium"
+                            class="lp-nav-link lp-header-login px-2 text-sm font-medium"
                             >Log in</Link
                         >
                         <Link
@@ -224,39 +307,66 @@ const faqs = [
                             >Sign up</Link
                         >
                     </template>
+                    <button
+                        type="button"
+                        class="lp-icon-btn lp-header-menu flex h-9 w-9 items-center justify-center rounded-full"
+                        :aria-expanded="menuOpen ? 'true' : 'false'"
+                        aria-controls="lp-mobile-nav"
+                        :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
+                        @click="menuOpen = !menuOpen"
+                    >
+                        <X v-if="menuOpen" :size="16" />
+                        <Menu v-else :size="16" />
+                    </button>
                 </div>
             </div>
+
+            <nav
+                id="lp-mobile-nav"
+                v-show="menuOpen"
+                class="lp-header-drawer"
+                aria-label="Mobile"
+            >
+                <a
+                    v-for="item in nav"
+                    :key="item.href"
+                    :href="item.href"
+                    class="lp-nav-link"
+                    :class="{ 'is-current': activeNav === item.href }"
+                    :aria-current="activeNav === item.href ? 'true' : undefined"
+                    @click="closeMenu"
+                    >{{ item.label }}</a
+                >
+                <Link
+                    v-if="!user && canLogin"
+                    :href="route('login')"
+                    class="lp-nav-link"
+                    @click="closeMenu"
+                    >Log in</Link
+                >
+            </nav>
         </header>
 
         <main>
             <!-- Hero -->
-            <section class="relative">
-                <div class="lp-glow pointer-events-none absolute inset-x-0 top-0 h-[720px]" />
-                <div class="lp-grid-bg pointer-events-none absolute inset-x-0 top-0 h-[620px]" />
+            <section
+                class="lp-hero relative"
+                @pointermove="onHeroPointerMove"
+                @pointerleave="resetHeroTilt"
+            >
+                <div class="lp-glow pointer-events-none absolute inset-x-0 top-0 h-full" />
 
                 <div
-                    class="relative mx-auto grid max-w-6xl items-center gap-16 px-5 pb-20 pt-14 sm:px-6 sm:pt-20 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:pb-28 lg:pt-24"
+                    class="relative mx-auto grid w-full max-w-6xl items-center gap-6 px-5 py-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-8 lg:py-10"
                 >
                     <div>
-                        <p
-                            class="lp-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-                        >
-                            <span class="h-1.5 w-1.5 rounded-full bg-current" />
-                            Business email + developer API
-                        </p>
-                        <h1
-                            class="lp-text mt-6 text-[2.5rem] font-semibold leading-[1.06] tracking-tight sm:text-5xl lg:text-[3.5rem]"
-                        >
-                            Business email your app
-                            <span class="lp-accent">and your team</span> can share.
+                        <h1 class="lp-display lp-hero-title lp-text lp-rise" style="--d: 0.05s">
+                            Business Mail,<br /><em>with AI mind.</em>
                         </h1>
-                        <p class="lp-text-2 mt-6 max-w-xl text-lg leading-relaxed">
-                            Send transactional mail with a simple API, answer
-                            customers from a shared inbox, and authenticate your
-                            domain with guided DNS — all in one MailDesk
-                            workspace.
+                        <p class="lp-text-2 lp-rise mt-8 max-w-md text-lg leading-snug sm:text-xl" style="--d: 0.18s">
+                            Smart business email for organizations and developers.
                         </p>
-                        <div class="mt-9 flex flex-col gap-3 sm:flex-row">
+                        <div class="lp-rise mt-10" style="--d: 0.32s">
                             <Link
                                 :href="primaryHref"
                                 class="lp-btn lp-btn-primary px-6 py-3 text-[15px]"
@@ -265,27 +375,60 @@ const faqs = [
                                 {{ primaryLabel }}
                                 <ArrowRight :size="16" />
                             </Link>
-                            <a
-                                href="#features"
-                                class="lp-btn lp-btn-secondary px-6 py-3 text-[15px]"
-                            >
-                                See what's included
-                            </a>
                         </div>
-                        <ul class="mt-10 grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2">
-                            <li
-                                v-for="item in highlights"
-                                :key="item"
-                                class="lp-text-2 flex items-center gap-2"
-                            >
-                                <Check :size="15" class="lp-accent shrink-0" />
-                                {{ item }}
-                            </li>
-                        </ul>
                     </div>
 
-                    <div class="px-2 sm:px-6 lg:px-0">
-                        <HeroPreview />
+                    <div ref="heroStage" class="lp-hero-stage">
+                        <div class="lp-hero-float">
+                            <div class="lp-hero-tilt">
+                                <img
+                                    src="/images/landing/hero-envelope.png"
+                                    alt=""
+                                    class="lp-hero-figure"
+                                    width="960"
+                                    height="960"
+                                    draggable="false"
+                                />
+                                <span class="lp-hero-glare" aria-hidden="true" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- AI -->
+            <section id="ai" class="scroll-mt-16 pb-20 sm:pb-28">
+                <div class="mx-auto grid max-w-6xl gap-12 px-5 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-end lg:gap-20">
+                    <div class="lp-reveal">
+                        <p class="lp-eyebrow">The AI</p>
+                        <h2 class="lp-display lp-text mt-4 text-5xl sm:text-6xl">
+                            Sorted before you open.
+                        </h2>
+                    </div>
+                    <div class="lp-reveal" style="--d: 0.12s">
+                        <p class="lp-text-2 text-lg leading-relaxed">
+                            Organizations get an inbox that sorts itself. Developers keep one API. The model triages, files junk, and drafts — you still send.
+                        </p>
+                        <ul class="mt-10 space-y-6">
+                            <li
+                                v-for="(point, i) in aiPoints"
+                                :key="point.title"
+                                class="lp-reveal flex items-center gap-5"
+                                :style="{ '--d': `${0.08 + i * 0.08}s` }"
+                            >
+                                <img
+                                    :src="point.icon"
+                                    alt=""
+                                    class="lp-glass-icon shrink-0"
+                                    width="72"
+                                    height="72"
+                                />
+                                <div>
+                                    <h3 class="lp-text text-base font-medium">{{ point.title }}</h3>
+                                    <p class="lp-text-2 mt-1 text-sm leading-relaxed">{{ point.body }}</p>
+                                </div>
+                            </li>
+                        </ul>
                     </div>
                 </div>
             </section>
@@ -293,37 +436,35 @@ const faqs = [
             <!-- Features -->
             <section id="features" class="lp-bg-alt lp-hairline scroll-mt-16 border-y py-20 sm:py-28">
                 <div class="mx-auto max-w-6xl px-5 sm:px-6">
-                    <div class="max-w-2xl">
+                    <div class="lp-reveal max-w-2xl">
                         <p class="lp-eyebrow">Features</p>
-                        <h2
-                            class="lp-text mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
-                        >
-                            Everything you need to send, receive and stay
-                            deliverable.
+                        <h2 class="lp-display lp-text mt-4 text-5xl sm:text-6xl">
+                            The rest of the desk.
                         </h2>
-                        <p class="lp-text-2 mt-4 text-lg leading-relaxed">
-                            One workspace for product mail and the humans who
-                            answer it — no stitching tools together.
-                        </p>
                     </div>
 
-                    <div class="mt-12 grid gap-4 sm:mt-16 sm:grid-cols-2 lg:grid-cols-4">
+                    <div class="mt-14 grid gap-4 sm:grid-cols-2">
                         <article
-                            v-for="f in features"
+                            v-for="(f, i) in features"
                             :key="f.title"
-                            class="lp-card lp-card-hover rounded-2xl p-6"
+                            class="lp-card lp-card-hover lp-reveal flex items-center gap-5 rounded-2xl p-6"
+                            :style="{ '--d': `${(i % 2) * 0.08}s` }"
                         >
-                            <span
-                                class="lp-icon-tile flex h-10 w-10 items-center justify-center rounded-xl"
-                            >
-                                <component :is="f.icon" :size="18" />
-                            </span>
-                            <h3 class="lp-text mt-5 text-base font-semibold leading-snug">
+                            <img
+                                :src="f.icon"
+                                alt=""
+                                class="lp-glass-icon shrink-0"
+                                width="72"
+                                height="72"
+                            />
+                            <div>
+                            <h3 class="lp-text text-base font-medium">
                                 {{ f.title }}
                             </h3>
-                            <p class="lp-text-2 mt-2 text-sm leading-relaxed">
+                            <p class="lp-text-2 mt-1 text-sm leading-relaxed">
                                 {{ f.body }}
                             </p>
+                            </div>
                         </article>
                     </div>
                 </div>
@@ -332,23 +473,18 @@ const faqs = [
             <!-- How it works -->
             <section id="how-it-works" class="scroll-mt-16 py-20 sm:py-28">
                 <div class="mx-auto max-w-6xl px-5 sm:px-6">
-                    <div class="mx-auto max-w-2xl text-center">
+                    <div class="lp-reveal mx-auto max-w-2xl text-center">
                         <p class="lp-eyebrow">How it works</p>
-                        <h2
-                            class="lp-text mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
-                        >
-                            Live in three steps
+                        <h2 class="lp-display lp-text mt-4 text-5xl sm:text-6xl">
+                            Three steps.
                         </h2>
-                        <p class="lp-text-2 mt-4 text-lg leading-relaxed">
-                            From sign-up to your first authenticated email in
-                            an afternoon.
-                        </p>
                     </div>
                     <ol class="mt-12 grid gap-4 sm:mt-16 md:grid-cols-3">
                         <li
                             v-for="(step, i) in steps"
                             :key="step.title"
-                            class="lp-card rounded-2xl p-6 sm:p-7"
+                            class="lp-card lp-reveal rounded-2xl p-6 sm:p-7"
+                            :style="{ '--d': `${i * 0.1}s` }"
                         >
                             <span
                                 class="lp-step-num flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold"
@@ -373,44 +509,37 @@ const faqs = [
                 <div
                     class="mx-auto grid max-w-6xl items-center gap-12 px-5 sm:px-6 lg:grid-cols-[1fr_1.15fr] lg:gap-16"
                 >
-                    <div>
+                    <div class="lp-reveal">
                         <p class="lp-eyebrow">Developers</p>
-                        <h2
-                            class="lp-text mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
-                        >
-                            One HTTP call to send.
+                        <h2 class="lp-display lp-text mt-4 text-5xl sm:text-6xl">
+                            One call to send.
                         </h2>
-                        <p class="lp-text-2 mt-4 text-lg leading-relaxed">
-                            A small, predictable REST API for sending, reading
-                            inbox threads and managing domains — documented
-                            inside the app.
-                        </p>
-                        <ul class="mt-8 space-y-4">
+                        <ul class="mt-8 space-y-3">
                             <li
-                                v-for="p in devPoints"
-                                :key="p.text"
-                                class="flex items-start gap-3"
+                                v-for="point in devPoints"
+                                :key="point"
+                                class="lp-text-2 text-[15px] leading-relaxed"
                             >
-                                <span
-                                    class="lp-icon-tile mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-                                >
-                                    <component :is="p.icon" :size="14" />
-                                </span>
-                                <span class="lp-text-2 text-[15px] leading-relaxed">{{
-                                    p.text
-                                }}</span>
+                                {{ point }}
                             </li>
                         </ul>
-                        <Link
-                            :href="primaryHref"
-                            class="lp-btn lp-btn-secondary mt-9 px-5 py-2.5 text-sm"
-                        >
-                            <Code2 :size="15" />
-                            Get an API key
-                        </Link>
+                        <div class="mt-9 flex flex-wrap items-center gap-3">
+                            <Link
+                                :href="primaryHref"
+                                class="lp-btn lp-btn-secondary px-5 py-2.5 text-sm"
+                            >
+                                Get an API key
+                            </Link>
+                            <Link
+                                href="/docs/send"
+                                class="lp-btn lp-btn-secondary px-5 py-2.5 text-sm"
+                            >
+                                Send API quick start
+                            </Link>
+                        </div>
                     </div>
 
-                    <div class="lp-code lp-float overflow-hidden rounded-2xl">
+                    <div class="lp-code lp-float lp-reveal overflow-hidden rounded-2xl" style="--d: 0.12s">
                         <div
                             class="lp-code-bar flex items-center justify-between border-b px-4 py-2.5 text-xs"
                         >
@@ -436,15 +565,13 @@ curl -X POST https://your-workspace/api/v1/emails \
             <!-- FAQ -->
             <section id="faq" class="scroll-mt-16 py-20 sm:py-28">
                 <div class="mx-auto max-w-3xl px-5 sm:px-6">
-                    <div class="text-center">
+                    <div class="lp-reveal text-center">
                         <p class="lp-eyebrow">FAQ</p>
-                        <h2
-                            class="lp-text mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
-                        >
-                            Frequently asked questions
+                        <h2 class="lp-display lp-text mt-4 text-5xl sm:text-6xl">
+                            Questions
                         </h2>
                     </div>
-                    <div class="lp-card mt-12 overflow-hidden rounded-2xl">
+                    <div class="lp-card lp-reveal mt-12 overflow-hidden rounded-2xl" style="--d: 0.08s">
                         <div
                             v-for="(faq, i) in faqs"
                             :key="faq.q"
@@ -484,18 +611,11 @@ curl -X POST https://your-workspace/api/v1/emails \
             <!-- Closing CTA -->
             <section class="px-5 pb-20 sm:px-6 sm:pb-28">
                 <div
-                    class="lp-cta mx-auto max-w-6xl rounded-3xl px-6 py-14 text-center sm:px-12 sm:py-20"
+                    class="lp-cta lp-reveal mx-auto max-w-6xl rounded-3xl px-6 py-14 text-center sm:px-12 sm:py-20"
                 >
-                    <h2
-                        class="lp-text mx-auto max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl"
-                    >
-                        Give your team and your app one place for email.
+                    <h2 class="lp-display lp-text mx-auto max-w-3xl text-5xl sm:text-7xl">
+                        Open a workspace.
                     </h2>
-                    <p class="lp-text-2 mx-auto mt-4 max-w-xl text-lg leading-relaxed">
-                        Create a workspace, verify your domain and send your
-                        first email. You can choose a plan from your workspace
-                        settings whenever you're ready.
-                    </p>
                     <div class="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
                         <Link
                             :href="primaryHref"
@@ -523,16 +643,9 @@ curl -X POST https://your-workspace/api/v1/emails \
                 class="mx-auto grid max-w-6xl gap-10 px-5 py-12 sm:px-6 md:grid-cols-[1.5fr_1fr_1fr]"
             >
                 <div>
-                    <div class="flex items-center gap-2.5">
-                        <span
-                            class="lp-logo flex h-8 w-8 items-center justify-center rounded-lg"
-                        >
-                            <Mail :size="16" />
-                        </span>
-                        <span class="lp-text font-semibold tracking-tight">MailDesk</span>
-                    </div>
+                    <BrandLogo class="h-8" />
                     <p class="lp-text-2 mt-4 max-w-xs text-sm leading-relaxed">
-                        Business email and a developer API in one workspace.
+                        Smart business email for organizations and developers.
                     </p>
                 </div>
                 <div>
@@ -571,7 +684,7 @@ curl -X POST https://your-workspace/api/v1/emails \
                     class="lp-muted mx-auto flex max-w-6xl flex-col gap-2 px-5 py-6 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-6"
                 >
                     <span>© {{ new Date().getFullYear() }} MailDesk. All rights reserved.</span>
-                    <span>Made for teams that live in their inbox.</span>
+                    <span>Organizations and developers.</span>
                 </div>
             </div>
         </footer>

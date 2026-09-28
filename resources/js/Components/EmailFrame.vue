@@ -4,6 +4,7 @@ import {
     SANDBOX,
     buildSrcdoc,
     contentHeight,
+    fitToWidth,
     hardenLinks,
     splitQuotedHtml,
     splitQuotedText,
@@ -91,6 +92,7 @@ function resize() {
     // If the iframe is still tall from the expanded view, scrollHeight reports
     // the frame size — not the shorter collapsed content. Shrink first.
     el.style.height = '0px';
+    fitToWidth(doc, el.clientWidth);
     const next = Math.max(props.minHeight, contentHeight(doc));
     height.value = next;
     el.style.height = `${next}px`;
@@ -145,7 +147,7 @@ watch(expanded, async () => {
         />
         <p
             v-else-if="displayText"
-            class="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-300"
+            class="whitespace-pre-wrap break-words px-4 pb-4 pt-2 text-sm leading-relaxed text-zinc-300"
             data-testid="email-text"
         >
             {{ displayText }}

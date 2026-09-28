@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Services\Impersonation\ImpersonationService;
+use App\Services\TenantResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -34,6 +35,13 @@ class AuthenticatedSessionController extends Controller
         $request->authenticate();
 
         $request->session()->regenerate();
+
+        $organization = app(TenantResolver::class)->resolveFromHost($request->getHost());
+        if ($organization) {
+            $request->session()->put('current_organization_id', $organization->id);
+
+            return redirect()->intended(route('dashboard', absolute: false));
+        }
 
         $home = $request->user()?->isPlatformAdmin()
             ? route('admin.dashboard', absolute: false)

@@ -22,11 +22,13 @@ import {
     AlertCircle,
     Paperclip,
     Forward,
+    Inbox,
     Reply,
     Sparkles,
     UsersRound,
     RotateCw,
     Search,
+    ShieldAlert,
     X,
     Send,
     Trash2,
@@ -52,6 +54,7 @@ const canManage = computed(() => Boolean(page.props.auth?.abilities?.manage));
 
 const folderLinks = computed(() => [
     { id: 'inbox', label: 'Inbox', href: route('inbox') },
+    { id: 'spam', label: 'Spam', href: route('spam') },
     { id: 'archive', label: 'Archive', href: route('archive') },
     { id: 'trash', label: 'Trash', href: route('trash') },
 ]);
@@ -222,7 +225,17 @@ const threadActions = (thread) => {
         return actions;
     }
 
+    if (props.folder === 'spam') {
+        actions.push(
+            { id: 'spam', label: 'Move to Inbox', icon: Inbox },
+            { id: 'trash', label: 'Move to trash', icon: Trash2, danger: true },
+        );
+
+        return actions;
+    }
+
     actions.push(
+        { id: 'spam', label: 'Mark as Spam', icon: ShieldAlert },
         {
             id: 'archive',
             label: props.folder === 'archive' ? 'Move to inbox' : 'Archive',
@@ -277,6 +290,23 @@ const onThreadAction = (thread, item) => {
                 onError: () => toast.error('Could not update conversation.'),
             },
         );
+    } else if (item.id === 'spam') {
+        router.post(
+            route('inbox.spam', thread.id),
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    removeThreadFromList(thread);
+                    toast.success(
+                        props.folder === 'spam'
+                            ? 'Moved to inbox.'
+                            : 'Moved to spam.',
+                    );
+                },
+                onError: () => toast.error('Could not update conversation.'),
+            },
+        );
     } else if (item.id === 'trash' || item.id === 'restore') {
         router.post(
             route('inbox.trash', thread.id),
@@ -312,12 +342,16 @@ const onThreadAction = (thread, item) => {
 };
 
 const folderTitle = computed(() => {
+    if (props.folder === 'spam') return 'Spam';
     if (props.folder === 'archive') return 'Archive';
     if (props.folder === 'trash') return 'Trash';
     return 'Inbox';
 });
 
 const folderDescription = computed(() => {
+    if (props.folder === 'spam') {
+        return 'Smart triage files suspected spam and scams here. Move to Inbox sends a conversation back.';
+    }
     if (props.folder !== 'trash') {
         return '';
     }
@@ -360,12 +394,25 @@ const headerActions = computed(() => {
         ];
     }
 
+    if (props.folder === 'spam') {
+        return [
+            {
+                id: 'read',
+                label: active.value?.unread ? 'Mark as read' : 'Mark as unread',
+                icon: CheckCheck,
+            },
+            { id: 'spam', label: 'Move to Inbox', icon: Inbox },
+            { id: 'trash', label: 'Move to trash', icon: Trash2, danger: true },
+        ];
+    }
+
     return [
         {
             id: 'read',
             label: active.value?.unread ? 'Mark as read' : 'Mark as unread',
             icon: CheckCheck,
         },
+        { id: 'spam', label: 'Mark as Spam', icon: ShieldAlert },
         {
             id: 'archive',
             label: props.folder === 'archive' ? 'Move to inbox' : 'Archive',
@@ -792,7 +839,7 @@ const avatarTone = (thread) => {
             class="md-card grid min-w-0 overflow-hidden lg:h-[calc(100vh-15rem)] lg:min-h-[540px] lg:grid-cols-[340px_1fr]"
             :class="
                 mobileDetail && active
-                    ? 'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:top-0 max-lg:z-30 max-lg:w-full max-lg:max-w-none max-lg:rounded-none max-lg:border-0'
+                    ? 'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:top-[var(--impersonation-offset)] max-lg:z-30 max-lg:w-full max-lg:max-w-none max-lg:rounded-none max-lg:border-0'
                     : 'max-lg:-mx-4 max-lg:-mt-4 max-lg:min-h-[calc(100dvh-8.5rem-env(safe-area-inset-bottom,0px))] max-lg:w-[calc(100%+2rem)] max-lg:max-w-[100vw] max-lg:rounded-none max-lg:border-x-0 sm:max-lg:-mx-6 sm:max-lg:w-[calc(100%+3rem)]'
             "
             data-testid="inbox-card"
@@ -928,7 +975,8 @@ const avatarTone = (thread) => {
                 data-testid="inbox-thread-detail"
             >
                 <div
-                    class="flex items-center gap-3 border-b border-zinc-800 px-4 pb-3.5 pt-[max(1rem,calc(env(safe-area-inset-top,0px)+0.5rem))] lg:items-start lg:gap-3 lg:px-6 lg:py-4"
+                    class="flex items-center gap-3 border-b border-zinc-800 px-4 pb-3.5 pt-4 lg:items-start lg:gap-3 lg:px-6 lg:py-4"
+                    :style="mobileDetail ? { paddingTop: 'max(1rem, calc(env(safe-area-inset-top, 0px) + 0.5rem - var(--impersonation-offset)))' } : undefined"
                     data-testid="inbox-thread-toolbar"
                 >
                     <button
@@ -1006,13 +1054,13 @@ const avatarTone = (thread) => {
                 </div>
                 <div
                     ref="messagesEl"
-                    class="md-hide-scrollbar mx-auto min-h-0 min-w-0 w-full max-w-3xl flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-4 py-3 lg:max-w-none lg:space-y-4 lg:p-6"
+                    class="md-hide-scrollbar mx-auto min-h-0 min-w-0 w-full max-w-3xl flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-0 py-3 lg:max-w-none lg:space-y-4 lg:p-6"
                     data-testid="thread-messages"
                 >
                     <article
                         v-for="message in active.messages"
                         :key="message.id || message"
-                        class="w-full min-w-0 overflow-hidden rounded-xl border bg-zinc-950 p-3 lg:p-4"
+                        class="w-full min-w-0 overflow-hidden bg-zinc-950 p-0 lg:rounded-xl lg:border lg:p-4"
                         :class="
                             message.can_retry || message.status === 'suppressed'
                                 ? 'border-rose-500/30'
@@ -1160,6 +1208,26 @@ const avatarTone = (thread) => {
                         >
                             <Forward :size="15" />
                             Forward
+                        </button>
+                        <button
+                            v-if="folder === 'spam'"
+                            type="button"
+                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                            data-testid="move-to-inbox"
+                            @click="onThreadAction(active, { id: 'spam' })"
+                        >
+                            <Inbox :size="15" />
+                            Move to Inbox
+                        </button>
+                        <button
+                            v-else
+                            type="button"
+                            class="md-btn-ghost !px-3 !py-1.5 text-sm"
+                            data-testid="mark-as-spam"
+                            @click="onThreadAction(active, { id: 'spam' })"
+                        >
+                            <ShieldAlert :size="15" />
+                            Mark as Spam
                         </button>
                     </template>
                 </div>

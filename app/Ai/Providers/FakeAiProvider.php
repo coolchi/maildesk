@@ -33,7 +33,13 @@ class FakeAiProvider implements AiProvider
     {
         $this->requests[] = $request;
 
-        $haystack = collect($request->messages)->pluck('content')->implode(' ');
+        $userText = collect($request->messages)
+            ->filter(fn ($message) => ($message['role'] ?? null) !== 'system')
+            ->pluck('content')
+            ->implode(' ');
+        $haystack = $userText !== ''
+            ? $userText
+            : collect($request->messages)->pluck('content')->implode(' ');
         $content = $this->content;
 
         if (

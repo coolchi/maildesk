@@ -23,7 +23,7 @@ class DashboardController extends Controller
                 return redirect()->route('admin.dashboard');
             }
 
-            return redirect()->route('emails');
+            return redirect()->route('workspaces.create');
         }
 
         return redirect()->route($access->homeRoute($request->user(), $organization));
@@ -36,7 +36,25 @@ class DashboardController extends Controller
 
     public function docs(): Response
     {
-        return Inertia::render('Docs/Index', [
+        return Inertia::render('Docs/Index', $this->docsProps());
+    }
+
+    public function sendDocs(): Response
+    {
+        $docs = $this->docsProps();
+
+        return Inertia::render('Docs/SendQuickStart', [
+            'apiBaseUrl' => $docs['apiBaseUrl'],
+            'rateLimit' => $docs['rateLimit'],
+        ]);
+    }
+
+    /**
+     * @return array{apiBaseUrl: string, rateLimit: int, webhookEvents: array<int, string>, webhookRetry: array{attempts: int, backoff: array<int, int>, timeout: int}}
+     */
+    private function docsProps(): array
+    {
+        return [
             'apiBaseUrl' => rtrim(url('/api/v1'), '/'),
             'rateLimit' => max(1, (int) config('maildesk.api.rate_limit', 120)),
             'webhookEvents' => WebhookController::EVENT_OPTIONS,
@@ -45,6 +63,6 @@ class DashboardController extends Controller
                 'backoff' => DeliverWebhook::BACKOFF,
                 'timeout' => WebhookDeliverer::TIMEOUT_SECONDS,
             ],
-        ]);
+        ];
     }
 }

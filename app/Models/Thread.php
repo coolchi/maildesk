@@ -24,6 +24,7 @@ class Thread extends Model
         'message_count',
         'is_read',
         'is_archived',
+        'is_spam',
         'is_trashed',
         'trashed_at',
     ];
@@ -35,6 +36,7 @@ class Thread extends Model
             'last_message_at' => 'datetime',
             'is_read' => 'boolean',
             'is_archived' => 'boolean',
+            'is_spam' => 'boolean',
             'is_trashed' => 'boolean',
             'trashed_at' => 'datetime',
         ];
@@ -89,10 +91,12 @@ class Thread extends Model
             'to' => implode(', ', $recipients),
             'unread' => ! $this->is_read,
             'is_archived' => (bool) $this->is_archived,
+            'is_spam' => (bool) $this->is_spam,
             'is_trashed' => (bool) $this->is_trashed,
             'trashed_at' => $this->trashed_at?->toIso8601String(),
             'label' => match (true) {
                 (bool) $this->is_trashed => 'Trash',
+                (bool) $this->is_spam => 'Spam',
                 (bool) $this->is_archived => 'Archive',
                 default => 'Inbox',
             },

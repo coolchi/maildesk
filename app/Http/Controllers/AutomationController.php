@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Automation;
+use App\Services\AutoReplyService;
 use App\Services\AutomationService;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
@@ -29,7 +30,23 @@ class AutomationController extends Controller
         return Inertia::render('Automations/Index', [
             'automations' => $automations,
             'events' => [],
+            'autoReply' => app(AutoReplyService::class)->settings($organization),
         ]);
+    }
+
+    public function updateAutoReply(Request $request, AutoReplyService $autoReply): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        $validated = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'subject' => ['required', 'string', 'max:180'],
+            'body' => ['required', 'string', 'max:5000'],
+        ]);
+
+        $autoReply->save($organization, $validated);
+
+        return back()->with('success', 'Auto-reply saved.');
     }
 
     public function create(): Response

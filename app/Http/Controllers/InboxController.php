@@ -29,6 +29,11 @@ class InboxController extends Controller
         return $this->folder($request, 'inbox');
     }
 
+    public function spamIndex(Request $request): Response
+    {
+        return $this->folder($request, 'spam');
+    }
+
     public function archiveIndex(Request $request): Response
     {
         return $this->folder($request, 'archive');
@@ -50,7 +55,13 @@ class InboxController extends Controller
                 fn ($query) => $query->where('is_trashed', true),
                 fn ($query) => $query
                     ->where('is_trashed', false)
-                    ->where('is_archived', $folder === 'archive'),
+                    ->when(
+                        $folder === 'spam',
+                        fn ($inner) => $inner->where('is_spam', true),
+                        fn ($inner) => $inner
+                            ->where('is_spam', false)
+                            ->where('is_archived', $folder === 'archive'),
+                    ),
             )
             ->with(['mailbox', 'messages' => fn ($query) => $query->orderBy('created_at'), 'messages.attachments'])
             ->latest('last_message_at')
@@ -79,7 +90,11 @@ class InboxController extends Controller
             ->where('is_trashed', false)
             ->findOrFail($thread);
 
-        $model->forceFill(['is_archived' => ! $model->is_archived])->save();
+        $archived = ! $model->is_archived;
+        $model->forceFill([
+            'is_archived' => $archived,
+            'is_spam' => $archived ? false : $model->is_spam,
+        ])->save();
 
         $message = $model->is_archived ? 'Archived.' : 'Moved to inbox.';
 
@@ -87,6 +102,37 @@ class InboxController extends Controller
             return response()->json([
                 'id' => $model->id,
                 'is_archived' => $model->is_archived,
+                'inbox_unread' => InboxSyncState::for(
+                    $organization,
+                    $this->access->scopedMailboxId($request->user(), $organization),
+                )['unread'],
+            ]);
+        }
+
+        return back()->with('success', $message);
+    }
+
+    public function toggleSpam(Request $request, int $thread): RedirectResponse|JsonResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        /** @var Thread $model */
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
+            ->where('is_trashed', false)
+            ->findOrFail($thread);
+
+        $spam = ! $model->is_spam;
+        $model->forceFill([
+            'is_spam' => $spam,
+            'is_archived' => $spam ? false : $model->is_archived,
+        ])->save();
+
+        $message = $spam ? 'Moved to spam.' : 'Moved to inbox.';
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'id' => $model->id,
+                'is_spam' => $model->is_spam,
                 'inbox_unread' => InboxSyncState::for(
                     $organization,
                     $this->access->scopedMailboxId($request->user(), $organization),
