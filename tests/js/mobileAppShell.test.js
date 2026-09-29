@@ -41,7 +41,7 @@ describe('Mobile app shell', () => {
         expect(layout).toContain('@toggle-more="moreSheetOpen = !moreSheetOpen"');
         expect(layout).toContain('data-testid="mobile-workspace-button"');
         expect(layout).not.toContain('data-testid="mobile-menu-button"');
-        expect(layout).toContain('hidden h-dvh w-[248px]');
+        expect(layout).toContain('hidden h-[calc(100dvh-var(--impersonation-offset))] w-[248px]');
         expect(layout).toContain('lg:flex');
     });
 
@@ -116,7 +116,7 @@ describe('Mobile inbox experience', () => {
     });
 
     it('prevents email HTML from blowing out the mobile viewport', () => {
-        expect(emailCss).toContain('overflow-x: hidden');
+        expect(emailCss).toContain('overflow-wrap: anywhere');
         expect(emailCss).toContain('max-width: 100%');
         expect(emailCss).toContain('-webkit-text-size-adjust: 100%');
     });
