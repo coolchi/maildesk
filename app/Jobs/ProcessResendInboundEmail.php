@@ -160,8 +160,6 @@ class ProcessResendInboundEmail implements ShouldQueue
 
         InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
 
-        SendMobilePushNotification::dispatch($message->id);
-
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());
 
         if (app(SmartTriageService::class)->shouldTriage()) {
