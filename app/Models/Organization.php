@@ -207,6 +207,7 @@ class Organization extends Model
         $colors = ['cyan', 'violet', 'emerald', 'amber'];
         $color = $colors[$this->id % count($colors)] ?? 'cyan';
         $base = (string) config('maildesk.base_domain', 'maildesk.test');
+        $settings = $this->settings ?? [];
 
         return [
             'id' => $this->id,
@@ -227,6 +228,15 @@ class Organization extends Model
             'customDomain' => $this->custom_domain,
             'status' => $this->status,
             'color' => $color,
+            'timezone' => $settings['timezone'] ?? 'Africa/Lagos',
         ];
+    }
+
+    /**
+     * Get the workspace's configured timezone, falling back to Africa/Lagos.
+     */
+    public function getTimezone(): string
+    {
+        return ($this->settings ?? [])['timezone'] ?? 'Africa/Lagos';
     }
 }

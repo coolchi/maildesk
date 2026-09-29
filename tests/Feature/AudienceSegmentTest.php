@@ -230,4 +230,55 @@ class AudienceSegmentTest extends TestCase
 
         $this->assertDatabaseMissing('segments', ['id' => $segment->id]);
     }
+
+    public function test_can_edit_segment_name_description_and_rules(): void
+    {
+        [$user, $org] = $this->member();
+        $segment = Segment::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'Original Name',
+            'description' => 'Original Description',
+            'rules' => [
+                ['field' => 'meta.status', 'op' => 'eq', 'value' => 'subscribed'],
+            ],
+        ]);
+
+        $this->as($user, $org)
+            ->put(route('audience.segments.update', $segment), [
+                'name' => 'Updated Name',
+                'description' => 'Updated Description',
+                'rules' => [
+                    ['field' => 'meta.status', 'op' => 'eq', 'value' => 'unsubscribed'],
+                    ['field' => 'email_domain', 'op' => 'contains', 'value' => 'example.com'],
+                ],
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $segment->refresh();
+        $this->assertSame('Updated Name', $segment->name);
+        $this->assertSame('Updated Description', $segment->description);
+        $this->assertCount(2, $segment->rules);
+        $this->assertSame('unsubscribed', $segment->rules[0]['value']);
+        $this->assertSame('example.com', $segment->rules[1]['value']);
+    }
+
+    public function test_segment_rules_are_exposed_in_workspace_array(): void
+    {
+        $org = Organization::factory()->create();
+        $segment = Segment::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'Test Segment',
+            'rules' => [
+                ['field' => 'meta.status', 'op' => 'eq', 'value' => 'subscribed'],
+                ['field' => 'email_domain', 'op' => 'contains', 'value' => 'acme.com'],
+            ],
+        ]);
+
+        $array = $segment->toWorkspaceArray();
+
+        $this->assertArrayHasKey('rules', $array);
+        $this->assertCount(2, $array['rules']);
+        $this->assertSame('meta.status', $array['rules'][0]['field']);
+    }
 }

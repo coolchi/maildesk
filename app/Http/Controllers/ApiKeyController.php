@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ApiKeyController extends Controller
 {
@@ -57,7 +58,6 @@ class ApiKeyController extends Controller
             $abilities[] = 'domain:'.$validated['domain'];
         }
 
-        // A custom date wins over the preset; it expires at the end of that day.
         $days = (int) ($validated['expires_in_days'] ?? 0);
         $expiresAt = match (true) {
             ! empty($validated['expires_at']) => Carbon::parse($validated['expires_at'])->endOfDay(),
@@ -128,7 +128,7 @@ class ApiKeyController extends Controller
         return redirect()
             ->route('api-keys')
             ->with('plain_api_key', $issued['plain'])
-            ->with('success', "Rotated “{$apiKey->name}”. The old key no longer works.");
+            ->with('success', 'Rotated "'.$apiKey->name.'". The old key no longer works.');
     }
 
     /**
@@ -144,7 +144,7 @@ class ApiKeyController extends Controller
 
         return redirect()
             ->route('api-keys')
-            ->with('success', "Revoked “{$apiKey->name}”.");
+            ->with('success', 'Revoked "'.$apiKey->name.'".');
     }
 
     public function destroy(Request $request, ApiKey $apiKey): RedirectResponse
@@ -157,6 +157,69 @@ class ApiKeyController extends Controller
 
         return redirect()
             ->route('api-keys')
-            ->with('success', "Deleted “{$name}”.");
+            ->with('success', 'Deleted "'.$name.'".');
+    }
+
+    /**
+     * Export API key metadata as CSV. Never exports secrets or hashes.
+     */
+    public function export(Request $request): StreamedResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        $keys = $organization->apiKeys()
+            ->latest()
+            ->get();
+
+        $filename = sprintf('api-keys-%s-%s.csv', $organization->slug ?? 'workspace', now()->format('Y-m-d'));
+
+        return response()->streamDownload(function () use ($keys) {
+            $out = fopen('php://output', 'w');
+
+            fputcsv($out, [
+                'Name',
+                'Prefix',
+                'Permission',
+                'Domain Scope',
+                'Created',
+                'Last Used',
+                'Expires',
+                'Status',
+            ]);
+
+            foreach ($keys as $key) {
+                $abilities = $key->abilities ?? ['*'];
+                $permission = in_array('emails:send', $abilities, true) && ! in_array('*', $abilities, true)
+                    ? 'Sending access'
+                    : 'Full access';
+
+                $domain = 'All domains';
+                foreach ($abilities as $ability) {
+                    if (is_string($ability) && str_starts_with($ability, 'domain:')) {
+                        $domain = substr($ability, 7);
+                        break;
+                    }
+                }
+
+                $status = $key->isRevoked()
+                    ? 'Revoked'
+                    : ($key->isExpired() ? 'Expired' : 'Active');
+
+                fputcsv($out, [
+                    $key->name,
+                    $key->key_prefix,
+                    $permission,
+                    $domain,
+                    $key->created_at?->toDateTimeString() ?? '',
+                    $key->last_used_at?->toDateTimeString() ?? 'Never',
+                    $key->expires_at?->toDateTimeString() ?? 'Never',
+                    $status,
+                ]);
+            }
+
+            fclose($out);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+        ]);
     }
 }

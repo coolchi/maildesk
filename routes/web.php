@@ -209,6 +209,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('/domains/{domain}/dns/records/{record}', [DomainDnsController::class, 'destroy'])->name('domains.dns.records.destroy');
     Route::get('/logs', [LogController::class, 'index'])->name('logs');
     Route::get('/api-keys', [ApiKeyController::class, 'index'])->name('api-keys');
+    Route::get('/api-keys/export', [ApiKeyController::class, 'export'])->name('api-keys.export');
     Route::post('/api-keys', [ApiKeyController::class, 'store'])->name('api-keys.store');
     Route::put('/api-keys/{apiKey}', [ApiKeyController::class, 'update'])->name('api-keys.update');
     Route::delete('/api-keys/{apiKey}', [ApiKeyController::class, 'destroy'])->name('api-keys.destroy');
