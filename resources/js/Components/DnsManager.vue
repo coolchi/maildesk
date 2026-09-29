@@ -2,9 +2,11 @@
 import { computed, reactive, ref } from "vue";
 import { router, useForm } from "@inertiajs/vue3";
 import {
+    AlertTriangle,
     CheckCircle2,
     Cloud,
     ExternalLink,
+    Inbox,
     LoaderCircle,
     Pencil,
     Plus,
@@ -21,21 +23,26 @@ const props = defineProps({
 const connectForm = useForm({ provider: "cloudflare", api_token: "" });
 const busy = ref(null);
 const editing = reactive({});
+const showReceivingConfirm = ref(false);
 
 const titles = { dkim: "DKIM", mx: "Bounce MX", spf: "SPF", inbound_mx: "Receiving MX", return_path: "Return CNAME", dmarc: "DMARC" };
 const stateMeta = {
     ok: { label: "Published", class: "bg-emerald-500/10 text-emerald-300" },
     missing: { label: "Not at Cloudflare", class: "bg-rose-500/10 text-rose-300" },
     different: { label: "Different value", class: "bg-amber-500/10 text-amber-300" },
+    skipped: { label: "Skipped (existing MX)", class: "bg-amber-500/10 text-amber-300" },
 };
 
 const records = computed(() => props.dns?.records || []);
 const live = computed(() => props.dns?.live || []);
-const pending = computed(() => records.value.filter((r) => r.state !== "ok").length);
+const pending = computed(() => records.value.filter((r) => r.state !== "ok" && r.key !== "inbound_mx").length);
 const autoPublish = computed(() => props.dns?.auto_publish || null);
 const autoPublishedAt = computed(() =>
     autoPublish.value?.at ? new Date(autoPublish.value.at).toLocaleString() : null,
 );
+const skippedInboundMx = computed(() => autoPublish.value?.skipped_inbound_mx || false);
+const inboundMxRecord = computed(() => records.value.find((r) => r.key === "inbound_mx"));
+const inboundMxMissing = computed(() => inboundMxRecord.value?.state === "missing");
 
 const opts = (key) => ({
     preserveScroll: true,
@@ -56,6 +63,18 @@ const disconnect = () => {
 
 const apply = (key = null) =>
     router.post(route("domains.dns.apply", props.domain.id), key ? { key } : {}, opts(key || "all"));
+
+const enableReceiving = (confirm = false) => {
+    showReceivingConfirm.value = false;
+    router.post(route("domains.dns.enable-receiving", props.domain.id), confirm ? { confirm: true } : {}, {
+        ...opts("inbound_mx"),
+        onError: (errors) => {
+            if (errors?.error?.includes("Warning:")) {
+                showReceivingConfirm.value = true;
+            }
+        },
+    });
+};
 
 const startEdit = (rec) => {
     editing[rec.id] = { content: rec.content, priority: rec.priority };
@@ -159,6 +178,66 @@ const remove = (rec) => {
                 <span v-if="autoPublishedAt">Last run {{ autoPublishedAt }}.</span>
             </p>
 
+            <!-- Receiving MX section -->
+            <div
+                v-if="inboundMxRecord && (skippedInboundMx || inboundMxMissing)"
+                class="border-b border-zinc-800 bg-amber-500/5 px-5 py-4"
+                data-testid="receiving-mx-section"
+            >
+                <div class="flex flex-wrap items-start gap-4">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 text-sm font-medium text-amber-300">
+                            <AlertTriangle :size="16" />
+                            Receiving not enabled
+                        </div>
+                        <p class="mt-1 text-xs text-zinc-400">
+                            <span v-if="skippedInboundMx">
+                                The receiving MX record was not published automatically because
+                                <span class="text-zinc-200">{{ domain.name }}</span> already has MX records.
+                                Enabling receiving will route <strong>all</strong> email for this domain to MailDesk.
+                            </span>
+                            <span v-else>
+                                Add the receiving MX record to receive email at
+                                <span class="text-zinc-200">{{ domain.name }}</span>.
+                            </span>
+                        </p>
+                    </div>
+                    <div class="shrink-0">
+                        <button
+                            v-if="!showReceivingConfirm"
+                            type="button"
+                            class="md-btn-primary text-xs"
+                            :disabled="busy"
+                            @click="skippedInboundMx ? (showReceivingConfirm = true) : enableReceiving()"
+                        >
+                            <LoaderCircle v-if="busy === 'inbound_mx'" :size="14" class="animate-spin" />
+                            <Inbox v-else :size="14" />
+                            Enable receiving
+                        </button>
+                        <div v-else class="space-y-2 text-right">
+                            <p class="text-xs text-amber-300">
+                                This will route ALL email for {{ domain.name }} to MailDesk.
+                                Your existing email service will stop receiving.
+                            </p>
+                            <div class="flex gap-2 justify-end">
+                                <button type="button" class="md-btn-ghost text-xs" @click="showReceivingConfirm = false">
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    class="md-btn-primary text-xs"
+                                    :disabled="busy"
+                                    @click="enableReceiving(true)"
+                                >
+                                    <LoaderCircle v-if="busy === 'inbound_mx'" :size="14" class="animate-spin" />
+                                    Confirm & enable
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div
                 v-for="row in records"
                 :key="row.key"
@@ -168,20 +247,28 @@ const remove = (rec) => {
                 <div class="w-28 shrink-0 text-sm font-medium text-white">{{ titles[row.key] || row.key }}</div>
                 <code class="w-12 shrink-0 text-xs text-cyan-300">{{ row.type }}</code>
                 <code class="min-w-0 flex-1 break-all text-xs text-zinc-400">{{ row.host }}</code>
-                <span class="rounded-full px-2 py-0.5 text-[11px] font-medium" :class="stateMeta[row.state].class">
+                <span
+                    class="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    :class="row.key === 'inbound_mx' && row.state === 'missing' && skippedInboundMx
+                        ? stateMeta.skipped.class
+                        : stateMeta[row.state].class"
+                >
                     <CheckCircle2 v-if="row.state === 'ok'" :size="11" class="-mt-px mr-0.5 inline" />
-                    {{ stateMeta[row.state].label }}
+                    <AlertTriangle v-else-if="row.key === 'inbound_mx' && row.state === 'missing' && skippedInboundMx" :size="11" class="-mt-px mr-0.5 inline" />
+                    {{ row.key === 'inbound_mx' && row.state === 'missing' && skippedInboundMx
+                        ? stateMeta.skipped.label
+                        : stateMeta[row.state].label }}
                 </span>
                 <button
-                    v-if="row.state !== 'ok'"
+                    v-if="row.state !== 'ok' && !(row.key === 'inbound_mx' && skippedInboundMx)"
                     type="button"
                     class="md-btn-ghost text-xs"
                     :disabled="busy"
-                    @click="apply(row.key)"
+                    @click="row.key === 'inbound_mx' ? enableReceiving() : apply(row.key)"
                 >
                     <LoaderCircle v-if="busy === row.key" :size="13" class="animate-spin" />
                     <Plus v-else :size="13" />
-                    {{ row.state === "missing" ? "Add" : row.key === "spf" ? "Merge into SPF" : "Fix value" }}
+                    {{ row.key === 'inbound_mx' ? 'Enable receiving' : row.state === "missing" ? "Add" : row.key === "spf" ? "Merge into SPF" : "Fix value" }}
                 </button>
             </div>
 

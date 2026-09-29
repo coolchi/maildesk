@@ -66,16 +66,35 @@ class DnsRecordManager
     /**
      * Create what's missing and fix what's different. Returns counts.
      *
-     * @return array{created: int, updated: int}
+     * When $key is 'inbound_mx', the safety check for existing MX records is
+     * bypassed (used when user explicitly enables receiving).
+     *
+     * @return array{created: int, updated: int, skipped_inbound_mx: bool}
      */
     public function apply(Domain $domain, DnsConnection $connection, ?string $key = null): array
     {
         $provider = $this->provider($connection);
-        $counts = ['created' => 0, 'updated' => 0];
+        $counts = ['created' => 0, 'updated' => 0, 'skipped_inbound_mx' => false];
 
-        foreach ($this->plan($domain, $connection)['records'] as $row) {
+        $plan = $this->plan($domain, $connection);
+        $forceInboundMx = $key === 'inbound_mx';
+
+        foreach ($plan['records'] as $row) {
             if ($key !== null && $row['key'] !== $key) {
                 continue;
+            }
+
+            // Safety: don't auto-publish inbound MX if the root domain already has
+            // other MX records (e.g., Google Workspace, Microsoft 365). The customer
+            // must explicitly enable receiving to avoid breaking their existing email.
+            // This check is bypassed when $key is specifically 'inbound_mx' (explicit enable).
+            if ($row['key'] === 'inbound_mx' && $row['state'] === 'missing' && ! $forceInboundMx) {
+                $existingMx = $this->findExistingRootMx($domain, $connection, $plan['live']);
+                if ($existingMx !== []) {
+                    $counts['skipped_inbound_mx'] = true;
+
+                    continue;
+                }
             }
 
             if ($row['state'] === 'missing') {
@@ -99,6 +118,45 @@ class DnsRecordManager
         }
 
         return $counts;
+    }
+
+    /**
+     * Check if the root domain has existing MX records that are NOT MailDesk's.
+     * This is used to prevent auto-publishing the inbound MX, which would break
+     * existing email service (Google Workspace, Microsoft 365, etc.).
+     *
+     * @param  list<array<string, mixed>>  $live
+     * @return list<array<string, mixed>>
+     */
+    public function findExistingRootMx(Domain $domain, DnsConnection $connection, array $live = []): array
+    {
+        $rootHost = strtolower($domain->name);
+
+        if ($live === []) {
+            $live = $this->provider($connection)->records($connection->zone_id);
+        }
+
+        $rootMx = array_values(array_filter(
+            $live,
+            fn (array $r) => $r['type'] === 'MX' && $r['name'] === $rootHost,
+        ));
+
+        // Filter out records that point to known Resend/MailDesk inbound servers
+        return array_values(array_filter(
+            $rootMx,
+            fn (array $r) => ! $this->isMailDeskInboundMx((string) ($r['content'] ?? '')),
+        ));
+    }
+
+    /**
+     * Check if an MX value points to a known MailDesk/Resend inbound server.
+     */
+    private function isMailDeskInboundMx(string $value): bool
+    {
+        $value = rtrim(strtolower($value), '.');
+
+        // Resend uses AWS SES for inbound: inbound-smtp.<region>.amazonaws.com
+        return str_contains($value, 'inbound-smtp') && str_contains($value, 'amazonaws.com');
     }
 
     /**

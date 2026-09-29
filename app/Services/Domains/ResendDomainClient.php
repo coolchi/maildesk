@@ -144,6 +144,31 @@ class ResendDomainClient
     }
 
     /**
+     * Enable receiving capability for a domain. This makes Resend return the
+     * inbound MX record needed for customers to receive email at the domain.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function enableReceiving(string $id): ?array
+    {
+        $response = $this->send(fn (PendingRequest $http) => $http->patch("/domains/{$id}", [
+            'capabilities' => ['receiving' => 'enabled'],
+        ]));
+
+        return $response->successful() ? (array) $response->json() : null;
+    }
+
+    /**
+     * Check if receiving is enabled for a domain by inspecting its capabilities.
+     *
+     * @param  array<string, mixed>  $domain
+     */
+    public function isReceivingEnabled(array $domain): bool
+    {
+        return ($domain['capabilities']['receiving'] ?? 'disabled') === 'enabled';
+    }
+
+    /**
      * Ask Resend to re-run its own DNS verification for the domain (async).
      */
     public function triggerVerify(string $id): bool
