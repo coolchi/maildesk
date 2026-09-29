@@ -66,28 +66,24 @@ class DnsRecordManager
     /**
      * Create what's missing and fix what's different. Returns counts.
      *
-     * When $key is 'inbound_mx', the safety check for existing MX records is
-     * bypassed (used when user explicitly enables receiving).
-     *
+     * @param  bool  $forceInboundMx  When true, publishes the inbound MX even if other MX records exist
      * @return array{created: int, updated: int, skipped_inbound_mx: bool}
      */
-    public function apply(Domain $domain, DnsConnection $connection, ?string $key = null): array
+    public function apply(Domain $domain, DnsConnection $connection, ?string $key = null, bool $forceInboundMx = false): array
     {
         $provider = $this->provider($connection);
         $counts = ['created' => 0, 'updated' => 0, 'skipped_inbound_mx' => false];
 
         $plan = $this->plan($domain, $connection);
-        $forceInboundMx = $key === 'inbound_mx';
 
         foreach ($plan['records'] as $row) {
             if ($key !== null && $row['key'] !== $key) {
                 continue;
             }
 
-            // Safety: don't auto-publish inbound MX if the root domain already has
+            // Safety: don't publish inbound MX if the root domain already has
             // other MX records (e.g., Google Workspace, Microsoft 365). The customer
-            // must explicitly enable receiving to avoid breaking their existing email.
-            // This check is bypassed when $key is specifically 'inbound_mx' (explicit enable).
+            // must explicitly enable receiving with force to avoid breaking their existing email.
             if ($row['key'] === 'inbound_mx' && $row['state'] === 'missing' && ! $forceInboundMx) {
                 $existingMx = $this->findExistingRootMx($domain, $connection, $plan['live']);
                 if ($existingMx !== []) {

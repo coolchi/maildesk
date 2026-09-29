@@ -1,9 +1,10 @@
 <script setup>
-import { computed, reactive, ref } from "vue";
-import { router, useForm } from "@inertiajs/vue3";
+import { computed, reactive, ref, watch } from "vue";
+import { router, useForm, usePage } from "@inertiajs/vue3";
 import {
     AlertTriangle,
     CheckCircle2,
+    Clock,
     Cloud,
     ExternalLink,
     Inbox,
@@ -20,10 +21,23 @@ const props = defineProps({
     dns: { type: Object, default: () => ({ connection: null, records: [], live: [] }) },
 });
 
+const page = usePage();
 const connectForm = useForm({ provider: "cloudflare", api_token: "" });
 const busy = ref(null);
 const editing = reactive({});
 const showReceivingConfirm = ref(false);
+const receivingConfirmData = ref(null);
+
+watch(
+    () => page.props.flash?.receiving_confirmation,
+    (confirmation) => {
+        if (confirmation?.required) {
+            receivingConfirmData.value = confirmation;
+            showReceivingConfirm.value = true;
+        }
+    },
+    { immediate: true },
+);
 
 const titles = { dkim: "DKIM", mx: "Bounce MX", spf: "SPF", inbound_mx: "Receiving MX", return_path: "Return CNAME", dmarc: "DMARC" };
 const stateMeta = {
@@ -43,6 +57,7 @@ const autoPublishedAt = computed(() =>
 const skippedInboundMx = computed(() => autoPublish.value?.skipped_inbound_mx || false);
 const inboundMxRecord = computed(() => records.value.find((r) => r.key === "inbound_mx"));
 const inboundMxMissing = computed(() => inboundMxRecord.value?.state === "missing");
+const inboundMxNotConfigured = computed(() => !inboundMxRecord.value);
 
 const opts = (key) => ({
     preserveScroll: true,
@@ -66,14 +81,8 @@ const apply = (key = null) =>
 
 const enableReceiving = (confirm = false) => {
     showReceivingConfirm.value = false;
-    router.post(route("domains.dns.enable-receiving", props.domain.id), confirm ? { confirm: true } : {}, {
-        ...opts("inbound_mx"),
-        onError: (errors) => {
-            if (errors?.error?.includes("Warning:")) {
-                showReceivingConfirm.value = true;
-            }
-        },
-    });
+    receivingConfirmData.value = null;
+    router.post(route("domains.dns.enable-receiving", props.domain.id), confirm ? { confirm: true } : {}, opts("inbound_mx"));
 };
 
 const startEdit = (rec) => {
@@ -178,9 +187,25 @@ const remove = (rec) => {
                 <span v-if="autoPublishedAt">Last run {{ autoPublishedAt }}.</span>
             </p>
 
-            <!-- Receiving MX section -->
+            <!-- Receiving MX not configured yet (Resend hasn't issued the record) -->
             <div
-                v-if="inboundMxRecord && (skippedInboundMx || inboundMxMissing)"
+                v-if="inboundMxNotConfigured"
+                class="border-b border-zinc-800 bg-zinc-800/50 px-5 py-4"
+                data-testid="receiving-mx-pending"
+            >
+                <div class="flex items-center gap-3">
+                    <Clock :size="16" class="text-zinc-400 shrink-0" />
+                    <div class="text-sm text-zinc-400">
+                        <span class="font-medium text-zinc-300">Receiving MX</span> —
+                        Resend has not issued a receiving MX record for this domain yet.
+                        Re-verify the domain after a few minutes, or contact support if this persists.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Receiving MX section (skipped or missing) -->
+            <div
+                v-else-if="inboundMxRecord && (skippedInboundMx || inboundMxMissing)"
                 class="border-b border-zinc-800 bg-amber-500/5 px-5 py-4"
                 data-testid="receiving-mx-section"
             >
@@ -194,7 +219,7 @@ const remove = (rec) => {
                             <span v-if="skippedInboundMx">
                                 The receiving MX record was not published automatically because
                                 <span class="text-zinc-200">{{ domain.name }}</span> already has MX records.
-                                Enabling receiving will route <strong>all</strong> email for this domain to MailDesk.
+                                Enabling receiving adds MailDesk's MX record alongside the existing ones. Depending on MX priorities, this may change where email is delivered.
                             </span>
                             <span v-else>
                                 Add the receiving MX record to receive email at
@@ -215,12 +240,11 @@ const remove = (rec) => {
                             Enable receiving
                         </button>
                         <div v-else class="space-y-2 text-right">
-                            <p class="text-xs text-amber-300">
-                                This will route ALL email for {{ domain.name }} to MailDesk.
-                                Your existing email service will stop receiving.
+                            <p class="text-xs text-amber-300 max-w-xs">
+                                {{ receivingConfirmData?.message || `${domain.name} already has MX records. Adding MailDesk's receiving MX may change where email is delivered, depending on MX priorities.` }}
                             </p>
                             <div class="flex gap-2 justify-end">
-                                <button type="button" class="md-btn-ghost text-xs" @click="showReceivingConfirm = false">
+                                <button type="button" class="md-btn-ghost text-xs" @click="showReceivingConfirm = false; receivingConfirmData = null">
                                     Cancel
                                 </button>
                                 <button

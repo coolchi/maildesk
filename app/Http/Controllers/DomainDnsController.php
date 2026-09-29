@@ -117,19 +117,23 @@ class DomainDnsController extends Controller
             return back()->with('error', 'No receiving MX record is configured for this domain. Re-verify the domain to fetch receiving records from Resend.');
         }
 
-        // Check for existing MX and warn if not confirmed
+        // Check for existing MX and require confirmation
         $existingMx = $this->manager->findExistingRootMx($domain, $connection);
         if ($existingMx !== [] && ! $request->boolean('confirm')) {
             $providers = implode(', ', array_column($existingMx, 'content'));
 
-            return back()->with('error', "Warning: {$domain->name} already has MX records ({$providers}). Enabling receiving will route ALL email for {$domain->name} to MailDesk. Your existing email service will stop receiving email. Please confirm this action.");
+            return back()->with('receiving_confirmation', [
+                'required' => true,
+                'existing_mx' => $providers,
+                'message' => "{$domain->name} already has MX records ({$providers}). Adding MailDesk's receiving MX may change where email is delivered, depending on MX priorities.",
+            ]);
         }
 
         return $this->run($domain, function ($connection) use ($domain) {
-            $counts = $this->manager->apply($domain, $connection, 'inbound_mx');
+            $counts = $this->manager->apply($domain, $connection, 'inbound_mx', forceInboundMx: true);
 
             return $counts['created'] > 0
-                ? "Receiving enabled! The MX record for {$domain->name} was published. Incoming email will now be delivered to MailDesk."
+                ? "Receiving enabled! The MX record for {$domain->name} was published alongside any existing MX records. Email delivery may now be affected depending on MX priorities."
                 : "Receiving MX record is already published for {$domain->name}.";
         });
     }

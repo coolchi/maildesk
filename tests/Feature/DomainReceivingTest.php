@@ -29,7 +29,8 @@ class DomainReceivingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->app->instance(DnsResolver::class, new FakeDnsResolver);
+        $this->app->instance(DnsResolver::class, new FakeDnsResolverForReceiving);
+        config(['maildesk.providers.resend.api_key' => null]);
         Http::preventStrayRequests();
     }
 
@@ -135,7 +136,10 @@ class DomainReceivingTest extends TestCase
 
         $warnings = $domain->fresh()->dns_records['warnings'];
         $this->assertNotEmpty($warnings);
-        $this->assertStringContainsString('Receiving MX record was not published', $warnings[0]);
+        $this->assertTrue(
+            collect($warnings)->contains(fn ($w) => str_contains($w, 'Receiving MX record was not published')),
+            'Expected a warning about receiving MX not being published',
+        );
     }
 
     public function test_enable_receiving_publishes_mx_even_with_existing_records(): void
@@ -171,7 +175,9 @@ class DomainReceivingTest extends TestCase
         $this->as($user, $org)
             ->from(route('domains.show', $domain))
             ->post(route('domains.dns.enable-receiving', $domain))
-            ->assertSessionHas('error', fn ($m) => str_contains($m, 'Warning:') && str_contains($m, 'aspmx.l.google.com'));
+            ->assertSessionHas('receiving_confirmation', fn ($data) => $data['required'] === true
+                && str_contains($data['existing_mx'], 'aspmx.l.google.com')
+                && str_contains($data['message'], 'already has MX records'));
 
         Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r['type'] === 'MX');
     }
@@ -318,7 +324,7 @@ class DomainReceivingTest extends TestCase
     }
 }
 
-class FakeDnsResolver extends DnsResolver
+class FakeDnsResolverForReceiving extends DnsResolver
 {
     /** @var array<string, list<string>> */
     public array $txt = [];

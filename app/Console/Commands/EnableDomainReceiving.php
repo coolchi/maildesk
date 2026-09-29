@@ -13,7 +13,7 @@ class EnableDomainReceiving extends Command
 {
     protected $signature = 'domains:enable-receiving
         {--domain= : Enable receiving for a specific domain name}
-        {--all : Enable receiving for all verified domains that have it configured}
+        {--all : Enable receiving for all verified domains with an inbound_mx record configured}
         {--dry-run : Show what would be done without making changes}
         {--force : Publish the MX even if the domain has existing MX records}';
 
@@ -70,26 +70,28 @@ class EnableDomainReceiving extends Command
                 return;
             }
 
-            if ($existingMx !== [] && ! $force) {
-                $providers = implode(', ', array_map(fn ($r) => $r['content'], $existingMx));
-                $this->warn("{$domain->name}: Has existing MX records ({$providers}). Use --force to override.");
-                $skipped++;
-
-                return;
-            }
-
             if ($dryRun) {
-                $action = $existingMx !== [] ? 'WOULD ADD (existing MX records will be preserved)' : 'WOULD ADD';
-                $this->info("{$domain->name}: {$action} MX record {$inboundMx['value']} (priority {$inboundMx['priority']})");
-                $enabled++;
+                if ($existingMx !== [] && ! $force) {
+                    $providers = implode(', ', array_map(fn ($r) => $r['content'], $existingMx));
+                    $this->warn("{$domain->name}: Has existing MX records ({$providers}). Use --force to override.");
+                    $skipped++;
+                } else {
+                    $action = $existingMx !== [] ? 'WOULD ADD (existing MX records will be preserved)' : 'WOULD ADD';
+                    $this->info("{$domain->name}: {$action} MX record {$inboundMx['value']} (priority {$inboundMx['priority']})");
+                    $enabled++;
+                }
 
                 return;
             }
 
             try {
-                $counts = $manager->apply($domain, $connection, 'inbound_mx');
+                $counts = $manager->apply($domain, $connection, 'inbound_mx', forceInboundMx: $force);
 
-                if ($counts['created'] > 0) {
+                if ($counts['skipped_inbound_mx'] ?? false) {
+                    $providers = implode(', ', array_map(fn ($r) => $r['content'], $existingMx));
+                    $this->warn("{$domain->name}: Has existing MX records ({$providers}). Use --force to override.");
+                    $skipped++;
+                } elseif ($counts['created'] > 0) {
                     $this->info("{$domain->name}: Receiving MX record published.");
                     $enabled++;
                 } else {

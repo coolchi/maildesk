@@ -115,8 +115,7 @@ class EnableDomainReceivingCommandTest extends TestCase
 
         $this->artisan('domains:enable-receiving', ['--domain' => 'recv.test'])
             ->assertExitCode(0)
-            ->expectsOutputToContain('Has existing MX records')
-            ->expectsOutputToContain('Use --force');
+            ->expectsOutput('recv.test: Has existing MX records (mx.zoho.com). Use --force to override.');
 
         Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r['type'] === 'MX');
     }
@@ -143,8 +142,7 @@ class EnableDomainReceivingCommandTest extends TestCase
 
         $this->artisan('domains:enable-receiving', ['--domain' => 'recv.test'])
             ->assertExitCode(0)
-            ->expectsOutputToContain('No DNS provider connected')
-            ->expectsOutputToContain('inbound-smtp.eu-west-1.amazonaws.com');
+            ->expectsOutput('recv.test: No DNS provider connected. Receiving MX record: @ -> inbound-smtp.eu-west-1.amazonaws.com (priority 10)');
     }
 
     public function test_command_warns_for_domain_without_inbound_mx(): void
@@ -163,6 +161,21 @@ class EnableDomainReceivingCommandTest extends TestCase
         $this->artisan('domains:enable-receiving', ['--domain' => 'noinbound.test'])
             ->assertExitCode(0)
             ->expectsOutputToContain('No inbound_mx record configured');
+    }
+
+    public function test_command_all_without_force_skips_domains_with_existing_mx(): void
+    {
+        $domain = $this->setUpVerifiedDomain();
+        $this->connect($domain);
+        $this->fakeCloudflare([
+            ['id' => 'mx1', 'type' => 'MX', 'name' => 'recv.test', 'content' => 'mx.zoho.com', 'priority' => 10],
+        ]);
+
+        $this->artisan('domains:enable-receiving', ['--all' => true])
+            ->assertExitCode(0)
+            ->expectsOutput('recv.test: Has existing MX records (mx.zoho.com). Use --force to override.');
+
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r['type'] === 'MX');
     }
 }
 
