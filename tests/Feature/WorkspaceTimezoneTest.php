@@ -96,4 +96,19 @@ class WorkspaceTimezoneTest extends TestCase
         $this->assertSame('Asia/Tokyo', $settings['timezone']);
         $this->assertSame('Acme Corp', $settings['unsubscribe']['brand']);
     }
+
+    public function test_timezone_change_requires_manage_ability(): void
+    {
+        $member = User::factory()->create();
+        $this->org->users()->attach($member->id, ['role' => 'member']);
+
+        $response = $this->actingAs($member)
+            ->withSession(['current_organization_id' => $this->org->id])
+            ->put(route('settings.update'), ['timezone' => 'America/Los_Angeles']);
+
+        $response->assertStatus(403);
+
+        $this->org->refresh();
+        $this->assertSame('Africa/Lagos', $this->org->getTimezone());
+    }
 }

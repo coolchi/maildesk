@@ -98,7 +98,7 @@ class Domain extends Model
             'name' => $this->name,
             'status' => $displayStatus,
             'region' => $region ?? $this->organization?->region ?? 'us-east-1',
-            'created' => $this->created_at?->timezone(config('app.timezone'))->format('M j, Y') ?? '',
+            'created' => $this->created_at?->timezone($this->organization?->getTimezone() ?? 'Africa/Lagos')->format('M j, Y') ?? '',
             'records' => $dns['checks'],
             'dns_rows' => $dns['records'],
             'provider' => $this->provider,

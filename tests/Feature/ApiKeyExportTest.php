@@ -100,6 +100,54 @@ class ApiKeyExportTest extends TestCase
         $this->get(route('api-keys.export'))->assertRedirect(route('login'));
     }
 
+    public function test_export_requires_manage_ability(): void
+    {
+        $member = User::factory()->create();
+        $this->org->users()->attach($member->id, ['role' => 'member']);
+
+        $response = $this->actingAs($member)
+            ->withSession(['current_organization_id' => $this->org->id])
+            ->get(route('api-keys.export'));
+
+        $response->assertStatus(403);
+    }
+
+    public function test_export_escapes_formula_injection(): void
+    {
+        ApiKey::issue($this->org, '=SUM(A1:A10)', $this->user, ['*']);
+        ApiKey::issue($this->org, '+cmd|calc', $this->user, ['*']);
+        ApiKey::issue($this->org, '-dangerous', $this->user, ['*']);
+        ApiKey::issue($this->org, '@malicious', $this->user, ['emails:send', 'domain:@injection.com']);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['current_organization_id' => $this->org->id])
+            ->get(route('api-keys.export'));
+
+        $content = $response->streamedContent();
+
+        $this->assertStringContains("'=SUM(A1:A10)", $content, 'Names starting with = should be escaped');
+        $this->assertStringContains("'+cmd|calc", $content, 'Names starting with + should be escaped');
+        $this->assertStringContains("'-dangerous", $content, 'Names starting with - should be escaped');
+        $this->assertStringContains("'@malicious", $content, 'Names starting with @ should be escaped');
+        $this->assertStringContains("'@injection.com", $content, 'Domains starting with @ should be escaped');
+    }
+
+    public function test_export_uses_workspace_timezone(): void
+    {
+        $this->org->update(['settings' => ['timezone' => 'America/New_York']]);
+
+        $key = ApiKey::issue($this->org, 'Timezone Test', $this->user, ['*'], now()->addDays(30))['model'];
+        $key->forceFill(['created_at' => '2026-09-29 12:00:00'])->save();
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['current_organization_id' => $this->org->id])
+            ->get(route('api-keys.export'));
+
+        $content = $response->streamedContent();
+
+        $this->assertStringContains('2026-09-29 08:00:00', $content, 'Created timestamp should be in America/New_York timezone (UTC-4)');
+    }
+
     /**
      * Custom assertion: check string contains a substring.
      */

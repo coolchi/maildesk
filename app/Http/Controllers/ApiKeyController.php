@@ -58,6 +58,7 @@ class ApiKeyController extends Controller
             $abilities[] = 'domain:'.$validated['domain'];
         }
 
+        // A custom date wins over the preset; it expires at the end of that day.
         $days = (int) ($validated['expires_in_days'] ?? 0);
         $expiresAt = match (true) {
             ! empty($validated['expires_at']) => Carbon::parse($validated['expires_at'])->endOfDay(),
@@ -128,7 +129,7 @@ class ApiKeyController extends Controller
         return redirect()
             ->route('api-keys')
             ->with('plain_api_key', $issued['plain'])
-            ->with('success', 'Rotated "'.$apiKey->name.'". The old key no longer works.');
+            ->with('success', "Rotated “{$apiKey->name}”. The old key no longer works.");
     }
 
     /**
@@ -144,7 +145,7 @@ class ApiKeyController extends Controller
 
         return redirect()
             ->route('api-keys')
-            ->with('success', 'Revoked "'.$apiKey->name.'".');
+            ->with('success', "Revoked “{$apiKey->name}”.");
     }
 
     public function destroy(Request $request, ApiKey $apiKey): RedirectResponse
@@ -157,7 +158,7 @@ class ApiKeyController extends Controller
 
         return redirect()
             ->route('api-keys')
-            ->with('success', 'Deleted "'.$name.'".');
+            ->with('success', "Deleted “{$name}”.");
     }
 
     /**
@@ -171,9 +172,10 @@ class ApiKeyController extends Controller
             ->latest()
             ->get();
 
+        $tz = $organization->getTimezone();
         $filename = sprintf('api-keys-%s-%s.csv', $organization->slug ?? 'workspace', now()->format('Y-m-d'));
 
-        return response()->streamDownload(function () use ($keys) {
+        return response()->streamDownload(function () use ($keys, $tz) {
             $out = fopen('php://output', 'w');
 
             fputcsv($out, [
@@ -206,13 +208,13 @@ class ApiKeyController extends Controller
                     : ($key->isExpired() ? 'Expired' : 'Active');
 
                 fputcsv($out, [
-                    $key->name,
+                    $this->escapeCsvCell($key->name),
                     $key->key_prefix,
                     $permission,
-                    $domain,
-                    $key->created_at?->toDateTimeString() ?? '',
-                    $key->last_used_at?->toDateTimeString() ?? 'Never',
-                    $key->expires_at?->toDateTimeString() ?? 'Never',
+                    $this->escapeCsvCell($domain),
+                    $key->created_at?->timezone($tz)->toDateTimeString() ?? '',
+                    $key->last_used_at?->timezone($tz)->toDateTimeString() ?? 'Never',
+                    $key->expires_at?->timezone($tz)->toDateTimeString() ?? 'Never',
                     $status,
                 ]);
             }
@@ -221,5 +223,24 @@ class ApiKeyController extends Controller
         }, $filename, [
             'Content-Type' => 'text/csv',
         ]);
+    }
+
+    /**
+     * Escape a cell value to prevent CSV formula injection.
+     * Prefix cells starting with =, +, -, or @ with a single quote.
+     */
+    protected function escapeCsvCell(?string $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        $first = $value[0];
+
+        if (in_array($first, ['=', '+', '-', '@'], true)) {
+            return "'".$value;
+        }
+
+        return $value;
     }
 }
