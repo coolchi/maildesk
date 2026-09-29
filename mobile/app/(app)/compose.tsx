@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Send, ChevronDown, ChevronUp, X } from 'lucide-react-native';
 import { emailApi } from '../../src/api/email';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../src/api/client';
@@ -120,7 +121,7 @@ export default function ComposeScreen() {
           title="Compose"
           rightContent={
             <TouchableOpacity style={styles.headerButton} onPress={handleClear}>
-              <Text style={styles.headerButtonText}>Clear</Text>
+              <X size={20} color={colors.text.muted} strokeWidth={1.75} />
             </TouchableOpacity>
           }
         />
@@ -150,6 +151,11 @@ export default function ComposeScreen() {
             style={styles.ccBccToggle}
             onPress={() => setShowCcBcc(!showCcBcc)}
           >
+            {showCcBcc ? (
+              <ChevronUp size={16} color={colors.brand.primary} strokeWidth={2} />
+            ) : (
+              <ChevronDown size={16} color={colors.brand.primary} strokeWidth={2} />
+            )}
             <Text style={styles.ccBccToggleText}>
               {showCcBcc ? 'Hide CC/BCC' : 'Add CC/BCC'}
             </Text>
@@ -209,7 +215,7 @@ export default function ComposeScreen() {
             loading={isSending}
             fullWidth
             size="lg"
-            icon={<Text style={styles.sendIcon}>📨</Text>}
+            icon={<Send size={18} color={colors.white} strokeWidth={2} />}
           />
         </View>
       </KeyboardAvoidingView>
@@ -229,17 +235,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[1.5],
   },
-  headerButtonText: {
-    fontSize: fontSize.base,
-    color: colors.text.muted,
-    fontFamily: 'Inter_400Regular',
-  },
   form: {
     flex: 1,
     padding: spacing[4],
   },
   ccBccToggle: {
     marginBottom: spacing[4],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
   },
   ccBccToggleText: {
     fontSize: fontSize.sm,
@@ -275,8 +279,5 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border.primary,
     padding: spacing[4],
-  },
-  sendIcon: {
-    fontSize: 18,
   },
 });

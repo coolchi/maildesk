@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { WebView } from 'react-native-webview';
+import { Archive, Inbox, Trash2, Reply, Paperclip, Send, ArrowUp, ArrowDown } from 'lucide-react-native';
 import { inboxApi } from '../../../src/api/inbox';
 import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../../src/api/client';
 import { PaymentBanner, Button, Card } from '../../../src/components';
@@ -165,9 +166,16 @@ export default function ThreadScreen() {
             <Text style={styles.messageFromName}>
               {message.from_name || message.from}
             </Text>
-            <Text style={styles.messageDirection}>
-              {isOutbound ? '→ Sent' : '← Received'}
-            </Text>
+            <View style={styles.directionRow}>
+              {isOutbound ? (
+                <ArrowUp size={12} color={colors.text.muted} strokeWidth={2} />
+              ) : (
+                <ArrowDown size={12} color={colors.text.muted} strokeWidth={2} />
+              )}
+              <Text style={styles.messageDirection}>
+                {isOutbound ? 'Sent' : 'Received'}
+              </Text>
+            </View>
           </View>
           <Text style={styles.messageTime}>{message.sent}</Text>
         </View>
@@ -193,7 +201,8 @@ export default function ThreadScreen() {
 
         {message.attachments.length > 0 && (
           <View style={styles.attachments}>
-            <Text style={styles.attachmentsLabel}>📎 {message.attachments.length} attachment(s)</Text>
+            <Paperclip size={14} color={colors.text.muted} strokeWidth={1.5} />
+            <Text style={styles.attachmentsLabel}>{message.attachments.length} attachment(s)</Text>
           </View>
         )}
       </View>
@@ -234,10 +243,14 @@ export default function ThreadScreen() {
           </Text>
           <View style={styles.actions}>
             <TouchableOpacity style={styles.actionButton} onPress={handleArchive}>
-              <Text style={styles.actionIcon}>{thread.is_archived ? '📥' : '📦'}</Text>
+              {thread.is_archived ? (
+                <Inbox size={20} color={colors.text.secondary} strokeWidth={1.75} />
+              ) : (
+                <Archive size={20} color={colors.text.secondary} strokeWidth={1.75} />
+              )}
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={handleTrash}>
-              <Text style={styles.actionIcon}>🗑️</Text>
+              <Trash2 size={20} color={colors.status.error.text} strokeWidth={1.75} />
             </TouchableOpacity>
           </View>
         </View>
@@ -284,7 +297,7 @@ export default function ThreadScreen() {
               title="Reply"
               onPress={() => setShowReply(true)}
               fullWidth
-              icon={<Text style={styles.replyIcon}>↩️</Text>}
+              icon={<Reply size={18} color={colors.white} strokeWidth={2} />}
             />
           </View>
         )}
@@ -343,9 +356,6 @@ const styles = StyleSheet.create({
     padding: spacing[2],
     marginLeft: spacing[1],
   },
-  actionIcon: {
-    fontSize: 20,
-  },
   messages: {
     flex: 1,
   },
@@ -377,10 +387,15 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     fontFamily: 'Inter_600SemiBold',
   },
+  directionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+    marginTop: spacing[0.5],
+  },
   messageDirection: {
     fontSize: fontSize.xs,
     color: colors.text.muted,
-    marginTop: spacing[0.5],
     fontFamily: 'Inter_400Regular',
   },
   messageTime: {
@@ -407,6 +422,9 @@ const styles = StyleSheet.create({
     paddingTop: spacing[3],
     borderTopWidth: 1,
     borderTopColor: colors.border.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1.5],
   },
   attachmentsLabel: {
     fontSize: fontSize.sm,
@@ -415,9 +433,6 @@ const styles = StyleSheet.create({
   },
   replyButtonContainer: {
     padding: spacing[3],
-  },
-  replyIcon: {
-    fontSize: 18,
   },
   replyBox: {
     backgroundColor: colors.background.secondary,

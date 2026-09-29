@@ -9,6 +9,7 @@ export { colors, default as colorsDefault } from './colors';
 export { typography, fontFamily, fontSize, fontWeight, lineHeight, letterSpacing } from './typography';
 export { spacing, borderRadius, borderWidth } from './spacing';
 export { shadows, getShadow } from './shadows';
+export * from './icons';
 
 import { colors } from './colors';
 import { typography } from './typography';

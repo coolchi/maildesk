@@ -1,17 +1,32 @@
 import { Tabs } from 'expo-router';
 import { Text, View, StyleSheet } from 'react-native';
+import { Inbox, PenSquare, Users, Building2, Settings } from 'lucide-react-native';
+import { colors } from '../../src/theme';
+import type { LucideIcon } from 'lucide-react-native';
 
 interface TabIconProps {
   focused: boolean;
-  icon: string;
+  Icon: LucideIcon;
   label: string;
 }
 
-function TabIcon({ focused, icon, label }: TabIconProps) {
+function TabIcon({ focused, Icon, label }: TabIconProps) {
   return (
     <View style={styles.tabIcon}>
-      <Text style={[styles.icon, focused && styles.iconFocused]}>{icon}</Text>
-      <Text style={[styles.label, focused && styles.labelFocused]}>{label}</Text>
+      <Icon
+        size={22}
+        strokeWidth={focused ? 2.35 : 1.75}
+        color={focused ? colors.brand.primary : colors.text.muted}
+      />
+      <Text
+        style={[
+          styles.label,
+          { fontFamily: 'Inter_500Medium' },
+          focused && styles.labelFocused,
+        ]}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -29,7 +44,7 @@ export default function AppLayout() {
         name="inbox"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="📥" label="Inbox" />
+            <TabIcon focused={focused} Icon={Inbox} label="Inbox" />
           ),
         }}
       />
@@ -37,7 +52,7 @@ export default function AppLayout() {
         name="compose"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="✏️" label="Compose" />
+            <TabIcon focused={focused} Icon={PenSquare} label="Compose" />
           ),
         }}
       />
@@ -45,7 +60,7 @@ export default function AppLayout() {
         name="contacts"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="👥" label="Contacts" />
+            <TabIcon focused={focused} Icon={Users} label="Contacts" />
           ),
         }}
       />
@@ -53,7 +68,7 @@ export default function AppLayout() {
         name="workspace"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="🏢" label="Workspace" />
+            <TabIcon focused={focused} Icon={Building2} label="Workspace" />
           ),
         }}
       />
@@ -61,7 +76,7 @@ export default function AppLayout() {
         name="settings"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="⚙️" label="Settings" />
+            <TabIcon focused={focused} Icon={Settings} label="Settings" />
           ),
         }}
       />
@@ -71,9 +86,9 @@ export default function AppLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background.secondary,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: colors.border.primary,
     height: 80,
     paddingTop: 8,
     paddingBottom: 24,
@@ -81,20 +96,15 @@ const styles = StyleSheet.create({
   tabIcon: {
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  icon: {
-    fontSize: 24,
-    marginBottom: 2,
-  },
-  iconFocused: {
-    transform: [{ scale: 1.1 }],
+    gap: 4,
   },
   label: {
-    fontSize: 11,
-    color: '#6B7280',
+    fontSize: 10,
+    color: colors.text.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   labelFocused: {
-    color: '#3B82F6',
-    fontWeight: '600',
+    color: colors.brand.primary,
   },
 });

@@ -14,6 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Users, UserPlus, Building2, Search, X } from 'lucide-react-native';
 import { contactsApi, CreateContactParams } from '../../src/api/contacts';
 import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../src/api/client';
 import { PaymentBanner, Header, Button, Input, Card, Avatar, Badge } from '../../src/components';
@@ -122,9 +123,12 @@ export default function ContactsScreen() {
           {item.email}
         </Text>
         {item.company && (
-          <Text style={styles.contactCompany} numberOfLines={1}>
-            🏢 {item.company}
-          </Text>
+          <View style={styles.companyRow}>
+            <Building2 size={12} color={colors.text.placeholder} strokeWidth={1.5} />
+            <Text style={styles.contactCompany} numberOfLines={1}>
+              {item.company}
+            </Text>
+          </View>
         )}
       </View>
       <Badge status={item.status === 'subscribed' ? 'subscribed' : 'unsubscribed'} />
@@ -133,7 +137,7 @@ export default function ContactsScreen() {
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>👥</Text>
+      <Users size={48} color={colors.text.muted} strokeWidth={1.5} />
       <Text style={styles.emptyText}>
         {search ? 'No contacts found' : 'No contacts yet'}
       </Text>
@@ -143,6 +147,7 @@ export default function ContactsScreen() {
           onPress={() => setShowAddModal(true)}
           variant="ghost"
           style={styles.emptyButton}
+          icon={<UserPlus size={16} color={colors.brand.primary} strokeWidth={2} />}
         />
       )}
     </View>
@@ -169,22 +174,31 @@ export default function ContactsScreen() {
         title="Contacts"
         rightContent={
           <Button
-            title="+ Add"
+            title="Add"
             onPress={() => setShowAddModal(true)}
             size="sm"
+            icon={<UserPlus size={14} color={colors.white} strokeWidth={2} />}
           />
         }
       />
 
       <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search contacts..."
-          placeholderTextColor={colors.text.placeholder}
-          value={search}
-          onChangeText={setSearch}
-          autoCapitalize="none"
-        />
+        <View style={styles.searchInputWrap}>
+          <Search size={18} color={colors.text.muted} strokeWidth={1.75} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search contacts..."
+            placeholderTextColor={colors.text.placeholder}
+            value={search}
+            onChangeText={setSearch}
+            autoCapitalize="none"
+          />
+          {search !== '' && (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <X size={18} color={colors.text.muted} strokeWidth={1.75} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {isLoading ? (
@@ -285,10 +299,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border.primary,
   },
-  searchInput: {
+  searchInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.zinc[100],
     borderRadius: borderRadius.md,
-    paddingHorizontal: spacing[3.5],
+    paddingHorizontal: spacing[3],
+    gap: spacing[2],
+  },
+  searchInput: {
+    flex: 1,
     paddingVertical: spacing[2.5],
     fontSize: fontSize.base,
     color: colors.text.primary,
@@ -331,10 +351,15 @@ const styles = StyleSheet.create({
     marginTop: spacing[0.5],
     fontFamily: 'Inter_400Regular',
   },
+  companyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+    marginTop: spacing[0.5],
+  },
   contactCompany: {
     fontSize: fontSize.xs,
     color: colors.text.placeholder,
-    marginTop: spacing[0.5],
     fontFamily: 'Inter_400Regular',
   },
   emptyContainer: {
@@ -342,10 +367,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing[10],
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: spacing[4],
+    gap: spacing[4],
   },
   emptyText: {
     fontSize: fontSize.base,

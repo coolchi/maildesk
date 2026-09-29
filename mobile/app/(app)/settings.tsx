@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { LogOut, Info } from 'lucide-react-native';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { Header, Card, Avatar, Button, Badge } from '../../src/components';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme';
@@ -115,7 +116,7 @@ export default function SettingsScreen() {
             variant="danger"
             fullWidth
             disabled={isLoggingOut}
-            icon={isLoggingOut ? <ActivityIndicator color={colors.status.error.text} size="small" /> : undefined}
+            icon={isLoggingOut ? <ActivityIndicator color={colors.status.error.text} size="small" /> : <LogOut size={16} color={colors.status.error.text} strokeWidth={2} />}
           />
         </View>
 

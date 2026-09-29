@@ -10,17 +10,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { Inbox, Archive, ShieldAlert, Trash2, Mail } from 'lucide-react-native';
 import { inboxApi } from '../../../src/api/inbox';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { Header, ListItem, Card } from '../../../src/components';
 import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../../src/theme';
 import type { Thread, InboxFolder } from '../../../src/api/types';
+import type { LucideIcon } from 'lucide-react-native';
 
-const FOLDERS: { key: InboxFolder; label: string; icon: string }[] = [
-  { key: 'inbox', label: 'Inbox', icon: '📥' },
-  { key: 'archive', label: 'Archive', icon: '📦' },
-  { key: 'spam', label: 'Spam', icon: '⚠️' },
-  { key: 'trash', label: 'Trash', icon: '🗑️' },
+const FOLDERS: { key: InboxFolder; label: string; Icon: LucideIcon }[] = [
+  { key: 'inbox', label: 'Inbox', Icon: Inbox },
+  { key: 'archive', label: 'Archive', Icon: Archive },
+  { key: 'spam', label: 'Spam', Icon: ShieldAlert },
+  { key: 'trash', label: 'Trash', Icon: Trash2 },
 ];
 
 export default function InboxScreen() {
@@ -99,7 +101,7 @@ export default function InboxScreen() {
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>📭</Text>
+      <Mail size={48} color={colors.text.muted} strokeWidth={1.5} />
       <Text style={styles.emptyText}>No conversations in {folder}</Text>
     </View>
   );
@@ -127,7 +129,11 @@ export default function InboxScreen() {
             style={[styles.folderTab, folder === f.key && styles.folderTabActive]}
             onPress={() => setFolder(f.key)}
           >
-            <Text style={styles.folderIcon}>{f.icon}</Text>
+            <f.Icon
+              size={16}
+              color={folder === f.key ? colors.brand.primary : colors.text.muted}
+              strokeWidth={folder === f.key ? 2 : 1.5}
+            />
             <Text style={[styles.folderLabel, folder === f.key && styles.folderLabelActive]}>
               {f.label}
             </Text>
@@ -186,8 +192,7 @@ const styles = StyleSheet.create({
   folderTabActive: {
     backgroundColor: colors.brand.primaryLight,
   },
-  folderIcon: {
-    fontSize: fontSize.sm,
+  folderIconWrap: {
     marginRight: spacing[1],
   },
   folderLabel: {
@@ -227,10 +232,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing[10],
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: spacing[4],
+    gap: spacing[4],
   },
   emptyText: {
     fontSize: fontSize.base,
