@@ -115,6 +115,11 @@ class Organization extends Model
         return $this->hasMany(WorkspaceInvitation::class);
     }
 
+    public function conversations(): HasMany
+    {
+        return $this->hasMany(Conversation::class);
+    }
+
     public function threads(): HasMany
     {
         return $this->hasMany(Thread::class);

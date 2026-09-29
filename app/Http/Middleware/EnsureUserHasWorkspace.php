@@ -38,17 +38,29 @@ class EnsureUserHasWorkspace
     protected function allowedWithoutWorkspace(Request $request): bool
     {
         $name = $request->route()?->getName();
+        $path = $request->path();
 
         if (! is_string($name) || $name === '') {
-            return false;
+            return $path === '/'
+                || $path === ''
+                || $path === 'confirm-password';
         }
 
-        if (in_array($name, ['logout', 'workspaces.create', 'workspaces.store', 'docs.send'], true)) {
+        if (in_array($name, [
+            'logout',
+            'workspaces.create',
+            'workspaces.store',
+            'docs.send',
+            'tenant.join',
+            'tenant.join.store',
+            'workspace.switch',
+        ], true)) {
             return true;
         }
 
         return str_starts_with($name, 'profile.')
             || str_starts_with($name, 'verification.')
-            || str_starts_with($name, 'password.');
+            || str_starts_with($name, 'password.')
+            || str_starts_with($name, 'admin.');
     }
 }

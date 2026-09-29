@@ -14,6 +14,8 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -23,6 +25,16 @@ return Application::configure(basePath: dirname(__DIR__))
         channels: __DIR__.'/../routes/channels.php',
         health: '/up',
         apiPrefix: 'api/v1',
+        then: function () {
+            Broadcast::routes([
+                'middleware' => ['auth:sanctum'],
+                'prefix' => 'api/app',
+            ]);
+
+            Route::middleware('api')
+                ->prefix('api/app')
+                ->group(base_path('routes/mobile.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(prepend: [
