@@ -88,6 +88,7 @@ class Attachment extends Model
             'size' => (int) $this->size,
             'size_label' => self::humanSize((int) $this->size),
             'is_image' => $image,
+            'is_video' => str_starts_with(strtolower((string) $this->content_type), 'video/'),
             'previewable' => $previewable,
             'preview_kind' => $this->previewKind(),
             'url' => route('attachments.download', $this->id),
