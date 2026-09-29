@@ -1,16 +1,40 @@
+import { useEffect, useCallback } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { AuthProvider } from '../src/contexts/AuthContext';
+import * as SplashScreen from 'expo-splash-screen';
+import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 
-export default function RootLayout() {
+SplashScreen.preventAutoHideAsync();
+
+function RootLayoutNav() {
+  const { isLoading } = useAuth();
+
+  const onLayoutRootView = useCallback(async () => {
+    if (!isLoading) {
+      await SplashScreen.hideAsync();
+    }
+  }, [isLoading]);
+
+  useEffect(() => {
+    onLayoutRootView();
+  }, [onLayoutRootView]);
+
   return (
-    <AuthProvider>
-      <StatusBar style="auto" />
+    <>
+      <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(app)" />
       </Stack>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
     </AuthProvider>
   );
 }
