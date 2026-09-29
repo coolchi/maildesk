@@ -5,6 +5,22 @@ import { secureStorage, asyncStorage } from '../utils/storage';
 let authToken: string | null = null;
 let currentWorkspaceId: number | null = null;
 
+export interface PaymentRequiredError {
+  message: string;
+  payment_required: boolean;
+}
+
+export const isPaymentRequiredError = (error: unknown): error is AxiosError<PaymentRequiredError> => {
+  if (axios.isAxiosError(error)) {
+    return error.response?.status === 402 && error.response?.data?.payment_required === true;
+  }
+  return false;
+};
+
+export const getPaymentRequiredMessage = (error: AxiosError<PaymentRequiredError>): string => {
+  return error.response?.data?.message || 'Your subscription has expired. Please renew your plan to continue.';
+};
+
 export const setAuthToken = (token: string | null): void => {
   authToken = token;
 };

@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\SuppressionController;
 use App\Http\Controllers\Api\V1\TemplateController;
 use App\Http\Middleware\AuthenticateApiKey;
 use App\Http\Middleware\EnsureApiAccountActive;
+use App\Http\Middleware\EnsureMobileWorkspaceEntitled;
 use App\Services\DeliveryEventService;
 use Illuminate\Support\Facades\Route;
 
@@ -64,7 +65,7 @@ Route::prefix('mobile')->name('mobile.')->group(function () {
         ->middleware('throttle:10,1')
         ->name('auth.login');
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', EnsureMobileWorkspaceEntitled::class])->group(function () {
         Route::post('/auth/logout', [MobileAuthController::class, 'logout'])->name('auth.logout');
         Route::get('/auth/me', [MobileAuthController::class, 'me'])->name('auth.me');
 

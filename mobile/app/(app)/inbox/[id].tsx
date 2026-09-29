@@ -16,6 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { inboxApi } from '../../../src/api/inbox';
+import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../../src/api/client';
+import { PaymentBanner } from '../../../src/components';
 import type { Thread, Message } from '../../../src/api/types';
 
 export default function ThreadScreen() {
@@ -26,6 +28,7 @@ export default function ThreadScreen() {
   const [replyText, setReplyText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [showReply, setShowReply] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const loadThread = useCallback(async () => {
     if (!id) return;
@@ -53,7 +56,11 @@ export default function ThreadScreen() {
       Alert.alert('Success', thread.is_archived ? 'Moved to inbox' : 'Archived');
       router.back();
     } catch (error) {
-      Alert.alert('Error', 'Failed to update');
+      if (isPaymentRequiredError(error)) {
+        setPaymentError(getPaymentRequiredMessage(error));
+      } else {
+        Alert.alert('Error', 'Failed to update');
+      }
     }
   };
 
@@ -73,7 +80,11 @@ export default function ThreadScreen() {
               await inboxApi.toggleTrash(thread.id);
               router.back();
             } catch (error) {
-              Alert.alert('Error', 'Failed to move to trash');
+              if (isPaymentRequiredError(error)) {
+                setPaymentError(getPaymentRequiredMessage(error));
+              } else {
+                Alert.alert('Error', 'Failed to move to trash');
+              }
             }
           },
         },
@@ -98,7 +109,11 @@ export default function ThreadScreen() {
         Alert.alert('Error', result.message);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to send reply');
+      if (isPaymentRequiredError(error)) {
+        setPaymentError(getPaymentRequiredMessage(error));
+      } else {
+        Alert.alert('Error', 'Failed to send reply');
+      }
     } finally {
       setIsSending(false);
     }
@@ -205,6 +220,12 @@ export default function ThreadScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        {paymentError && (
+          <PaymentBanner
+            message={paymentError}
+            onDismiss={() => setPaymentError(null)}
+          />
+        )}
         <View style={styles.subjectBar}>
           <Text style={styles.subject} numberOfLines={2}>
             {thread.subject || '(no subject)'}

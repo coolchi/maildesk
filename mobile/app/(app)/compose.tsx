@@ -14,6 +14,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { emailApi } from '../../src/api/email';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../src/api/client';
+import { PaymentBanner } from '../../src/components';
 
 export default function ComposeScreen() {
   const { currentWorkspace } = useAuth();
@@ -25,6 +27,7 @@ export default function ComposeScreen() {
   const [from, setFrom] = useState(currentWorkspace?.email || '');
   const [isSending, setIsSending] = useState(false);
   const [showCcBcc, setShowCcBcc] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const handleSend = async () => {
     if (!to.trim()) {
@@ -68,8 +71,12 @@ export default function ComposeScreen() {
         Alert.alert('Error', result.message);
       }
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } };
-      Alert.alert('Error', err.response?.data?.message || 'Failed to send email');
+      if (isPaymentRequiredError(error)) {
+        setPaymentError(getPaymentRequiredMessage(error));
+      } else {
+        const err = error as { response?: { data?: { message?: string } } };
+        Alert.alert('Error', err.response?.data?.message || 'Failed to send email');
+      }
     } finally {
       setIsSending(false);
     }
@@ -102,6 +109,12 @@ export default function ComposeScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        {paymentError && (
+          <PaymentBanner
+            message={paymentError}
+            onDismiss={() => setPaymentError(null)}
+          />
+        )}
         <View style={styles.header}>
           <Text style={styles.title}>Compose</Text>
           <View style={styles.headerActions}>

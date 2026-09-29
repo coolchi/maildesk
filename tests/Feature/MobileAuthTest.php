@@ -149,4 +149,98 @@ class MobileAuthTest extends TestCase
             'Rate limiting message should mention too many attempts',
         );
     }
+
+    public function test_token_has_expiration_date(): void
+    {
+        $response = $this->postJson('/api/v1/mobile/auth/login', [
+            'email' => $this->user->email,
+            'password' => 'password',
+            'device_name' => 'Test Device',
+        ]);
+
+        $response->assertOk();
+
+        $token = PersonalAccessToken::query()->latest()->first();
+
+        $this->assertNotNull($token->expires_at);
+        $this->assertTrue(
+            $token->expires_at->isBetween(now()->addDays(59), now()->addDays(61)),
+            'Token should expire in approximately 60 days',
+        );
+    }
+
+    public function test_expired_token_is_rejected(): void
+    {
+        $token = $this->user->createToken('Test', ['*'], now()->subDay())->plainTextToken;
+
+        $response = $this->withToken($token)
+            ->getJson('/api/v1/mobile/auth/me');
+
+        $response->assertStatus(401);
+    }
+
+    public function test_password_change_revokes_all_tokens(): void
+    {
+        $token1 = $this->user->createToken('iPhone')->plainTextToken;
+        $token2 = $this->user->createToken('iPad')->plainTextToken;
+        $token3 = $this->user->createToken('Android')->plainTextToken;
+
+        $this->assertSame(3, $this->user->tokens()->count());
+
+        $this->actingAs($this->user)
+            ->put(route('password.update'), [
+                'current_password' => 'password',
+                'password' => 'new-secure-password',
+                'password_confirmation' => 'new-secure-password',
+            ]);
+
+        $this->assertSame(0, $this->user->fresh()->tokens()->count());
+
+        $this->assertDatabaseMissing('personal_access_tokens', [
+            'tokenable_id' => $this->user->id,
+            'tokenable_type' => User::class,
+        ]);
+    }
+
+    public function test_membership_revocation_blocks_workspace_access(): void
+    {
+        $token = $this->user->createToken('Test')->plainTextToken;
+
+        $this->withToken($token)
+            ->withHeaders(['X-Workspace-Id' => $this->org->id])
+            ->getJson('/api/v1/mobile/inbox')
+            ->assertOk();
+
+        $this->org->users()->detach($this->user->id);
+
+        $this->withToken($token)
+            ->withHeaders(['X-Workspace-Id' => $this->org->id])
+            ->getJson('/api/v1/mobile/inbox')
+            ->assertStatus(403);
+    }
+
+    public function test_token_still_works_for_other_workspaces_after_one_revocation(): void
+    {
+        $otherOrg = Organization::factory()->create();
+        $this->user->organizations()->attach($otherOrg->id, ['role' => 'member']);
+
+        $token = $this->user->createToken('Test')->plainTextToken;
+
+        $this->withToken($token)
+            ->withHeaders(['X-Workspace-Id' => $this->org->id])
+            ->getJson('/api/v1/mobile/inbox')
+            ->assertOk();
+
+        $this->org->users()->detach($this->user->id);
+
+        $this->withToken($token)
+            ->withHeaders(['X-Workspace-Id' => $this->org->id])
+            ->getJson('/api/v1/mobile/inbox')
+            ->assertStatus(403);
+
+        $this->withToken($token)
+            ->withHeaders(['X-Workspace-Id' => $otherOrg->id])
+            ->getJson('/api/v1/mobile/inbox')
+            ->assertOk();
+    }
 }

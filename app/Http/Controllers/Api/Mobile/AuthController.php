@@ -63,7 +63,8 @@ class AuthController extends Controller
         RateLimiter::clear($this->throttleKey($request));
 
         $deviceName = $validated['device_name'] ?? 'Mobile App';
-        $token = $user->createToken($deviceName)->plainTextToken;
+        $expiresAt = now()->addDays(60);
+        $token = $user->createToken($deviceName, ['*'], $expiresAt)->plainTextToken;
 
         $workspaces = $user->organizations()
             ->get()

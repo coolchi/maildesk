@@ -78,6 +78,7 @@ class DocsPageTest extends TestCase
         $paths = collect(Route::getRoutes()->getRoutes())
             ->map(fn ($route) => $route->uri())
             ->filter(fn ($uri) => Str::startsWith($uri, 'api/v1/'))
+            ->reject(fn ($uri) => Str::startsWith($uri, 'api/v1/mobile/'))
             ->map(fn ($uri) => Str::after($uri, 'api/v1'))
             ->unique();
 

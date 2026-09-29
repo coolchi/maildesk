@@ -15,6 +15,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { contactsApi, CreateContactParams } from '../../src/api/contacts';
+import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../src/api/client';
+import { PaymentBanner } from '../../src/components';
 import type { Contact } from '../../src/api/types';
 
 export default function ContactsScreen() {
@@ -33,6 +35,7 @@ export default function ContactsScreen() {
     company: '',
   });
   const [isAdding, setIsAdding] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const loadContacts = useCallback(async (pageNum: number, refresh = false, searchTerm = search) => {
     try {
@@ -94,8 +97,13 @@ export default function ContactsScreen() {
       await handleRefresh();
       Alert.alert('Success', 'Contact added');
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } };
-      Alert.alert('Error', err.response?.data?.message || 'Failed to add contact');
+      if (isPaymentRequiredError(error)) {
+        setShowAddModal(false);
+        setPaymentError(getPaymentRequiredMessage(error));
+      } else {
+        const err = error as { response?: { data?: { message?: string } } };
+        Alert.alert('Error', err.response?.data?.message || 'Failed to add contact');
+      }
     } finally {
       setIsAdding(false);
     }
@@ -154,6 +162,12 @@ export default function ContactsScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {paymentError && (
+        <PaymentBanner
+          message={paymentError}
+          onDismiss={() => setPaymentError(null)}
+        />
+      )}
       <View style={styles.header}>
         <Text style={styles.title}>Contacts</Text>
         <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
