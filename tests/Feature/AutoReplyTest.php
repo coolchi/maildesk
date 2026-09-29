@@ -78,7 +78,7 @@ class AutoReplyTest extends TestCase
             ],
         ])->save();
 
-        $this->receive()->assertOk();
+        $this->receive()->assertCreated();
 
         $inbound = Message::query()->where('direction', 'inbound')->first();
         $reply = Message::query()->where('direction', 'outbound')->first();
@@ -99,7 +99,7 @@ class AutoReplyTest extends TestCase
             'in_reply_to' => '<first@example.com>',
             'subject' => 'Re: Help with my order',
             'text' => 'Following up.',
-        ])->assertOk();
+        ])->assertCreated();
 
         $this->assertSame(1, Message::query()->where('direction', 'outbound')->count());
     }
@@ -108,7 +108,7 @@ class AutoReplyTest extends TestCase
     {
         [$user, $org] = $this->workspace();
 
-        $this->receive()->assertOk();
+        $this->receive()->assertCreated();
         $this->assertSame(0, Message::query()->where('direction', 'outbound')->count());
 
         $this->actingAs($user)
@@ -134,7 +134,7 @@ class AutoReplyTest extends TestCase
             'message_id' => '<bot@example.com>',
             'subject' => 'Weekly digest',
             'headers' => ['Auto-Submitted' => 'auto-generated'],
-        ])->assertOk();
+        ])->assertCreated();
 
         $this->assertSame(0, Message::query()->where('direction', 'outbound')->count());
 
@@ -143,7 +143,7 @@ class AutoReplyTest extends TestCase
             'message_id' => '<sam@example.com>',
             'subject' => 'Question',
             'text' => 'Hello',
-        ])->assertOk();
+        ])->assertCreated();
 
         $reply = Message::query()->where('direction', 'outbound')->first();
         $this->assertNotNull($reply);

@@ -4,12 +4,12 @@ namespace App\Services;
 
 use App\Jobs\SendBroadcast;
 use App\Models\Broadcast;
-use App\Support\DesignTemplates;
 use App\Models\BroadcastRecipient;
 use App\Models\Contact;
 use App\Models\Message;
 use App\Models\Segment;
 use App\Models\Suppression;
+use App\Support\DesignTemplates;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
