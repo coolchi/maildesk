@@ -182,4 +182,16 @@ return [
         'organization_id' => env('MAILDESK_E2E_ORGANIZATION_ID'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Mobile App
+    |--------------------------------------------------------------------------
+    |
+    | Settings for the MailDesk mobile app (iOS/Android).
+    |
+    */
+    'mobile' => [
+        'push_enabled' => (bool) env('MAILDESK_MOBILE_PUSH_ENABLED', true),
+    ],
+
 ];

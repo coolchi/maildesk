@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\DeliveryEventController;
 use App\Http\Controllers\Api\InboundEmailController;
 use App\Http\Controllers\Api\Mobile\AuthController as MobileAuthController;
 use App\Http\Controllers\Api\Mobile\ContactController as MobileContactController;
+use App\Http\Controllers\Api\Mobile\DeviceController as MobileDeviceController;
 use App\Http\Controllers\Api\Mobile\EmailController as MobileEmailController;
 use App\Http\Controllers\Api\Mobile\InboxController as MobileInboxController;
 use App\Http\Controllers\Api\MonipayWebhookController;
@@ -81,5 +82,8 @@ Route::prefix('mobile')->name('mobile.')->group(function () {
 
         Route::get('/contacts', [MobileContactController::class, 'index'])->name('contacts.index');
         Route::post('/contacts', [MobileContactController::class, 'store'])->name('contacts.store');
+
+        Route::post('/devices', [MobileDeviceController::class, 'store'])->name('devices.store');
+        Route::delete('/devices', [MobileDeviceController::class, 'destroy'])->name('devices.destroy');
     });
 });

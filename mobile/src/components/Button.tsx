@@ -65,7 +65,7 @@ export const Button: React.FC<ButtonProps> = ({
               styles.text,
               styles[`text_${variant}`],
               styles[`text_${size}`],
-              icon && styles.textWithIcon,
+              icon ? styles.textWithIcon : undefined,
             ]}
           >
             {title}

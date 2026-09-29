@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { authApi, LoginCredentials } from '../api/auth';
 import { initializeAuth, setCurrentWorkspaceId, getAuthToken } from '../api/client';
 import { asyncStorage } from '../utils/storage';
+import { setupPushNotifications, unregisterDeviceFromBackend, setupNotificationListeners } from '../utils/notifications';
 import type { User, Workspace } from '../api/types';
 
 interface AuthContextType {
@@ -23,6 +24,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWorkspaceId, setCurrentWorkspaceIdState] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const pushTokenRef = useRef<string | null>(null);
 
   const currentWorkspace = workspaces.find(w => w.id === currentWorkspaceId) || null;
   const isAuthenticated = !!user && !!getAuthToken();
@@ -62,6 +64,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     initialize();
   }, []);
 
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) {
+      return;
+    }
+
+    const registerPush = async () => {
+      const token = await setupPushNotifications();
+      pushTokenRef.current = token;
+    };
+
+    registerPush();
+
+    const cleanup = setupNotificationListeners();
+    return cleanup;
+  }, [isAuthenticated, isLoading]);
+
   const login = async (credentials: LoginCredentials) => {
     const response = await authApi.login(credentials);
     setUser(response.user);
@@ -72,6 +90,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = async () => {
+    if (pushTokenRef.current) {
+      await unregisterDeviceFromBackend(pushTokenRef.current);
+      pushTokenRef.current = null;
+    }
     await authApi.logout();
     setUser(null);
     setWorkspaces([]);

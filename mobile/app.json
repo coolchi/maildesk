@@ -7,12 +7,6 @@
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "maildesk",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#09090b"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.maildesk.mobile"
@@ -38,6 +32,13 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#09090b"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#0891b2"
         }
       ]
     ],
