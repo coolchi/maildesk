@@ -11,6 +11,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { Header, Card, Avatar, Button, Badge } from '../../src/components';
+import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme';
 
 export default function SettingsScreen() {
   const { user, currentWorkspace, logout } = useAuth();
@@ -41,32 +43,26 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Settings</Text>
-      </View>
+      <Header title="Settings" />
 
       <ScrollView style={styles.content}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
-          <View style={styles.card}>
+          <Card noPadding>
             <View style={styles.profileRow}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {(user?.name || user?.email || '?').charAt(0).toUpperCase()}
-                </Text>
-              </View>
+              <Avatar name={user?.name || user?.email || '?'} size={56} />
               <View style={styles.profileInfo}>
                 <Text style={styles.profileName}>{user?.name || 'User'}</Text>
                 <Text style={styles.profileEmail}>{user?.email}</Text>
               </View>
             </View>
-          </View>
+          </Card>
         </View>
 
         {currentWorkspace && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Workspace</Text>
-            <View style={styles.card}>
+            <Card noPadding>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Name</Text>
                 <Text style={styles.infoValue}>{currentWorkspace.name}</Text>
@@ -74,7 +70,7 @@ export default function SettingsScreen() {
               <View style={styles.divider} />
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Plan</Text>
-                <Text style={styles.infoValue}>{currentWorkspace.plan}</Text>
+                <Badge status={currentWorkspace.plan?.toLowerCase() === 'trial' ? 'trial' : 'active'} label={currentWorkspace.plan} />
               </View>
               <View style={styles.divider} />
               <View style={styles.infoRow}>
@@ -98,32 +94,29 @@ export default function SettingsScreen() {
                   </View>
                 </>
               )}
-            </View>
+            </Card>
           </View>
         )}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>App</Text>
-          <View style={styles.card}>
+          <Card noPadding>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Version</Text>
               <Text style={styles.infoValue}>1.0.0</Text>
             </View>
-          </View>
+          </Card>
         </View>
 
         <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.logoutButton}
+          <Button
+            title={isLoggingOut ? '' : 'Sign Out'}
             onPress={handleLogout}
+            variant="danger"
+            fullWidth
             disabled={isLoggingOut}
-          >
-            {isLoggingOut ? (
-              <ActivityIndicator color="#DC2626" />
-            ) : (
-              <Text style={styles.logoutText}>Sign Out</Text>
-            )}
-          </TouchableOpacity>
+            icon={isLoggingOut ? <ActivityIndicator color={colors.status.error.text} size="small" /> : undefined}
+          />
         </View>
 
         <View style={styles.footer}>
@@ -138,86 +131,61 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  header: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
+    backgroundColor: colors.background.primary,
   },
   content: {
     flex: 1,
   },
   section: {
-    marginTop: 24,
-    paddingHorizontal: 16,
+    marginTop: spacing[6],
+    paddingHorizontal: spacing[4],
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.text.muted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    overflow: 'hidden',
+    marginBottom: spacing[2],
+    fontFamily: 'Inter_600SemiBold',
   },
   profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#3B82F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  avatarText: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    padding: spacing[4],
   },
   profileInfo: {
     flex: 1,
+    marginLeft: spacing[3.5],
   },
   profileName: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#111827',
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    color: colors.text.primary,
+    fontFamily: 'Inter_600SemiBold',
   },
   profileEmail: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 2,
+    fontSize: fontSize.sm,
+    color: colors.text.muted,
+    marginTop: spacing[0.5],
+    fontFamily: 'Inter_400Regular',
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3.5],
   },
   infoLabel: {
-    fontSize: 15,
-    color: '#374151',
+    fontSize: fontSize.base,
+    color: colors.text.secondary,
+    fontFamily: 'Inter_400Regular',
   },
   infoValue: {
-    fontSize: 15,
-    color: '#6B7280',
+    fontSize: fontSize.base,
+    color: colors.text.muted,
+    fontFamily: 'Inter_400Regular',
   },
   providerStatus: {
     flexDirection: 'row',
@@ -227,43 +195,32 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginLeft: 8,
+    marginLeft: spacing[2],
   },
   statusOk: {
-    backgroundColor: '#10B981',
+    backgroundColor: colors.status.success.text,
   },
   statusError: {
-    backgroundColor: '#EF4444',
+    backgroundColor: colors.status.error.text,
   },
   divider: {
     height: 1,
-    backgroundColor: '#F3F4F6',
-    marginHorizontal: 16,
-  },
-  logoutButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-  },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#DC2626',
+    backgroundColor: colors.zinc[100],
+    marginHorizontal: spacing[4],
   },
   footer: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: spacing[8],
   },
   footerText: {
-    fontSize: 14,
-    color: '#9CA3AF',
+    fontSize: fontSize.sm,
+    color: colors.text.placeholder,
+    fontFamily: 'Inter_400Regular',
   },
   footerSubtext: {
-    fontSize: 12,
-    color: '#D1D5DB',
-    marginTop: 4,
+    fontSize: fontSize.xs,
+    color: colors.zinc[300],
+    marginTop: spacing[1],
+    fontFamily: 'Inter_400Regular',
   },
 });

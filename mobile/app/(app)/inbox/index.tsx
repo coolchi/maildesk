@@ -12,6 +12,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { inboxApi } from '../../../src/api/inbox';
 import { useAuth } from '../../../src/contexts/AuthContext';
+import { Header, ListItem, Card } from '../../../src/components';
+import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../../src/theme';
 import type { Thread, InboxFolder } from '../../../src/api/types';
 
 const FOLDERS: { key: InboxFolder; label: string; icon: string }[] = [
@@ -79,30 +81,20 @@ export default function InboxScreen() {
   };
 
   const renderThread = ({ item }: { item: Thread }) => (
-    <TouchableOpacity
-      style={[styles.threadItem, item.unread && styles.threadUnread]}
+    <ListItem
+      title={item.from_name || item.from_email}
+      subtitle={item.subject || '(no subject)'}
+      meta={item.updated}
+      highlighted={item.unread}
       onPress={() => handleThreadPress(item.id)}
-    >
-      <View style={styles.threadHeader}>
-        <Text style={[styles.threadFrom, item.unread && styles.textBold]} numberOfLines={1}>
-          {item.from_name || item.from_email}
-        </Text>
-        <Text style={styles.threadTime}>{item.updated}</Text>
-      </View>
-      <Text style={[styles.threadSubject, item.unread && styles.textBold]} numberOfLines={1}>
-        {item.subject || '(no subject)'}
-      </Text>
-      <Text style={styles.threadSnippet} numberOfLines={2}>
-        {item.snippet}
-      </Text>
-      <View style={styles.threadMeta}>
-        {item.message_count > 1 && (
-          <Text style={styles.threadCount}>{item.message_count} messages</Text>
-        )}
-        {item.is_archived && <Text style={styles.threadLabel}>📦 Archived</Text>}
-        {item.is_spam && <Text style={styles.threadLabel}>⚠️ Spam</Text>}
-      </View>
-    </TouchableOpacity>
+      rightContent={
+        item.message_count > 1 ? (
+          <View style={styles.countBadge}>
+            <Text style={styles.countText}>{item.message_count}</Text>
+          </View>
+        ) : undefined
+      }
+    />
   );
 
   const renderEmpty = () => (
@@ -116,23 +108,17 @@ export default function InboxScreen() {
     if (!isLoadingMore) return null;
     return (
       <View style={styles.footer}>
-        <ActivityIndicator size="small" color="#3B82F6" />
+        <ActivityIndicator size="small" color={colors.brand.primary} />
       </View>
     );
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>
-          {currentWorkspace?.name || 'Inbox'}
-        </Text>
-        {unreadCount > 0 && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{unreadCount}</Text>
-          </View>
-        )}
-      </View>
+      <Header
+        title={currentWorkspace?.name || 'Inbox'}
+        badge={unreadCount}
+      />
 
       <View style={styles.folderTabs}>
         {FOLDERS.map((f) => (
@@ -151,7 +137,7 @@ export default function InboxScreen() {
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3B82F6" />
+          <ActivityIndicator size="large" color={colors.brand.primary} />
         </View>
       ) : (
         <FlatList
@@ -162,7 +148,11 @@ export default function InboxScreen() {
           ListEmptyComponent={renderEmpty}
           ListFooterComponent={renderFooter}
           refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.brand.primary}
+            />
           }
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.3}
@@ -175,64 +165,40 @@ export default function InboxScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  badge: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginLeft: 8,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+    backgroundColor: colors.background.primary,
   },
   folderTabs: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    backgroundColor: colors.background.secondary,
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[2],
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: colors.border.primary,
   },
   folderTab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.md,
   },
   folderTabActive: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.brand.primaryLight,
   },
   folderIcon: {
-    fontSize: 14,
-    marginRight: 4,
+    fontSize: fontSize.sm,
+    marginRight: spacing[1],
   },
   folderLabel: {
-    fontSize: 13,
-    color: '#6B7280',
+    fontSize: fontSize.sm,
+    color: colors.text.muted,
+    fontFamily: 'Inter_400Regular',
   },
   folderLabelActive: {
-    color: '#3B82F6',
-    fontWeight: '600',
+    color: colors.brand.primary,
+    fontWeight: fontWeight.semibold,
+    fontFamily: 'Inter_600SemiBold',
   },
   loadingContainer: {
     flex: 1,
@@ -240,88 +206,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   list: {
-    paddingVertical: 8,
+    paddingVertical: spacing[2],
   },
   listEmpty: {
     flex: 1,
   },
-  threadItem: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 12,
-    marginVertical: 4,
-    padding: 14,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+  countBadge: {
+    backgroundColor: colors.zinc[100],
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[0.5],
+    borderRadius: borderRadius.full,
   },
-  threadUnread: {
-    backgroundColor: '#FEFCE8',
-    borderLeftWidth: 3,
-    borderLeftColor: '#3B82F6',
-  },
-  threadHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  threadFrom: {
-    flex: 1,
-    fontSize: 15,
-    color: '#111827',
-    marginRight: 8,
-  },
-  threadTime: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  threadSubject: {
-    fontSize: 14,
-    color: '#374151',
-    marginBottom: 4,
-  },
-  threadSnippet: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 18,
-  },
-  threadMeta: {
-    flexDirection: 'row',
-    marginTop: 8,
-  },
-  threadCount: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    marginRight: 8,
-  },
-  threadLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginRight: 8,
-  },
-  textBold: {
-    fontWeight: '600',
+  countText: {
+    fontSize: 11,
+    color: colors.text.muted,
+    fontFamily: 'Inter_500Medium',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    padding: spacing[10],
   },
   emptyIcon: {
     fontSize: 48,
-    marginBottom: 16,
+    marginBottom: spacing[4],
   },
   emptyText: {
-    fontSize: 16,
-    color: '#6B7280',
+    fontSize: fontSize.base,
+    color: colors.text.muted,
     textAlign: 'center',
+    fontFamily: 'Inter_400Regular',
   },
   footer: {
-    paddingVertical: 20,
+    paddingVertical: spacing[5],
     alignItems: 'center',
   },
 });

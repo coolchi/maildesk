@@ -9,13 +9,14 @@ import {
   Platform,
   ScrollView,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { emailApi } from '../../src/api/email';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../src/api/client';
-import { PaymentBanner } from '../../src/components';
+import { PaymentBanner, Header, Button, Input, Card } from '../../src/components';
+import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme';
+import { getShadow } from '../../src/theme/shadows';
 
 export default function ComposeScreen() {
   const { currentWorkspace } = useAuth();
@@ -115,43 +116,35 @@ export default function ComposeScreen() {
             onDismiss={() => setPaymentError(null)}
           />
         )}
-        <View style={styles.header}>
-          <Text style={styles.title}>Compose</Text>
-          <View style={styles.headerActions}>
+        <Header
+          title="Compose"
+          rightContent={
             <TouchableOpacity style={styles.headerButton} onPress={handleClear}>
               <Text style={styles.headerButtonText}>Clear</Text>
             </TouchableOpacity>
-          </View>
-        </View>
+          }
+        />
 
         <ScrollView style={styles.form} keyboardShouldPersistTaps="handled">
-          <View style={styles.field}>
-            <Text style={styles.label}>From</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="your@email.com"
-              placeholderTextColor="#9CA3AF"
-              value={from}
-              onChangeText={setFrom}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              editable={!isSending}
-            />
-          </View>
+          <Input
+            label="From"
+            placeholder="your@email.com"
+            value={from}
+            onChangeText={setFrom}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            editable={!isSending}
+          />
 
-          <View style={styles.field}>
-            <Text style={styles.label}>To</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="recipient@example.com"
-              placeholderTextColor="#9CA3AF"
-              value={to}
-              onChangeText={setTo}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              editable={!isSending}
-            />
-          </View>
+          <Input
+            label="To"
+            placeholder="recipient@example.com"
+            value={to}
+            onChangeText={setTo}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            editable={!isSending}
+          />
 
           <TouchableOpacity
             style={styles.ccBccToggle}
@@ -164,54 +157,41 @@ export default function ComposeScreen() {
 
           {showCcBcc && (
             <>
-              <View style={styles.field}>
-                <Text style={styles.label}>CC</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="cc@example.com"
-                  placeholderTextColor="#9CA3AF"
-                  value={cc}
-                  onChangeText={setCc}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  editable={!isSending}
-                />
-              </View>
-
-              <View style={styles.field}>
-                <Text style={styles.label}>BCC</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="bcc@example.com"
-                  placeholderTextColor="#9CA3AF"
-                  value={bcc}
-                  onChangeText={setBcc}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  editable={!isSending}
-                />
-              </View>
+              <Input
+                label="CC"
+                placeholder="cc@example.com"
+                value={cc}
+                onChangeText={setCc}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                editable={!isSending}
+              />
+              <Input
+                label="BCC"
+                placeholder="bcc@example.com"
+                value={bcc}
+                onChangeText={setBcc}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                editable={!isSending}
+              />
             </>
           )}
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Subject</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Subject"
-              placeholderTextColor="#9CA3AF"
-              value={subject}
-              onChangeText={setSubject}
-              editable={!isSending}
-            />
-          </View>
+          <Input
+            label="Subject"
+            placeholder="Subject"
+            value={subject}
+            onChangeText={setSubject}
+            editable={!isSending}
+          />
 
-          <View style={styles.field}>
+          <View style={styles.bodyContainer}>
             <Text style={styles.label}>Message</Text>
             <TextInput
-              style={[styles.input, styles.bodyInput]}
+              style={styles.bodyInput}
               placeholder="Write your message..."
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={colors.text.placeholder}
               value={body}
               onChangeText={setBody}
               multiline
@@ -223,20 +203,14 @@ export default function ComposeScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
+          <Button
+            title="Send Email"
             onPress={handleSend}
-            disabled={isSending}
-          >
-            {isSending ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <>
-                <Text style={styles.sendButtonIcon}>📨</Text>
-                <Text style={styles.sendButtonText}>Send Email</Text>
-              </>
-            )}
-          </TouchableOpacity>
+            loading={isSending}
+            fullWidth
+            size="lg"
+            icon={<Text style={styles.sendIcon}>📨</Text>}
+          />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -246,95 +220,63 @@ export default function ComposeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background.primary,
   },
   flex: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  headerActions: {
-    flexDirection: 'row',
-  },
   headerButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1.5],
   },
   headerButtonText: {
-    fontSize: 15,
-    color: '#6B7280',
+    fontSize: fontSize.base,
+    color: colors.text.muted,
+    fontFamily: 'Inter_400Regular',
   },
   form: {
     flex: 1,
-    padding: 16,
-  },
-  field: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#111827',
-  },
-  bodyInput: {
-    minHeight: 160,
-    textAlignVertical: 'top',
+    padding: spacing[4],
   },
   ccBccToggle: {
-    marginBottom: 16,
+    marginBottom: spacing[4],
   },
   ccBccToggleText: {
-    fontSize: 14,
-    color: '#3B82F6',
+    fontSize: fontSize.sm,
+    color: colors.brand.primary,
+    fontFamily: 'Inter_500Medium',
+  },
+  bodyContainer: {
+    marginBottom: spacing[4],
+  },
+  label: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    color: colors.text.secondary,
+    marginBottom: spacing[1.5],
+    fontFamily: 'Inter_500Medium',
+  },
+  bodyInput: {
+    backgroundColor: colors.background.input,
+    borderWidth: 1,
+    borderColor: colors.border.primary,
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[3],
+    fontSize: fontSize.base,
+    color: colors.text.primary,
+    minHeight: 160,
+    textAlignVertical: 'top',
+    fontFamily: 'Inter_400Regular',
+    ...getShadow('sm'),
   },
   footer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background.secondary,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    padding: 16,
+    borderTopColor: colors.border.primary,
+    padding: spacing[4],
   },
-  sendButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
-    paddingVertical: 14,
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#93C5FD',
-  },
-  sendButtonIcon: {
+  sendIcon: {
     fontSize: 18,
-    marginRight: 8,
-  },
-  sendButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
 });

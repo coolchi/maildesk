@@ -17,7 +17,9 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { inboxApi } from '../../../src/api/inbox';
 import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../../src/api/client';
-import { PaymentBanner } from '../../../src/components';
+import { PaymentBanner, Button, Card } from '../../../src/components';
+import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../../src/theme';
+import { getShadow } from '../../../src/theme/shadows';
 import type { Thread, Message } from '../../../src/api/types';
 
 export default function ThreadScreen() {
@@ -130,22 +132,22 @@ export default function ThreadScreen() {
           <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
           <style>
             body {
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
               font-size: 15px;
               line-height: 1.5;
-              color: #111827;
+              color: ${colors.text.primary};
               margin: 0;
               padding: 12px;
               word-wrap: break-word;
               overflow-wrap: break-word;
             }
             img { max-width: 100%; height: auto; }
-            a { color: #3B82F6; }
+            a { color: ${colors.brand.primary}; }
             blockquote {
-              border-left: 3px solid #E5E7EB;
+              border-left: 3px solid ${colors.border.primary};
               margin: 8px 0;
               padding-left: 12px;
-              color: #6B7280;
+              color: ${colors.text.muted};
             }
           </style>
         </head>
@@ -201,7 +203,7 @@ export default function ThreadScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color={colors.brand.primary} />
       </SafeAreaView>
     );
   }
@@ -249,7 +251,7 @@ export default function ThreadScreen() {
             <TextInput
               style={styles.replyInput}
               placeholder="Write your reply..."
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={colors.text.placeholder}
               value={replyText}
               onChangeText={setReplyText}
               multiline
@@ -257,34 +259,34 @@ export default function ThreadScreen() {
               editable={!isSending}
             />
             <View style={styles.replyActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
+              <Button
+                title="Cancel"
                 onPress={() => {
                   setShowReply(false);
                   setReplyText('');
                 }}
+                variant="ghost"
+                size="sm"
                 disabled={isSending}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.sendButton, (!replyText.trim() || isSending) && styles.sendButtonDisabled]}
+              />
+              <Button
+                title="Send Reply"
                 onPress={handleSendReply}
-                disabled={!replyText.trim() || isSending}
-              >
-                {isSending ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.sendButtonText}>Send Reply</Text>
-                )}
-              </TouchableOpacity>
+                size="sm"
+                disabled={!replyText.trim()}
+                loading={isSending}
+              />
             </View>
           </View>
         ) : (
-          <TouchableOpacity style={styles.replyButton} onPress={() => setShowReply(true)}>
-            <Text style={styles.replyButtonIcon}>↩️</Text>
-            <Text style={styles.replyButtonText}>Reply</Text>
-          </TouchableOpacity>
+          <View style={styles.replyButtonContainer}>
+            <Button
+              title="Reply"
+              onPress={() => setShowReply(true)}
+              fullWidth
+              icon={<Text style={styles.replyIcon}>↩️</Text>}
+            />
+          </View>
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -294,7 +296,7 @@ export default function ThreadScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background.primary,
   },
   flex: {
     flex: 1,
@@ -303,41 +305,43 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background.primary,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background.primary,
   },
   errorText: {
-    fontSize: 16,
-    color: '#6B7280',
+    fontSize: fontSize.base,
+    color: colors.text.muted,
+    fontFamily: 'Inter_400Regular',
   },
   subjectBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: colors.background.secondary,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: colors.border.primary,
   },
   subject: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    marginRight: 12,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
+    color: colors.text.primary,
+    marginRight: spacing[3],
+    fontFamily: 'Inter_600SemiBold',
   },
   actions: {
     flexDirection: 'row',
   },
   actionButton: {
-    padding: 8,
-    marginLeft: 4,
+    padding: spacing[2],
+    marginLeft: spacing[1],
   },
   actionIcon: {
     fontSize: 20,
@@ -346,49 +350,49 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContent: {
-    padding: 12,
+    padding: spacing[3],
   },
   messageContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.xl,
+    padding: spacing[3.5],
+    marginBottom: spacing[3],
+    ...getShadow('sm'),
   },
   messageOutbound: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.brand.primaryLight,
   },
   messageHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: spacing[2],
   },
   messageFrom: {
     flex: 1,
   },
   messageFromName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.text.primary,
+    fontFamily: 'Inter_600SemiBold',
   },
   messageDirection: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 2,
+    fontSize: fontSize.xs,
+    color: colors.text.muted,
+    marginTop: spacing[0.5],
+    fontFamily: 'Inter_400Regular',
   },
   messageTime: {
-    fontSize: 12,
-    color: '#9CA3AF',
+    fontSize: fontSize.xs,
+    color: colors.text.placeholder,
+    fontFamily: 'Inter_400Regular',
   },
   messageTo: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 8,
+    fontSize: fontSize.xs,
+    color: colors.text.muted,
+    marginBottom: spacing[2],
+    fontFamily: 'Inter_400Regular',
   },
   messageBody: {
     minHeight: 60,
@@ -399,76 +403,44 @@ const styles = StyleSheet.create({
     minHeight: 80,
   },
   attachments: {
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: spacing[3],
+    paddingTop: spacing[3],
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: colors.border.primary,
   },
   attachmentsLabel: {
-    fontSize: 13,
-    color: '#6B7280',
+    fontSize: fontSize.sm,
+    color: colors.text.muted,
+    fontFamily: 'Inter_400Regular',
   },
-  replyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#3B82F6',
-    margin: 12,
-    padding: 14,
-    borderRadius: 12,
+  replyButtonContainer: {
+    padding: spacing[3],
   },
-  replyButtonIcon: {
+  replyIcon: {
     fontSize: 18,
-    marginRight: 8,
-  },
-  replyButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
   replyBox: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background.secondary,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    padding: 12,
+    borderTopColor: colors.border.primary,
+    padding: spacing[3],
   },
   replyInput: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background.primary,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
-    color: '#111827',
+    borderColor: colors.border.primary,
+    borderRadius: borderRadius.md,
+    padding: spacing[3],
+    fontSize: fontSize.base,
+    color: colors.text.primary,
     minHeight: 100,
     textAlignVertical: 'top',
+    fontFamily: 'Inter_400Regular',
   },
   replyActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 12,
-  },
-  cancelButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginRight: 8,
-  },
-  cancelButtonText: {
-    fontSize: 15,
-    color: '#6B7280',
-  },
-  sendButton: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#93C5FD',
-  },
-  sendButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    marginTop: spacing[3],
+    gap: spacing[2],
   },
 });

@@ -16,7 +16,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { contactsApi, CreateContactParams } from '../../src/api/contacts';
 import { isPaymentRequiredError, getPaymentRequiredMessage } from '../../src/api/client';
-import { PaymentBanner } from '../../src/components';
+import { PaymentBanner, Header, Button, Input, Card, Avatar, Badge } from '../../src/components';
+import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme';
+import { getShadow } from '../../src/theme/shadows';
 import type { Contact } from '../../src/api/types';
 
 export default function ContactsScreen() {
@@ -111,11 +113,7 @@ export default function ContactsScreen() {
 
   const renderContact = ({ item }: { item: Contact }) => (
     <View style={styles.contactItem}>
-      <View style={styles.contactAvatar}>
-        <Text style={styles.contactInitial}>
-          {(item.first_name || item.email).charAt(0).toUpperCase()}
-        </Text>
-      </View>
+      <Avatar name={item.first_name || item.email} size={44} />
       <View style={styles.contactInfo}>
         <Text style={styles.contactName} numberOfLines={1}>
           {item.name || item.email}
@@ -129,11 +127,7 @@ export default function ContactsScreen() {
           </Text>
         )}
       </View>
-      <View style={[styles.statusBadge, item.status === 'subscribed' ? styles.statusSubscribed : styles.statusUnsubscribed]}>
-        <Text style={styles.statusText}>
-          {item.status === 'subscribed' ? '✓' : '✗'}
-        </Text>
-      </View>
+      <Badge status={item.status === 'subscribed' ? 'subscribed' : 'unsubscribed'} />
     </View>
   );
 
@@ -144,9 +138,12 @@ export default function ContactsScreen() {
         {search ? 'No contacts found' : 'No contacts yet'}
       </Text>
       {!search && (
-        <TouchableOpacity style={styles.emptyButton} onPress={() => setShowAddModal(true)}>
-          <Text style={styles.emptyButtonText}>Add your first contact</Text>
-        </TouchableOpacity>
+        <Button
+          title="Add your first contact"
+          onPress={() => setShowAddModal(true)}
+          variant="ghost"
+          style={styles.emptyButton}
+        />
       )}
     </View>
   );
@@ -155,7 +152,7 @@ export default function ContactsScreen() {
     if (!isLoadingMore) return null;
     return (
       <View style={styles.footer}>
-        <ActivityIndicator size="small" color="#3B82F6" />
+        <ActivityIndicator size="small" color={colors.brand.primary} />
       </View>
     );
   };
@@ -168,18 +165,22 @@ export default function ContactsScreen() {
           onDismiss={() => setPaymentError(null)}
         />
       )}
-      <View style={styles.header}>
-        <Text style={styles.title}>Contacts</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
-          <Text style={styles.addButtonText}>+ Add</Text>
-        </TouchableOpacity>
-      </View>
+      <Header
+        title="Contacts"
+        rightContent={
+          <Button
+            title="+ Add"
+            onPress={() => setShowAddModal(true)}
+            size="sm"
+          />
+        }
+      />
 
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
           placeholder="Search contacts..."
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={colors.text.placeholder}
           value={search}
           onChangeText={setSearch}
           autoCapitalize="none"
@@ -188,7 +189,7 @@ export default function ContactsScreen() {
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3B82F6" />
+          <ActivityIndicator size="large" color={colors.brand.primary} />
         </View>
       ) : (
         <FlatList
@@ -199,7 +200,11 @@ export default function ContactsScreen() {
           ListEmptyComponent={renderEmpty}
           ListFooterComponent={renderFooter}
           refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.brand.primary}
+            />
           }
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.3}
@@ -230,55 +235,36 @@ export default function ContactsScreen() {
             </View>
 
             <View style={styles.modalForm}>
-              <View style={styles.modalField}>
-                <Text style={styles.modalLabel}>Email *</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="email@example.com"
-                  placeholderTextColor="#9CA3AF"
-                  value={newContact.email}
-                  onChangeText={(text) => setNewContact(prev => ({ ...prev, email: text }))}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  editable={!isAdding}
-                />
-              </View>
-
-              <View style={styles.modalField}>
-                <Text style={styles.modalLabel}>First Name</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="John"
-                  placeholderTextColor="#9CA3AF"
-                  value={newContact.first_name}
-                  onChangeText={(text) => setNewContact(prev => ({ ...prev, first_name: text }))}
-                  editable={!isAdding}
-                />
-              </View>
-
-              <View style={styles.modalField}>
-                <Text style={styles.modalLabel}>Last Name</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="Doe"
-                  placeholderTextColor="#9CA3AF"
-                  value={newContact.last_name}
-                  onChangeText={(text) => setNewContact(prev => ({ ...prev, last_name: text }))}
-                  editable={!isAdding}
-                />
-              </View>
-
-              <View style={styles.modalField}>
-                <Text style={styles.modalLabel}>Company</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="Acme Inc"
-                  placeholderTextColor="#9CA3AF"
-                  value={newContact.company}
-                  onChangeText={(text) => setNewContact(prev => ({ ...prev, company: text }))}
-                  editable={!isAdding}
-                />
-              </View>
+              <Input
+                label="Email *"
+                placeholder="email@example.com"
+                value={newContact.email}
+                onChangeText={(text) => setNewContact(prev => ({ ...prev, email: text }))}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                editable={!isAdding}
+              />
+              <Input
+                label="First Name"
+                placeholder="John"
+                value={newContact.first_name}
+                onChangeText={(text) => setNewContact(prev => ({ ...prev, first_name: text }))}
+                editable={!isAdding}
+              />
+              <Input
+                label="Last Name"
+                placeholder="Doe"
+                value={newContact.last_name}
+                onChangeText={(text) => setNewContact(prev => ({ ...prev, last_name: text }))}
+                editable={!isAdding}
+              />
+              <Input
+                label="Company"
+                placeholder="Acme Inc"
+                value={newContact.company}
+                onChangeText={(text) => setNewContact(prev => ({ ...prev, company: text }))}
+                editable={!isAdding}
+              />
             </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -290,48 +276,23 @@ export default function ContactsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  addButton: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  addButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    backgroundColor: colors.background.primary,
   },
   searchContainer: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    backgroundColor: colors.background.secondary,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[2],
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: colors.border.primary,
   },
   searchInput: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: '#111827',
+    backgroundColor: colors.zinc[100],
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing[3.5],
+    paddingVertical: spacing[2.5],
+    fontSize: fontSize.base,
+    color: colors.text.primary,
+    fontFamily: 'Inter_400Regular',
   },
   loadingContainer: {
     flex: 1,
@@ -339,7 +300,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   list: {
-    paddingVertical: 8,
+    paddingVertical: spacing[2],
   },
   listEmpty: {
     flex: 1,
@@ -347,94 +308,62 @@ const styles = StyleSheet.create({
   contactItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 12,
-    marginVertical: 4,
-    padding: 12,
-    borderRadius: 12,
-  },
-  contactAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#3B82F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  contactInitial: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    backgroundColor: colors.background.secondary,
+    marginHorizontal: spacing[3],
+    marginVertical: spacing[1],
+    padding: spacing[3],
+    borderRadius: borderRadius.xl,
+    ...getShadow('sm'),
   },
   contactInfo: {
     flex: 1,
+    marginLeft: spacing[3],
   },
   contactName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#111827',
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
+    color: colors.text.primary,
+    fontFamily: 'Inter_600SemiBold',
   },
   contactEmail: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 2,
+    fontSize: fontSize.sm,
+    color: colors.text.muted,
+    marginTop: spacing[0.5],
+    fontFamily: 'Inter_400Regular',
   },
   contactCompany: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    marginTop: 2,
-  },
-  statusBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  statusSubscribed: {
-    backgroundColor: '#D1FAE5',
-  },
-  statusUnsubscribed: {
-    backgroundColor: '#FEE2E2',
-  },
-  statusText: {
-    fontSize: 12,
+    fontSize: fontSize.xs,
+    color: colors.text.placeholder,
+    marginTop: spacing[0.5],
+    fontFamily: 'Inter_400Regular',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    padding: spacing[10],
   },
   emptyIcon: {
     fontSize: 48,
-    marginBottom: 16,
+    marginBottom: spacing[4],
   },
   emptyText: {
-    fontSize: 16,
-    color: '#6B7280',
+    fontSize: fontSize.base,
+    color: colors.text.muted,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: spacing[4],
+    fontFamily: 'Inter_400Regular',
   },
   emptyButton: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  emptyButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    marginTop: spacing[2],
   },
   footer: {
-    paddingVertical: 20,
+    paddingVertical: spacing[5],
     alignItems: 'center',
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background.primary,
   },
   modalContent: {
     flex: 1,
@@ -443,49 +372,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: colors.background.secondary,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: colors.border.primary,
   },
   modalCancel: {
-    fontSize: 16,
-    color: '#6B7280',
+    fontSize: fontSize.base,
+    color: colors.text.muted,
+    fontFamily: 'Inter_400Regular',
   },
   modalTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#111827',
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    color: colors.text.primary,
+    fontFamily: 'Inter_600SemiBold',
   },
   modalSave: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#3B82F6',
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
+    color: colors.brand.primary,
+    fontFamily: 'Inter_600SemiBold',
   },
   modalSaveDisabled: {
-    color: '#93C5FD',
+    opacity: 0.5,
   },
   modalForm: {
-    padding: 16,
-  },
-  modalField: {
-    marginBottom: 16,
-  },
-  modalLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 6,
-  },
-  modalInput: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#111827',
+    padding: spacing[4],
   },
 });

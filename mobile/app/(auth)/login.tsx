@@ -2,17 +2,17 @@ import { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
-  Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { Button, Input, Card } from '../../src/components';
+import { colors, spacing, fontSize, fontWeight, borderRadius } from '../../src/theme';
+import { getShadow } from '../../src/theme/shadows';
 import { AxiosError } from 'axios';
 
 export default function LoginScreen() {
@@ -53,60 +53,51 @@ export default function LoginScreen() {
         style={styles.content}
       >
         <View style={styles.header}>
-          <Text style={styles.logo}>📬</Text>
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={styles.logo}
+          />
           <Text style={styles.title}>MailDesk</Text>
           <Text style={styles.subtitle}>Sign in to your account</Text>
         </View>
 
-        <View style={styles.form}>
+        <Card style={styles.form}>
           {error && (
             <View style={styles.errorContainer}>
               <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor="#9CA3AF"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              autoComplete="email"
-              editable={!isLoading}
-            />
-          </View>
+          <Input
+            label="Email"
+            placeholder="you@example.com"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            autoComplete="email"
+            editable={!isLoading}
+          />
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="••••••••"
-              placeholderTextColor="#9CA3AF"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="password"
-              editable={!isLoading}
-            />
-          </View>
+          <Input
+            label="Password"
+            placeholder="••••••••"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoComplete="password"
+            editable={!isLoading}
+          />
 
-          <TouchableOpacity
-            style={[styles.button, isLoading && styles.buttonDisabled]}
+          <Button
+            title="Sign In"
             onPress={handleLogin}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.buttonText}>Sign In</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+            loading={isLoading}
+            fullWidth
+            size="lg"
+          />
+        </Card>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -115,83 +106,49 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background.primary,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: spacing[6],
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: spacing[10],
   },
   logo: {
-    fontSize: 64,
-    marginBottom: 16,
+    width: 72,
+    height: 72,
+    borderRadius: borderRadius.xl,
+    marginBottom: spacing[4],
   },
   title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 8,
+    fontSize: fontSize['2xl'],
+    fontWeight: fontWeight.bold,
+    color: colors.text.primary,
+    marginBottom: spacing[2],
+    fontFamily: 'Inter_700Bold',
   },
   subtitle: {
-    fontSize: 16,
-    color: '#6B7280',
+    fontSize: fontSize.base,
+    color: colors.text.muted,
+    fontFamily: 'Inter_400Regular',
   },
   form: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    padding: spacing[6],
   },
   errorContainer: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    backgroundColor: colors.status.error.bg,
+    borderRadius: borderRadius.md,
+    padding: spacing[3],
+    marginBottom: spacing[4],
+    borderWidth: 1,
+    borderColor: colors.status.error.ring,
   },
   errorText: {
-    color: '#DC2626',
-    fontSize: 14,
-  },
-  inputContainer: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#111827',
-  },
-  button: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  buttonDisabled: {
-    backgroundColor: '#93C5FD',
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+    color: colors.status.error.text,
+    fontSize: fontSize.sm,
+    fontFamily: 'Inter_400Regular',
   },
 });
