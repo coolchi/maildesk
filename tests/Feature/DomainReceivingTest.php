@@ -12,6 +12,7 @@ use App\Services\Domains\DomainVerifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class DomainReceivingTest extends TestCase
@@ -137,8 +138,9 @@ class DomainReceivingTest extends TestCase
         $warnings = $domain->fresh()->dns_records['warnings'];
         $this->assertNotEmpty($warnings);
         $this->assertTrue(
-            collect($warnings)->contains(fn ($w) => str_contains($w, 'Receiving MX record was not published')),
-            'Expected a warning about receiving MX not being published',
+            collect($warnings)->contains(fn ($w) => str_contains($w, 'left untouched')
+                && str_contains($w, 'MailDesk receiving was not enabled')),
+            'Expected a warning that the existing mail provider MX records were left untouched',
         );
     }
 
@@ -180,6 +182,48 @@ class DomainReceivingTest extends TestCase
                 && str_contains($data['message'], 'already has MX records'));
 
         Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r['type'] === 'MX');
+
+        $this->get(route('domains.show', $domain))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Domains/Show')
+                ->where('flash.receiving_confirmation.required', true)
+                ->where('flash.receiving_confirmation.existing_mx', 'aspmx.l.google.com')
+                ->where('flash.receiving_confirmation.message', 'acme.test already has MX records (aspmx.l.google.com). Adding MailDesk\'s receiving MX may change where email is delivered, depending on MX priorities.'));
+    }
+
+    public function test_enable_receiving_returns_cloudflare_error_when_mx_lookup_fails(): void
+    {
+        [$user, $org, $domain] = $this->setUpDomainWithReceiving();
+        $this->connect($domain, $org);
+        Http::fake([
+            self::CF.'/zones/zone1/dns_records*' => Http::response([
+                'success' => false,
+                'errors' => [['message' => 'Invalid request']],
+            ], 403),
+        ]);
+
+        $this->as($user, $org)
+            ->from(route('domains.show', $domain))
+            ->post(route('domains.dns.enable-receiving', $domain))
+            ->assertRedirect(route('domains.show', $domain))
+            ->assertSessionHas('error', 'Cloudflare refused the request: Invalid request');
+
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r['type'] === 'MX');
+    }
+
+    public function test_apply_says_existing_mx_records_were_left_untouched(): void
+    {
+        [$user, $org, $domain] = $this->setUpDomainWithReceiving();
+        $this->connect($domain, $org);
+        $this->fakeCloudflare([
+            ['id' => 'mx1', 'type' => 'MX', 'name' => 'acme.test', 'content' => 'aspmx.l.google.com', 'priority' => 1],
+        ]);
+
+        $this->as($user, $org)
+            ->from(route('domains.show', $domain))
+            ->post(route('domains.dns.apply', $domain))
+            ->assertSessionHas('success', fn ($message) => str_contains($message, "The existing mail provider's MX records were left untouched")
+                && str_contains($message, 'MailDesk receiving was not enabled'));
     }
 
     public function test_enable_receiving_without_dns_connection_shows_error(): void
@@ -291,6 +335,57 @@ class DomainReceivingTest extends TestCase
         $this->assertNotNull($inboundMx, 'Inbound MX record should be present');
         $this->assertSame('inbound-smtp.eu-west-1.amazonaws.com', $inboundMx['value']);
         $this->assertSame(10, $inboundMx['priority']);
+    }
+
+    public function test_resend_receiving_patch_is_skipped_when_already_enabled(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        $user = User::factory()->create();
+        $org = Organization::factory()->create(['region' => 'eu-west-1']);
+        $org->users()->attach($user->id, ['role' => 'owner']);
+
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'recv.test',
+            'provider' => 'resend',
+            'provider_domain_id' => 'dom_recv',
+        ]);
+
+        $records = [
+            ['record' => 'DKIM', 'name' => 'resend._domainkey', 'type' => 'TXT', 'value' => self::DKIM],
+            ['record' => 'SPF', 'name' => 'rsend', 'type' => 'CNAME', 'value' => 'send.forge.rmta.net'],
+            ['record' => 'Receiving', 'name' => '@', 'type' => 'MX', 'value' => 'inbound-smtp.eu-west-1.amazonaws.com', 'priority' => 10],
+        ];
+
+        Http::fake(function (HttpRequest $r) use ($records) {
+            if ($r->method() === 'GET' && str_ends_with($r->url(), '/domains/dom_recv')) {
+                return Http::response([
+                    'id' => 'dom_recv',
+                    'name' => 'recv.test',
+                    'status' => 'pending',
+                    'region' => 'eu-west-1',
+                    'capabilities' => ['sending' => 'enabled', 'receiving' => 'enabled'],
+                    'records' => $records,
+                ]);
+            }
+
+            if ($r->method() === 'PATCH' && str_ends_with($r->url(), '/domains/dom_recv')) {
+                return Http::response(['id' => 'dom_recv']);
+            }
+
+            if (str_ends_with($r->url(), '/verify')) {
+                return Http::response(['id' => 'dom_recv']);
+            }
+
+            return Http::response(['message' => 'unexpected '.$r->url()], 500);
+        });
+
+        app(DomainVerifier::class)->verify($domain->fresh());
+        app(DomainVerifier::class)->verify($domain->fresh());
+
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'PATCH'
+            && str_ends_with($r->url(), '/domains/dom_recv')
+            && ($r['capabilities']['receiving'] ?? null) === 'enabled');
     }
 
     public function test_find_existing_root_mx_detects_third_party_mx(): void

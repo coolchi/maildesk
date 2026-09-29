@@ -86,7 +86,7 @@ class DomainDnsController extends Controller
                 : "Published at Cloudflare: {$counts['created']} added, {$counts['updated']} updated.";
 
             if ($counts['skipped_inbound_mx'] ?? false) {
-                $message .= " Note: Receiving MX was skipped because {$domain->name} already has MX records. Use 'Enable receiving' to route all email to MailDesk.";
+                $message .= " Note: Receiving MX was skipped because {$domain->name} already has MX records. The existing mail provider's MX records were left untouched, and MailDesk receiving was not enabled.";
             }
 
             return $message;
@@ -117,8 +117,12 @@ class DomainDnsController extends Controller
             return back()->with('error', 'No receiving MX record is configured for this domain. Re-verify the domain to fetch receiving records from Resend.');
         }
 
-        // Check for existing MX and require confirmation
-        $existingMx = $this->manager->findExistingRootMx($domain, $connection);
+        try {
+            $existingMx = $this->manager->findExistingRootMx($domain, $connection);
+        } catch (DnsProviderException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
         if ($existingMx !== [] && ! $request->boolean('confirm')) {
             $providers = implode(', ', array_column($existingMx, 'content'));
 

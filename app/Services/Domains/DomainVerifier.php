@@ -98,7 +98,7 @@ class DomainVerifier
 
         // Warn if inbound MX was skipped due to existing MX records
         if ($dns['auto_publish']['skipped_inbound_mx'] ?? false) {
-            $warnings[] = "Receiving MX record was not published automatically because {$domain} already has MX records. To receive email at MailDesk, use the \"Enable receiving\" action (this will route all {$domain} email to MailDesk).";
+            $warnings[] = "Receiving MX record was not published automatically because {$domain} already has MX records. The existing mail provider's MX records were left untouched, and MailDesk receiving was not enabled.";
         }
 
         return $warnings;

@@ -232,6 +232,7 @@ const remove = (rec) => {
                             v-if="!showReceivingConfirm"
                             type="button"
                             class="md-btn-primary text-xs"
+                            data-testid="enable-receiving"
                             :disabled="busy"
                             @click="skippedInboundMx ? (showReceivingConfirm = true) : enableReceiving()"
                         >
@@ -239,7 +240,7 @@ const remove = (rec) => {
                             <Inbox v-else :size="14" />
                             Enable receiving
                         </button>
-                        <div v-else class="space-y-2 text-right">
+                        <div v-else class="space-y-2 text-right" data-testid="receiving-confirm">
                             <p class="text-xs text-amber-300 max-w-xs">
                                 {{ receivingConfirmData?.message || `${domain.name} already has MX records. Adding MailDesk's receiving MX may change where email is delivered, depending on MX priorities.` }}
                             </p>
@@ -250,6 +251,7 @@ const remove = (rec) => {
                                 <button
                                     type="button"
                                     class="md-btn-primary text-xs"
+                                    data-testid="confirm-receiving"
                                     :disabled="busy"
                                     @click="enableReceiving(true)"
                                 >

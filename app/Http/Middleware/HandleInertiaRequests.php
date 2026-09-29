@@ -131,6 +131,7 @@ class HandleInertiaRequests extends Middleware
                 'draft_id' => fn () => $request->session()->get('draft_id'),
                 'plain_api_key' => fn () => $request->session()->get('plain_api_key'),
                 'plain_webhook_secret' => fn () => $request->session()->get('plain_webhook_secret'),
+                'receiving_confirmation' => fn () => $request->session()->get('receiving_confirmation'),
             ],
             'plans' => function () use ($user, $organization) {
                 $catalog = PlansCatalog::forModal();
