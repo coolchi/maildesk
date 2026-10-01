@@ -71,9 +71,7 @@ class Thread extends Model
             ?? $messages->firstWhere('direction', 'inbound');
         $fromEmail = $fromMessage?->from_email
             ?? 'unknown';
-        $fromName = filled($fromMessage?->from_name)
-            ? trim((string) $fromMessage->from_name)
-            : null;
+        $fromName = $fromMessage?->senderName();
 
         $recipients = self::addresses($latest?->to);
         if ($recipients === [] && $this->mailbox_id) {
@@ -103,7 +101,7 @@ class Thread extends Model
             'messages' => $messages->map(fn (Message $message) => [
                 'id' => $message->uuid,
                 'from' => $message->from_email,
-                'from_name' => $message->from_name,
+                'from_name' => $message->senderName(),
                 'to' => implode(', ', self::addresses($message->to)),
                 'html' => EmailHtmlSanitizer::clean($message->html_body),
                 'text' => $message->text_body,

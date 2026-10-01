@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Mail\Inbound\AddressParser;
 use App\Support\EmailHtmlSanitizer;
 use Database\Factories\MessageFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -89,6 +90,40 @@ class Message extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(Attachment::class);
+    }
+
+    /**
+     * The name to show for this sender. Stored names win. Older mail only
+     * kept the address, with the name still in the From header.
+     */
+    public function senderName(): ?string
+    {
+        $stored = $this->presentName($this->from_name);
+        if ($stored !== null) {
+            return $stored;
+        }
+
+        $headers = is_array($this->headers) ? $this->headers : [];
+        $from = $headers['from'] ?? null;
+        if (! is_string($from) || trim($from) === '') {
+            return null;
+        }
+
+        return $this->presentName(AddressParser::one($from)['name']);
+    }
+
+    private function presentName(mixed $name): ?string
+    {
+        $name = trim((string) $name);
+        if ($name === '' || str_contains($name, '@') || strcasecmp($name, (string) $this->from_email) === 0) {
+            return null;
+        }
+
+        if (mb_strtolower($name) === $name) {
+            return mb_convert_case($name, MB_CASE_TITLE, 'UTF-8');
+        }
+
+        return $name;
     }
 
     /**

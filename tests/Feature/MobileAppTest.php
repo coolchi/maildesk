@@ -351,6 +351,52 @@ class MobileAppTest extends TestCase
         $this->assertTrue($thread->fresh()->is_read);
     }
 
+    public function test_a_missing_inbox_thread_says_the_conversation_is_gone(): void
+    {
+        [, $organization, $token] = $this->member();
+
+        $this->asApp($token, $organization)->getJson('/api/app/inbox/threads/34')
+            ->assertNotFound()
+            ->assertJsonPath('message', 'This conversation is no longer available.');
+    }
+
+    public function test_the_author_can_delete_a_chat_message_and_someone_else_cannot(): void
+    {
+        [$user, $organization, $token] = $this->member();
+        $other = User::factory()->create();
+        $organization->users()->attach($other->id, ['role' => 'member']);
+        $otherToken = $other->createToken('phone')->plainTextToken;
+
+        $conversationId = $this->asApp($token, $organization)->postJson('/api/app/conversations', [
+            'type' => 'direct',
+            'user_ids' => [$other->id],
+        ])->json('data.id');
+
+        $this->asApp($token, $organization)->postJson("/api/app/conversations/{$conversationId}/messages", [
+            'body' => 'Keep this',
+        ])->assertCreated();
+
+        $sent = $this->asApp($token, $organization)->postJson("/api/app/conversations/{$conversationId}/messages", [
+            'body' => 'Remove this',
+        ])->assertCreated();
+
+        $messageId = $sent->json('data.id');
+
+        $this->asApp($otherToken, $organization)
+            ->deleteJson("/api/app/conversations/{$conversationId}/messages/{$messageId}")
+            ->assertForbidden();
+
+        $this->asApp($token, $organization)
+            ->deleteJson("/api/app/conversations/{$conversationId}/messages/{$messageId}")
+            ->assertOk()
+            ->assertJsonPath('message', 'Message deleted.');
+
+        $this->assertDatabaseMissing('chat_messages', ['id' => $messageId]);
+        $this->asApp($token, $organization)->getJson('/api/app/conversations')
+            ->assertOk()
+            ->assertJsonPath('data.0.preview', 'Keep this');
+    }
+
     public function test_a_thread_can_be_marked_unread_and_read_again(): void
     {
         [, $organization, $token] = $this->member();

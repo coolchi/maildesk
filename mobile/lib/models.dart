@@ -1,3 +1,5 @@
+import 'package:maildesk/chat_format.dart';
+
 class Person {
   const Person({required this.id, required this.name, this.email, this.role});
 
@@ -206,6 +208,7 @@ class ChatMessage {
     this.userId,
     this.kind = 'text',
     this.attachments = const [],
+    this.pending = false,
   });
 
   final int id;
@@ -216,9 +219,10 @@ class ChatMessage {
   final String userName;
   final String kind;
   final List<ChatFile> attachments;
+  final bool pending;
 
   String get listPreview {
-    final text = body.trim();
+    final text = stripChatFormat(body).trim();
     if (text.isNotEmpty) {
       return text;
     }
@@ -256,7 +260,6 @@ class MailThread {
     required this.updated,
     this.fromName,
     this.fromEmail,
-    this.labels = const [],
   });
 
   final int id;
@@ -266,7 +269,6 @@ class MailThread {
   final String updated;
   final String? fromName;
   final String? fromEmail;
-  final List<String> labels;
 
   String get sender => (fromName != null && fromName!.trim().isNotEmpty) ? fromName!.trim() : (fromEmail ?? 'Unknown');
 
@@ -279,7 +281,6 @@ class MailThread {
       updated: json['updated'] as String? ?? '',
       fromName: json['from_name'] as String?,
       fromEmail: json['from_email'] as String?,
-      labels: ((json['labels'] as List?) ?? []).map((item) => item.toString()).toList(),
     );
   }
 }

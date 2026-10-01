@@ -21,6 +21,9 @@ class MailDeskApi {
     this.organizationId,
   });
 
+  /// Called when a signed-in request comes back as 401.
+  static void Function()? onUnauthorized;
+
   final String baseUrl;
   final String? token;
   final int? organizationId;
@@ -111,6 +114,10 @@ class MailDeskApi {
   }
 
   Future<void> typing(int conversationId) => _send('POST', '/api/app/conversations/$conversationId/typing');
+
+  Future<void> deleteMessage(int conversationId, int messageId) {
+    return _send('DELETE', '/api/app/conversations/$conversationId/messages/$messageId');
+  }
 
   Future<List<MailThread>> inbox({String folder = 'inbox', String query = ''}) async {
     final params = <String, String>{'folder': folder};
@@ -239,6 +246,7 @@ class MailDeskApi {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return response.bodyBytes;
     }
+    _rejectIfUnauthenticated(response.statusCode);
     throw ApiException('Could not open this file.', status: response.statusCode);
   }
 
@@ -260,6 +268,7 @@ class MailDeskApi {
       return decoded;
     }
 
+    _rejectIfUnauthenticated(response.statusCode);
     throw ApiException(_message(decoded), status: response.statusCode);
   }
 
@@ -290,15 +299,26 @@ class MailDeskApi {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return decoded;
     }
+    _rejectIfUnauthenticated(response.statusCode);
     throw ApiException(_message(decoded), status: response.statusCode);
   }
 
-  Map<String, dynamic> _object(String body) {
-    final decoded = jsonDecode(body);
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
+  void _rejectIfUnauthenticated(int status) {
+    if (status == 401 && token != null) {
+      onUnauthorized?.call();
     }
-    return {};
+  }
+
+  Map<String, dynamic> _object(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return {};
+    } on FormatException {
+      throw ApiException('MailDesk sent a page instead of data. Check the server address.');
+    }
   }
 
   List<Map<String, dynamic>> _list(Map<String, dynamic> json) {

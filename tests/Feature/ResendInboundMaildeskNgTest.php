@@ -152,6 +152,37 @@ class ResendInboundMaildeskNgTest extends TestCase
         $this->assertSame(1, $thread->message_count);
     }
 
+    public function test_sender_name_is_kept_when_the_envelope_from_is_only_an_address(): void
+    {
+        Mailbox::factory()->create([
+            'organization_id' => Organization::factory()->create()->id,
+            'email' => 'support@maildesk.ng',
+        ]);
+
+        Http::fake([
+            'api.resend.com/emails/receiving/re_name_from_header' => Http::response([
+                'from' => 'coolchi01@gmail.com',
+                'to' => ['support@maildesk.ng'],
+                'headers' => ['From' => '"sherif coolchi" <coolchi01@gmail.com>'],
+                'text' => 'Forwarded invoice',
+                'received_for' => ['support@maildesk.ng'],
+            ]),
+            'api.resend.com/emails/receiving/re_name_from_header/attachments' => Http::response(['data' => []]),
+        ]);
+
+        $this->postAndProcess($this->resendPayload([
+            'email_id' => 're_name_from_header',
+            'from' => 'coolchi01@gmail.com',
+            'to' => ['support@maildesk.ng'],
+            'subject' => 'Fwd: Customer Invoice',
+        ]));
+
+        $message = Message::query()->firstOrFail();
+        $this->assertSame('coolchi01@gmail.com', $message->from_email);
+        $this->assertSame('sherif coolchi', $message->from_name);
+        $this->assertSame('Sherif Coolchi', $message->senderName());
+    }
+
     public function test_email_routed_via_received_for_when_to_header_differs(): void
     {
         $org = Organization::factory()->create();

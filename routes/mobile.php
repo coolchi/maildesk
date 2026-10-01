@@ -56,6 +56,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/conversations/{conversation}/messages', [ChatMessageController::class, 'store'])
             ->middleware('throttle:60,1')
             ->whereNumber('conversation');
+        Route::delete('/conversations/{conversation}/messages/{message}', [ChatMessageController::class, 'destroy'])
+            ->whereNumber(['conversation', 'message']);
         Route::post('/conversations/{conversation}/read', [ChatMessageController::class, 'read'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/delivered', [ChatMessageController::class, 'delivered'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/typing', [ChatMessageController::class, 'typing'])

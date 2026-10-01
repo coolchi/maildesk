@@ -244,7 +244,30 @@ class _MailPageState extends State<MailPage> {
           ),
           Expanded(
             child: mail == null
-                ? Center(child: error == null ? const CircularProgressIndicator() : Text(error!))
+                ? Center(
+                    child: error == null
+                        ? const CircularProgressIndicator()
+                        : Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(LucideIcons.mailX, color: colors.muted, size: 28),
+                                const SizedBox(height: 12),
+                                Text(
+                                  error!,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: colors.text, height: 1.4),
+                                ),
+                                const SizedBox(height: 8),
+                                TextButton(
+                                  onPressed: () => Navigator.of(context).pop(),
+                                  child: const Text('Back'),
+                                ),
+                              ],
+                            ),
+                          ),
+                  )
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
@@ -616,7 +639,7 @@ class _MessageBodyState extends State<_MessageBody> {
             child: Text(expanded ? 'Hide quoted text' : 'Show quoted text'),
           ),
           if (expanded)
-            Text(split.quoted, style: TextStyle(color: colors.muted, height: 1.4, fontSize: 13)),
+            Text(split.quoted, style: TextStyle(color: colors.text, height: 1.45, fontSize: 16)),
         ],
       ],
     );

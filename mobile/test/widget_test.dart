@@ -16,6 +16,14 @@ void main() {
     expect(find.text('Sign in'), findsOneWidget);
   });
 
+  test('a public server typed with http is reached over https', () {
+    expect(normalizeServerUrl('http://maildesk.ng'), 'https://maildesk.ng');
+    expect(normalizeServerUrl('http://maildesk.ng/'), 'https://maildesk.ng');
+    expect(normalizeServerUrl('https://maildesk.ng'), 'https://maildesk.ng');
+    expect(normalizeServerUrl('http://maildesk.test'), 'http://maildesk.test');
+    expect(normalizeServerUrl('http://127.0.0.1:8000'), 'http://127.0.0.1:8000');
+  });
+
   test('appearance choice is remembered', () async {
     SharedPreferences.setMockInitialValues({});
     final session = Session();

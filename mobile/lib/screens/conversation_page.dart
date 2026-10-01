@@ -6,6 +6,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:maildesk/api.dart';
+import 'package:maildesk/chat_format.dart';
 import 'package:maildesk/attachments.dart';
 import 'package:maildesk/main.dart';
 import 'package:maildesk/media.dart';
@@ -27,8 +28,10 @@ class _ConversationPageState extends State<ConversationPage> {
   var loading = true;
   var sending = false;
   var emojiOpen = false;
+  ChatMessage? replyTo;
   String? error;
   final pending = <_Outgoing>[];
+  var localId = 0;
   DateTime lastTyping = DateTime.fromMillisecondsSinceEpoch(0);
   Session? _session;
 
@@ -64,7 +67,10 @@ class _ConversationPageState extends State<ConversationPage> {
       final detail = await session.api.conversation(widget.conversation.id);
       session.messages[widget.conversation.id] = detail.messages;
       if (mounted) {
-        setState(() => loading = false);
+        setState(() {
+          loading = false;
+          error = null;
+        });
       }
     } on ApiException catch (exception) {
       if (mounted) {
@@ -84,23 +90,41 @@ class _ConversationPageState extends State<ConversationPage> {
       await _sendPending();
       return;
     }
-    final body = composer.text.trim();
-    if (body.isEmpty) {
+    final typed = composer.text.trim();
+    if (typed.isEmpty) {
       return;
     }
-    setState(() => sending = true);
+    final quoted = replyTo;
+    final body = quoted == null ? typed : '> ${quoted.body.trim()}\n$typed';
+    final session = Desk.of(context);
+    final placeholder = ChatMessage(
+      id: --localId,
+      conversationId: widget.conversation.id,
+      body: body,
+      userName: session.user?.name ?? '',
+      userId: session.user?.id,
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      pending: true,
+    );
     composer.clear();
     HapticFeedback.lightImpact();
+    session.stageMessage(placeholder);
+    if (mounted) {
+      setState(() {
+        error = null;
+        emojiOpen = false;
+        replyTo = null;
+      });
+    }
     try {
-      await Desk.of(context).send(widget.conversation.id, body);
+      await session.send(widget.conversation.id, body);
     } on ApiException catch (exception) {
+      session.dropMessage(widget.conversation.id, placeholder.id);
       if (mounted) {
-        composer.text = body;
+        if (composer.text.isEmpty) {
+          composer.text = body;
+        }
         setState(() => error = exception.message);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => sending = false);
       }
     }
   }
@@ -111,6 +135,7 @@ class _ConversationPageState extends State<ConversationPage> {
     setState(() {
       sending = true;
       error = null;
+      emojiOpen = false;
       pending.clear();
     });
     composer.clear();
@@ -141,6 +166,138 @@ class _ConversationPageState extends State<ConversationPage> {
         setState(() => sending = false);
       }
     }
+  }
+
+  Future<void> _actions(ChatMessage message) async {
+    HapticFeedback.mediumImpact();
+    final colors = deskColors(context);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: colors.panel,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            _ActionTile(icon: LucideIcons.copy, label: 'Copy', onTap: () => Navigator.pop(context, 'copy')),
+            _ActionTile(icon: LucideIcons.reply, label: 'Reply', onTap: () => Navigator.pop(context, 'reply')),
+            _ActionTile(icon: LucideIcons.forward, label: 'Forward', onTap: () => Navigator.pop(context, 'forward')),
+            _ActionTile(icon: LucideIcons.trash2, label: 'Delete', danger: true, onTap: () => Navigator.pop(context, 'delete')),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    switch (action) {
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: message.body));
+      case 'reply':
+        setState(() {
+          replyTo = message;
+          emojiOpen = false;
+        });
+      case 'forward':
+        await _forward(message);
+      case 'delete':
+        await _delete(message);
+    }
+  }
+
+  Future<void> _delete(ChatMessage message) async {
+    final colors = deskColors(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: colors.panel,
+        title: Text('Delete message?', style: TextStyle(color: colors.text, fontSize: 18, fontWeight: FontWeight.w600)),
+        content: Text('This removes it for everyone in the chat.', style: TextStyle(color: colors.secondary, height: 1.4)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    final session = Desk.of(context);
+    try {
+      await session.api.deleteMessage(widget.conversation.id, message.id);
+      session.dropMessage(widget.conversation.id, message.id);
+      if (replyTo?.id == message.id && mounted) {
+        setState(() => replyTo = null);
+      }
+    } on ApiException catch (exception) {
+      if (mounted) {
+        setState(() => error = exception.message);
+      }
+    }
+  }
+
+  Future<void> _forward(ChatMessage message) async {
+    final session = Desk.of(context);
+    final colors = deskColors(context);
+    final targets = session.conversations.where((item) => item.id != widget.conversation.id).toList();
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: colors.panel,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (context) => SafeArea(
+        child: targets.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('No other chats to forward to.', style: TextStyle(color: colors.muted)),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Text('Forward to', style: TextStyle(color: colors.text, fontSize: 16, fontWeight: FontWeight.w600)),
+                  ),
+                  for (final chat in targets)
+                    ListTile(
+                      title: Text(chat.name, style: TextStyle(color: colors.text)),
+                      onTap: () => Navigator.pop(context, chat.id),
+                    ),
+                ],
+              ),
+      ),
+    );
+    if (chosen == null || !mounted) {
+      return;
+    }
+    try {
+      await session.send(chosen, message.body);
+    } on ApiException catch (exception) {
+      if (mounted) {
+        setState(() => error = exception.message);
+      }
+    }
+  }
+
+  void _wrap(String mark) {
+    final value = composer.value;
+    final text = value.text;
+    var start = value.selection.start;
+    var end = value.selection.end;
+    if (start < 0 || end < 0) {
+      start = text.length;
+      end = text.length;
+    }
+    if (start > end) {
+      final swap = start;
+      start = end;
+      end = swap;
+    }
+    final selected = text.substring(start, end);
+    composer.value = TextEditingValue(
+      text: text.replaceRange(start, end, '$mark$selected$mark'),
+      selection: TextSelection.collapsed(offset: selected.isEmpty ? start + mark.length : start + mark.length * 2 + selected.length),
+    );
   }
 
   void _stage(_Outgoing file) {
@@ -208,6 +365,9 @@ class _ConversationPageState extends State<ConversationPage> {
     return Scaffold(
       backgroundColor: colors.bg,
       appBar: AppBar(
+        backgroundColor: colors.panel,
+        surfaceTintColor: Colors.transparent,
+        shape: Border(bottom: BorderSide(color: colors.border)),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -220,7 +380,8 @@ class _ConversationPageState extends State<ConversationPage> {
       body: Column(
         children: [
           Expanded(
-            child: loading
+            child: _ChatWallpaper(
+              child: loading
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.builder(
                     controller: scroll,
@@ -236,11 +397,13 @@ class _ConversationPageState extends State<ConversationPage> {
                         message: message,
                         mine: mine,
                         showName: showName,
-                        receipt: mine ? _receipt(message, conversation, session.user?.id) : null,
+                        receipt: mine && !message.pending ? _receipt(message, conversation, session.user?.id) : null,
                         api: session.api,
+                        onLongPress: mine && !message.pending && message.body.trim().isNotEmpty ? () => _actions(message) : null,
                       );
                     },
                   ),
+            ),
           ),
           if (typing != null)
             Padding(
@@ -278,6 +441,24 @@ class _ConversationPageState extends State<ConversationPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (replyTo != null) ...[
+                  _ReplyBar(
+                    message: replyTo!,
+                    onClear: () => setState(() => replyTo = null),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 6),
+                  child: Row(
+                    children: [
+                      _FormatMark(tooltip: 'Bold', icon: LucideIcons.bold, onPressed: () => _wrap('*')),
+                      _FormatMark(tooltip: 'Italic', icon: LucideIcons.italic, onPressed: () => _wrap('_')),
+                      _FormatMark(tooltip: 'Strikethrough', icon: LucideIcons.strikethrough, onPressed: () => _wrap('~')),
+                      _FormatMark(tooltip: 'Monospace', icon: LucideIcons.code, onPressed: () => _wrap('`')),
+                    ],
+                  ),
+                ),
                 if (pending.isNotEmpty) ...[
                   _PendingPreview(
                     files: pending,
@@ -400,6 +581,80 @@ class _ConversationPageState extends State<ConversationPage> {
 
 enum _Receipt { sent, received, read }
 
+class _ChatWallpaper extends StatelessWidget {
+  const _ChatWallpaper({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return CustomPaint(
+      painter: _WallpaperPainter(dark: dark),
+      child: child,
+    );
+  }
+}
+
+class _WallpaperPainter extends CustomPainter {
+  const _WallpaperPainter({required this.dark});
+
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = dark ? const Color(0xFF0B141A) : const Color(0xFFE7DDD3),
+    );
+    final paint = Paint()
+      ..color = (dark ? Colors.white : const Color(0xFF6B5344)).withValues(alpha: dark ? 0.055 : 0.12)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.15
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    const step = 96.0;
+    for (var row = 0; row * step < size.height + step; row++) {
+      for (var col = 0; col * step < size.width + step; col++) {
+        final dx = col * step + (row.isEven ? 18 : 62);
+        final dy = row * step + 22;
+        _mark(canvas, paint, Offset(dx, dy), (col + row * 3) % 6);
+      }
+    }
+  }
+
+  void _mark(Canvas canvas, Paint paint, Offset origin, int kind) {
+    final c = origin;
+    switch (kind) {
+      case 0:
+        canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: c, width: 18, height: 13), const Radius.circular(4)), paint);
+        canvas.drawLine(c + const Offset(-4, 6), c + const Offset(-7, 11), paint);
+      case 1:
+        canvas.drawCircle(c, 8, paint);
+        canvas.drawCircle(c, 3, paint);
+      case 2:
+        canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: c.translate(0, 1), width: 16, height: 12), const Radius.circular(2)), paint);
+        canvas.drawCircle(c.translate(0, 1), 3, paint);
+      case 3:
+        final heart = Path()
+          ..moveTo(c.dx, c.dy + 6)
+          ..cubicTo(c.dx - 10, c.dy - 2, c.dx - 4, c.dy - 9, c.dx, c.dy - 3)
+          ..cubicTo(c.dx + 4, c.dy - 9, c.dx + 10, c.dy - 2, c.dx, c.dy + 6);
+        canvas.drawPath(heart, paint);
+      case 4:
+        canvas.drawCircle(c, 8, paint);
+        canvas.drawArc(Rect.fromCenter(center: c.translate(0, 1), width: 8, height: 6), 0.2, 2.6, false, paint);
+      default:
+        canvas.drawCircle(c, 8, paint);
+        canvas.drawLine(c, c.translate(0, -4), paint);
+        canvas.drawLine(c, c.translate(3, 2), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WallpaperPainter oldDelegate) => oldDelegate.dark != dark;
+}
+
 class _Bubble extends StatelessWidget {
   const _Bubble({
     required this.message,
@@ -407,6 +662,7 @@ class _Bubble extends StatelessWidget {
     required this.showName,
     required this.receipt,
     required this.api,
+    this.onLongPress,
   });
 
   final ChatMessage message;
@@ -414,18 +670,24 @@ class _Bubble extends StatelessWidget {
   final bool showName;
   final _Receipt? receipt;
   final MailDeskApi api;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final colors = deskColors(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final mineBubble = dark ? const Color(0xFF0E7490) : colors.accent;
+    final ink = mine ? Colors.white : colors.text;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        child: Container(
         constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.78),
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
         decoration: BoxDecoration(
-          color: mine ? colors.accent : colors.panel,
+          color: mine ? mineBubble : (dark ? const Color(0xFF1F2C34) : colors.panel),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
@@ -454,7 +716,7 @@ class _Bubble extends StatelessWidget {
               else if (message.kind == 'voice' || (file.contentType ?? '').startsWith('audio/'))
                 VoiceNote(api: api, url: '${file.url}?inline=1', mine: mine)
               else
-                Text('${file.filename}${file.sizeLabel == null ? '' : ' · ${file.sizeLabel}'}', style: TextStyle(color: mine ? colors.onAccent : colors.text)),
+                Text('${file.filename}${file.sizeLabel == null ? '' : ' · ${file.sizeLabel}'}', style: TextStyle(color: ink)),
               if (message.kind != 'voice' && !(file.contentType ?? '').startsWith('audio/'))
                 Align(
                   alignment: Alignment.centerRight,
@@ -463,13 +725,13 @@ class _Bubble extends StatelessWidget {
                     url: file.url,
                     filename: file.filename,
                     mimeType: file.contentType,
-                    color: mine ? colors.onAccent : colors.accent,
+                    color: mine ? Colors.white : colors.accent,
                   ),
                 ),
               const SizedBox(height: 4),
             ],
             if (message.body.trim().isNotEmpty)
-              Text(message.body, style: TextStyle(color: mine ? colors.onAccent : colors.text, fontSize: 16, height: 1.3)),
+              ChatText(message.body, style: TextStyle(color: ink, fontSize: 16, height: 1.3)),
             const SizedBox(height: 2),
             Align(
               alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -478,16 +740,14 @@ class _Bubble extends StatelessWidget {
                 children: [
                   Text(
                     shortTime(message.createdAt),
-                    style: TextStyle(color: mine ? colors.onAccent.withValues(alpha: 0.75) : colors.muted, fontSize: 11),
+                    style: TextStyle(color: mine ? Colors.white : colors.muted, fontSize: 11),
                   ),
                   if (receipt != null) ...[
                     const SizedBox(width: 3),
                     Icon(
                       receipt == _Receipt.sent ? LucideIcons.check : LucideIcons.checkCheck,
                       size: 14,
-                      color: receipt == _Receipt.read
-                          ? (Theme.of(context).brightness == Brightness.dark ? Colors.white : const Color(0xFF083344))
-                          : colors.onAccent.withValues(alpha: 0.8),
+                      color: Colors.white,
                     ),
                   ],
                 ],
@@ -495,7 +755,89 @@ class _Bubble extends StatelessWidget {
             ),
           ],
         ),
+        ),
       ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({required this.icon, required this.label, required this.onTap, this.danger = false});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = deskColors(context);
+    final ink = danger ? const Color(0xFFEF4444) : colors.text;
+    return ListTile(
+      leading: Icon(icon, color: ink, size: 20),
+      title: Text(label, style: TextStyle(color: ink, fontWeight: FontWeight.w500)),
+      onTap: onTap,
+    );
+  }
+}
+
+class _ReplyBar extends StatelessWidget {
+  const _ReplyBar({required this.message, required this.onClear});
+
+  final ChatMessage message;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = deskColors(context);
+    final quote = message.body.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(
+        color: colors.bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border(left: BorderSide(color: colors.accent, width: 3)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(message.userName, style: TextStyle(color: colors.accent, fontSize: 12, fontWeight: FontWeight.w600)),
+                ChatText(
+                  quote,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: colors.secondary, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          IconButton(onPressed: onClear, icon: Icon(LucideIcons.x, size: 16, color: colors.muted)),
+        ],
+      ),
+    );
+  }
+}
+
+class _FormatMark extends StatelessWidget {
+  const _FormatMark({required this.tooltip, required this.icon, required this.onPressed});
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = deskColors(context);
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 36, height: 32),
+      icon: Icon(icon, size: 16, color: colors.secondary),
     );
   }
 }

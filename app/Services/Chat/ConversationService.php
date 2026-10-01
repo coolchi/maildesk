@@ -3,6 +3,7 @@
 namespace App\Services\Chat;
 
 use App\Enums\ConversationType;
+use App\Events\ChatMessageDeleted;
 use App\Events\ChatMessageSent;
 use App\Jobs\SendChatPush;
 use App\Models\ChatMessage;
@@ -15,6 +16,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -90,12 +92,7 @@ class ConversationService
             };
         }
 
-        $preview = trim($body) !== '' ? $body : match ($kind) {
-            'image' => 'Photo',
-            'voice' => 'Voice note',
-            'file' => $file?->getClientOriginalName() ?: 'Attachment',
-            default => '',
-        };
+        $preview = $this->previewText($body, $kind, $file?->getClientOriginalName());
 
         $message = DB::transaction(function () use ($conversation, $user, $body, $file, $kind, $storedPath, $preview, $durationMs) {
             $message = $conversation->messages()->create([
@@ -116,7 +113,7 @@ class ConversationService
             }
 
             $conversation->forceFill([
-                'last_message_preview' => Str::limit(preg_replace('/\s+/', ' ', $preview) ?? $preview, 140),
+                'last_message_preview' => $preview,
                 'last_message_at' => $message->created_at,
             ])->save();
 
@@ -135,6 +132,30 @@ class ConversationService
         SendChatPush::dispatch($message->id)->afterCommit();
 
         return $message;
+    }
+
+    public function deleteMessage(Conversation $conversation, User $user, ChatMessage $message): void
+    {
+        abort_unless($message->conversation_id === $conversation->id && $message->user_id === $user->id, 403);
+
+        DB::transaction(function () use ($conversation, $message) {
+            $message->loadMissing('attachments');
+            foreach ($message->attachments as $attachment) {
+                Storage::disk($attachment->disk ?: 'local')->delete($attachment->path);
+            }
+            $message->attachments()->delete();
+            $message->delete();
+
+            $latest = $conversation->messages()->latest('id')->first();
+            $preview = $latest === null ? null : $this->preview($latest);
+            $conversation->forceFill([
+                'last_message_preview' => $preview,
+                'last_message_at' => $latest?->created_at,
+            ])->save();
+        });
+
+        $participantIds = $conversation->participants()->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+        ChatMessageDeleted::dispatch($conversation->id, $message->id, $participantIds);
     }
 
     public function pin(Conversation $conversation, User $user, bool $pinned): void
@@ -319,5 +340,24 @@ class ConversationService
         }
 
         return $ids->all();
+    }
+
+    private function preview(ChatMessage $message): string
+    {
+        $filename = $message->relationLoaded('attachments') ? $message->attachments->first()?->filename : null;
+
+        return $this->previewText((string) $message->body, (string) ($message->kind ?: 'text'), $filename);
+    }
+
+    private function previewText(string $body, string $kind, ?string $filename): string
+    {
+        $text = trim($body) !== '' ? $body : match ($kind) {
+            'image' => 'Photo',
+            'voice' => 'Voice note',
+            'file' => $filename ?: 'Attachment',
+            default => '',
+        };
+
+        return Str::limit(preg_replace('/\s+/', ' ', $text) ?? $text, 140);
     }
 }

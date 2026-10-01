@@ -66,6 +66,29 @@ class MobileInboxExtrasTest extends TestCase
             ->assertJsonPath('data.0.subject', 'Invoice 14');
     }
 
+    public function test_inbox_shows_the_sender_name_from_the_message_header(): void
+    {
+        [, $organization, $token] = $this->member();
+        $thread = Thread::factory()->create([
+            'organization_id' => $organization->id,
+            'subject' => 'Fwd: Customer Invoice',
+            'last_message_at' => now(),
+        ]);
+        Message::factory()->create([
+            'organization_id' => $organization->id,
+            'thread_id' => $thread->id,
+            'direction' => 'inbound',
+            'from_email' => 'coolchi01@gmail.com',
+            'from_name' => null,
+            'headers' => ['from' => '"sherif coolchi" <coolchi01@gmail.com>'],
+        ]);
+
+        $this->asApp($token, $organization)->getJson('/api/app/inbox/threads')
+            ->assertOk()
+            ->assertJsonPath('data.0.from_email', 'coolchi01@gmail.com')
+            ->assertJsonPath('data.0.from_name', 'Sherif Coolchi');
+    }
+
     public function test_reply_stays_on_the_same_thread(): void
     {
         [, $organization, $token] = $this->sender();

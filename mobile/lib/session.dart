@@ -34,6 +34,11 @@ class Session extends ChangeNotifier {
   LiveConnection? _live;
   Timer? _poll;
   Timer? _typingTimer;
+  var _expiring = false;
+
+  Session() {
+    MailDeskApi.onUnauthorized = expire;
+  }
 
   MailDeskApi get api => MailDeskApi(
         baseUrl: baseUrl,
@@ -98,6 +103,8 @@ class Session extends ChangeNotifier {
       }
     } on ApiException catch (exception) {
       error = exception.message;
+    } catch (_) {
+      error = 'Could not sign in. Check the server address.';
     } finally {
       busy = false;
       notifyListeners();
@@ -122,6 +129,10 @@ class Session extends ChangeNotifier {
       error = null;
       errorStatus = null;
     } on ApiException catch (exception) {
+      if (exception.status == 401) {
+        await expire();
+        return;
+      }
       error = exception.message;
       errorStatus = exception.status;
     }
@@ -129,6 +140,18 @@ class Session extends ChangeNotifier {
     if (error == null) {
       unawaited(_ackReceipts());
     }
+  }
+
+  /// Drop a dead session so the app returns to the login screen.
+  Future<void> expire() async {
+    if (token == null || _expiring) {
+      return;
+    }
+    _expiring = true;
+    await _clearAuth();
+    ready = true;
+    _expiring = false;
+    notifyListeners();
   }
 
   Future<void> signOut() async {
@@ -166,6 +189,39 @@ class Session extends ChangeNotifier {
 
   void setThreads(List<MailThread> next) {
     threads = next;
+    notifyListeners();
+  }
+
+  void stageMessage(ChatMessage message) {
+    final current = messages[message.conversationId] ?? [];
+    messages[message.conversationId] = [...current, message];
+    notifyListeners();
+  }
+
+  void dropMessage(int conversationId, int messageId) {
+    final current = messages[conversationId];
+    if (current == null) {
+      return;
+    }
+    final removedWasLatest = current.isNotEmpty && current.last.id == messageId;
+    final next = [for (final item in current) if (item.id != messageId) item];
+    messages[conversationId] = next;
+    if (removedWasLatest) {
+      final index = conversations.indexWhere((item) => item.id == conversationId);
+      if (index != -1 && next.isNotEmpty) {
+        final latest = next.last;
+        conversations = [
+          for (final conversation in conversations)
+            if (conversation.id != conversationId)
+              conversation
+            else
+              conversation.copyWith(preview: latest.listPreview, lastMessageAt: latest.createdAt),
+        ];
+        _sortChats();
+      } else if (next.isEmpty) {
+        refresh();
+      }
+    }
     notifyListeners();
   }
 
@@ -207,7 +263,15 @@ class Session extends ChangeNotifier {
       if (!mine) {
         final open = openConversationId == message.conversationId;
         _receiptAck.add('${message.conversationId}:${open ? 'read' : 'delivered'}:${message.createdAt ?? ''}');
-        unawaited(open ? api.markChatRead(message.conversationId) : api.markDelivered(message.conversationId));
+        unawaited(_ack(open, message.conversationId));
+      }
+      return;
+    }
+    if (event == 'chat.deleted') {
+      final conversationId = data['conversation_id'] as int?;
+      final messageId = data['message_id'] as int?;
+      if (conversationId != null && messageId != null) {
+        dropMessage(conversationId, messageId);
       }
       return;
     }
@@ -259,12 +323,28 @@ class Session extends ChangeNotifier {
     realtime = RealtimeConfig.fromJson(json['realtime'] as Map<String, dynamic>? ?? {});
   }
 
+  Future<void> _ack(bool open, int conversationId) async {
+    try {
+      if (open) {
+        await api.markChatRead(conversationId);
+      } else {
+        await api.markDelivered(conversationId);
+      }
+    } on ApiException {
+      // A missed receipt can be sent again. It should not surface as a send failure.
+    }
+  }
+
   void _applyMessage(ChatMessage message, {required bool notify}) {
     final current = messages[message.conversationId] ?? [];
     if (current.any((item) => item.id == message.id)) {
       return;
     }
-    messages[message.conversationId] = [...current, message];
+    final pendingIndex = current.indexWhere(
+      (item) => item.pending && item.userId == message.userId && item.body == message.body && item.kind == message.kind,
+    );
+    final withoutPending = pendingIndex < 0 ? current : ([...current]..removeAt(pendingIndex));
+    messages[message.conversationId] = [...withoutPending, message];
     final index = conversations.indexWhere((item) => item.id == message.conversationId);
     if (index == -1) {
       refresh();
@@ -399,14 +479,7 @@ class Session extends ChangeNotifier {
     await prefs.remove('organization_id');
   }
 
-  String _normalize(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      return 'https://maildesk.ng';
-    }
-    final withScheme = trimmed.contains('://') ? trimmed : 'https://$trimmed';
-    return withScheme.endsWith('/') ? withScheme.substring(0, withScheme.length - 1) : withScheme;
-  }
+  String _normalize(String value) => normalizeServerUrl(value);
 
   @override
   void dispose() {
@@ -415,4 +488,45 @@ class Session extends ChangeNotifier {
     _live?.disconnect();
     super.dispose();
   }
+}
+
+/// Public MailDesk hosts redirect plain HTTP to an HTML page, which breaks sign-in.
+/// Local addresses stay on HTTP.
+String normalizeServerUrl(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return 'https://maildesk.ng';
+  }
+  var withScheme = trimmed.contains('://') ? trimmed : 'https://$trimmed';
+  if (withScheme.endsWith('/')) {
+    withScheme = withScheme.substring(0, withScheme.length - 1);
+  }
+  final uri = Uri.tryParse(withScheme);
+  if (uri == null || uri.host.isEmpty || uri.scheme != 'http' || _keepsPlainHttp(uri.host)) {
+    return withScheme;
+  }
+
+  return uri.replace(scheme: 'https').removeFragment().toString();
+}
+
+bool _keepsPlainHttp(String host) {
+  final name = host.toLowerCase();
+  if (name == 'localhost' || name == '127.0.0.1' || name == '::1' || name.endsWith('.test') || name.endsWith('.local')) {
+    return true;
+  }
+  final address = InternetAddress.tryParse(name);
+  if (address == null) {
+    return false;
+  }
+  final bytes = address.rawAddress;
+  if (bytes.length != 4) {
+    return false;
+  }
+  if (bytes[0] == 10 || bytes[0] == 127) {
+    return true;
+  }
+  if (bytes[0] == 192 && bytes[1] == 168) {
+    return true;
+  }
+  return bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31;
 }
