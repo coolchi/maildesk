@@ -2,6 +2,10 @@
 
 use App\Http\Controllers\Api\DeliveryEventController;
 use App\Http\Controllers\Api\InboundEmailController;
+use App\Http\Controllers\Api\Mobile\AuthController as MobileAuthController;
+use App\Http\Controllers\Api\Mobile\ContactController as MobileContactController;
+use App\Http\Controllers\Api\Mobile\EmailController as MobileEmailController;
+use App\Http\Controllers\Api\Mobile\InboxController as MobileInboxController;
 use App\Http\Controllers\Api\MonipayWebhookController;
 use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\DomainController;
@@ -13,6 +17,7 @@ use App\Http\Controllers\Api\V1\SuppressionController;
 use App\Http\Controllers\Api\V1\TemplateController;
 use App\Http\Middleware\AuthenticateApiKey;
 use App\Http\Middleware\EnsureApiAccountActive;
+use App\Http\Middleware\EnsureMobileWorkspaceEntitled;
 use App\Services\DeliveryEventService;
 use Illuminate\Support\Facades\Route;
 
@@ -53,3 +58,28 @@ Route::post('/events/{driver}', DeliveryEventController::class)
 Route::post('/payments/monipay/webhook', MonipayWebhookController::class)
     ->middleware('throttle:600,1')
     ->name('payments.monipay.webhook');
+
+// Mobile API routes (Sanctum token auth)
+Route::prefix('mobile')->name('mobile.')->group(function () {
+    Route::post('/auth/login', [MobileAuthController::class, 'login'])
+        ->middleware('throttle:10,1')
+        ->name('auth.login');
+
+    Route::middleware(['auth:sanctum', EnsureMobileWorkspaceEntitled::class])->group(function () {
+        Route::post('/auth/logout', [MobileAuthController::class, 'logout'])->name('auth.logout');
+        Route::get('/auth/me', [MobileAuthController::class, 'me'])->name('auth.me');
+
+        Route::get('/inbox', [MobileInboxController::class, 'index'])->name('inbox.index');
+        Route::get('/inbox/{thread}', [MobileInboxController::class, 'show'])->whereNumber('thread')->name('inbox.show');
+        Route::patch('/inbox/{thread}/read', [MobileInboxController::class, 'markRead'])->whereNumber('thread')->name('inbox.read');
+        Route::post('/inbox/{thread}/archive', [MobileInboxController::class, 'toggleArchive'])->whereNumber('thread')->name('inbox.archive');
+        Route::post('/inbox/{thread}/spam', [MobileInboxController::class, 'toggleSpam'])->whereNumber('thread')->name('inbox.spam');
+        Route::post('/inbox/{thread}/trash', [MobileInboxController::class, 'toggleTrash'])->whereNumber('thread')->name('inbox.trash');
+        Route::post('/inbox/{thread}/reply', [MobileInboxController::class, 'reply'])->whereNumber('thread')->name('inbox.reply');
+
+        Route::post('/emails', [MobileEmailController::class, 'store'])->name('emails.store');
+
+        Route::get('/contacts', [MobileContactController::class, 'index'])->name('contacts.index');
+        Route::post('/contacts', [MobileContactController::class, 'store'])->name('contacts.store');
+    });
+});
