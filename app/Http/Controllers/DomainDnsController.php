@@ -81,9 +81,64 @@ class DomainDnsController extends Controller
         return $this->run($domain, function ($connection) use ($domain, $validated) {
             $counts = $this->manager->apply($domain, $connection, $validated['key'] ?? null);
 
-            return $counts['created'] + $counts['updated'] === 0
+            $message = $counts['created'] + $counts['updated'] === 0
                 ? 'Nothing to change. Those records are already published.'
                 : "Published at Cloudflare: {$counts['created']} added, {$counts['updated']} updated.";
+
+            if ($counts['skipped_inbound_mx'] ?? false) {
+                $message .= " Note: Receiving MX was skipped because {$domain->name} already has MX records. The existing mail provider's MX records were left untouched, and MailDesk receiving was not enabled.";
+            }
+
+            return $message;
+        });
+    }
+
+    /**
+     * Explicitly enable receiving for a domain by publishing the inbound MX record,
+     * even if the domain already has existing MX records. This requires user confirmation
+     * since it may affect existing email service.
+     */
+    public function enableReceiving(Request $request, Domain $domain): RedirectResponse
+    {
+        $this->authorizeDomain($request, $domain);
+        $request->validate(['confirm' => ['sometimes', 'accepted']]);
+
+        $connection = $domain->dnsConnection;
+
+        if ($connection === null) {
+            return back()->with('error', 'Connect a DNS provider first to enable receiving.');
+        }
+
+        // Check if there's an inbound_mx record to publish
+        $dns = $domain->normalizedDnsRecords();
+        $inboundMx = collect($dns['records'] ?? [])->firstWhere('key', 'inbound_mx');
+
+        if ($inboundMx === null) {
+            return back()->with('error', 'No receiving MX record is configured for this domain. Re-verify the domain to fetch receiving records from Resend.');
+        }
+
+        try {
+            $existingMx = $this->manager->findExistingRootMx($domain, $connection);
+        } catch (DnsProviderException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        if ($existingMx !== [] && ! $request->boolean('confirm')) {
+            $providers = implode(', ', array_column($existingMx, 'content'));
+
+            return back()->with('receiving_confirmation', [
+                'required' => true,
+                'existing_mx' => $providers,
+                'message' => "{$domain->name} already has MX records ({$providers}). Adding MailDesk's receiving MX may change where email is delivered, depending on MX priorities.",
+            ]);
+        }
+
+        return $this->run($domain, function ($connection) use ($domain) {
+            $counts = $this->manager->apply($domain, $connection, 'inbound_mx', forceInboundMx: true);
+
+            return $counts['created'] > 0
+                ? "Receiving enabled! The MX record for {$domain->name} was published alongside any existing MX records. Email delivery may now be affected depending on MX priorities."
+                : "Receiving MX record is already published for {$domain->name}.";
         });
     }
 
