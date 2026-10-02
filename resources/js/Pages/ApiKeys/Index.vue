@@ -284,7 +284,7 @@ const confirmRevoke = () => {
 };
 
 const exportCsv = () => {
-    toast.info('Export coming soon.');
+    window.location.href = route('api-keys.export');
 };
 </script>
 

@@ -134,6 +134,7 @@ class Message extends Model
         $to = is_array($this->to) ? array_values(array_filter($this->to)) : array_filter([(string) $this->to]);
         $at = $this->sent_at ?? $this->created_at;
         $failed = in_array($this->status, ['failed', 'bounced', 'complained', 'suppressed'], true);
+        $tz = $this->organization?->getTimezone() ?? 'Africa/Lagos';
 
         return [
             'id' => $this->uuid,
@@ -147,7 +148,7 @@ class Message extends Model
                 ? (data_get($this->meta, 'bounce.message') ?? data_get($this->meta, 'error'))
                 : null,
             'thread_id' => $this->thread_id,
-            'sent_at' => $at?->timezone(config('app.timezone'))->format('M j, Y g:i A'),
+            'sent_at' => $at?->timezone($tz)->format('M j, Y g:i A'),
             'sent_at_iso' => $at?->toIso8601String(),
             'sent_ago' => $at?->diffForHumans() ?? '',
         ];
@@ -159,6 +160,7 @@ class Message extends Model
     public function toWorkspaceArray(bool $detailed = false): array
     {
         $to = $this->firstAddress($this->to);
+        $tz = $this->organization?->getTimezone() ?? 'Africa/Lagos';
 
         $payload = [
             'id' => $this->uuid,
@@ -168,11 +170,11 @@ class Message extends Model
             'status' => $this->status,
             'subject' => $this->subject,
             'sent' => ($this->sent_at ?? $this->created_at)?->diffForHumans() ?? '',
-            'sent_at' => ($this->sent_at ?? $this->created_at)?->timezone(config('app.timezone'))->format('M j, g:i A'),
+            'sent_at' => ($this->sent_at ?? $this->created_at)?->timezone($tz)->format('M j, g:i A'),
             'delivered_at' => isset($this->meta['delivered_at'])
-                ? Carbon::parse($this->meta['delivered_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                ? Carbon::parse($this->meta['delivered_at'])->timezone($tz)->format('M j, g:i A')
                 : ($this->status === 'delivered'
-                    ? ($this->sent_at ?? $this->created_at)?->timezone(config('app.timezone'))->format('M j, g:i A')
+                    ? ($this->sent_at ?? $this->created_at)?->timezone($tz)->format('M j, g:i A')
                     : null),
             'open_count' => (int) ($this->meta['open_count'] ?? 0),
             'click_count' => (int) ($this->meta['click_count'] ?? 0),
@@ -195,16 +197,16 @@ class Message extends Model
             $payload['events'] = $this->meta['events'] ?? [];
             $payload['bounce'] = $this->meta['bounce'] ?? null;
             $payload['first_opened_at'] = isset($this->meta['first_opened_at'])
-                ? Carbon::parse($this->meta['first_opened_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                ? Carbon::parse($this->meta['first_opened_at'])->timezone($tz)->format('M j, g:i A')
                 : null;
             $payload['last_opened_at'] = isset($this->meta['last_opened_at'])
-                ? Carbon::parse($this->meta['last_opened_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                ? Carbon::parse($this->meta['last_opened_at'])->timezone($tz)->format('M j, g:i A')
                 : null;
             $payload['first_clicked_at'] = isset($this->meta['first_clicked_at'])
-                ? Carbon::parse($this->meta['first_clicked_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                ? Carbon::parse($this->meta['first_clicked_at'])->timezone($tz)->format('M j, g:i A')
                 : null;
             $payload['last_clicked_at'] = isset($this->meta['last_clicked_at'])
-                ? Carbon::parse($this->meta['last_clicked_at'])->timezone(config('app.timezone'))->format('M j, g:i A')
+                ? Carbon::parse($this->meta['last_clicked_at'])->timezone($tz)->format('M j, g:i A')
                 : null;
             $payload['attachments'] = $this->attachments()->get()
                 ->map(fn (Attachment $attachment) => $attachment->toWorkspaceArray())

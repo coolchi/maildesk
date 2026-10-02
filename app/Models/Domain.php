@@ -84,13 +84,21 @@ class Domain extends Model
     public function toWorkspaceArray(?string $region = null): array
     {
         $dns = $this->normalizedDnsRecords();
+        $providerStatus = $dns['provider']['status'] ?? null;
+
+        $displayStatus = $this->status;
+        if ($providerStatus === 'partially_verified' && $this->status === 'verified') {
+            $displayStatus = 'partially_verified';
+        }
+
+        $pendingRecords = $this->getPendingRecordsFromProvider($dns);
 
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'status' => $this->status,
+            'status' => $displayStatus,
             'region' => $region ?? $this->organization?->region ?? 'us-east-1',
-            'created' => $this->created_at?->timezone(config('app.timezone'))->format('M j, Y') ?? '',
+            'created' => $this->created_at?->timezone($this->organization?->getTimezone() ?? 'Africa/Lagos')->format('M j, Y') ?? '',
             'records' => $dns['checks'],
             'dns_rows' => $dns['records'],
             'provider' => $this->provider,
@@ -100,9 +108,43 @@ class Domain extends Model
             'required' => $dns['required'] ?? ['spf', 'dkim'],
             'warnings' => $dns['warnings'] ?? [],
             'provider_domain_id' => $this->provider_domain_id,
-            'provider_status' => $dns['provider']['status'] ?? null,
+            'provider_status' => $providerStatus,
             'provider_error' => $dns['provider_error'] ?? null,
+            'pending_records' => $pendingRecords,
         ];
+    }
+
+    /**
+     * Extract the list of pending record names from the provider's records data.
+     *
+     * @param  array<string, mixed>  $dns
+     * @return list<string>
+     */
+    protected function getPendingRecordsFromProvider(array $dns): array
+    {
+        $pending = [];
+
+        $providerRecords = $dns['provider']['records'] ?? null;
+
+        if (is_array($providerRecords)) {
+            foreach ($providerRecords as $record) {
+                if (is_array($record) && isset($record['status']) && $record['status'] !== 'verified') {
+                    $recordName = $record['record'] ?? $record['type'] ?? 'Unknown';
+                    $pending[] = $recordName;
+                }
+            }
+        }
+
+        if ($pending === [] && ($dns['provider']['status'] ?? null) === 'partially_verified') {
+            foreach ($dns['records'] ?? [] as $record) {
+                $key = $record['key'] ?? '';
+                if ($key !== '' && isset($dns['checks'][$key]) && ! $dns['checks'][$key]) {
+                    $pending[] = strtoupper($record['label'] ?? $key);
+                }
+            }
+        }
+
+        return $pending;
     }
 
     /**

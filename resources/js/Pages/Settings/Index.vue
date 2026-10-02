@@ -246,12 +246,48 @@ const saveSmtp = () => {
 
 const settings = ref({
     workspace: activeWorkspace.value?.name || 'Workspace',
-    timezone: 'Africa/Lagos',
+    timezone: props.settings?.timezone || activeWorkspace.value?.timezone || 'Africa/Lagos',
     replyTo: activeWorkspace.value?.email || 'support@acme.com',
 });
+const settingsSaving = ref(false);
+
+const timezoneOptions = [
+    { value: 'Africa/Lagos', label: 'Africa/Lagos (WAT)' },
+    { value: 'Africa/Johannesburg', label: 'Africa/Johannesburg (SAST)' },
+    { value: 'Africa/Cairo', label: 'Africa/Cairo (EET)' },
+    { value: 'Africa/Nairobi', label: 'Africa/Nairobi (EAT)' },
+    { value: 'Europe/London', label: 'Europe/London (GMT/BST)' },
+    { value: 'Europe/Paris', label: 'Europe/Paris (CET)' },
+    { value: 'Europe/Berlin', label: 'Europe/Berlin (CET)' },
+    { value: 'America/New_York', label: 'America/New York (EST)' },
+    { value: 'America/Chicago', label: 'America/Chicago (CST)' },
+    { value: 'America/Denver', label: 'America/Denver (MST)' },
+    { value: 'America/Los_Angeles', label: 'America/Los Angeles (PST)' },
+    { value: 'America/Sao_Paulo', label: 'America/São Paulo (BRT)' },
+    { value: 'Asia/Dubai', label: 'Asia/Dubai (GST)' },
+    { value: 'Asia/Kolkata', label: 'Asia/Kolkata (IST)' },
+    { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT)' },
+    { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST)' },
+    { value: 'Asia/Shanghai', label: 'Asia/Shanghai (CST)' },
+    { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST)' },
+    { value: 'Pacific/Auckland', label: 'Pacific/Auckland (NZST)' },
+    { value: 'UTC', label: 'UTC' },
+];
 
 const saveWorkspace = () => {
-    toast.success('Workspace settings saved locally.');
+    settingsSaving.value = true;
+    router.put(
+        route('settings.update'),
+        { timezone: settings.value.timezone },
+        {
+            preserveScroll: true,
+            onSuccess: () => toast.success('Workspace settings saved.'),
+            onError: () => toast.error('Could not save settings.'),
+            onFinish: () => {
+                settingsSaving.value = false;
+            },
+        },
+    );
 };
 
 const billing = ref({
@@ -1784,6 +1820,20 @@ const downloadInvoice = () => {
                 </div>
                 <div>
                     <label class="mb-1.5 block text-xs text-zinc-500"
+                        >Timezone</label
+                    >
+                    <select v-model="settings.timezone" class="md-input" data-testid="timezone-select">
+                        <option
+                            v-for="tz in timezoneOptions"
+                            :key="tz.value"
+                            :value="tz.value"
+                        >
+                            {{ tz.label }}
+                        </option>
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500"
                         >Default reply-to</label
                     >
                     <input v-model="settings.replyTo" class="md-input" />
@@ -1820,8 +1870,13 @@ const downloadInvoice = () => {
                     </div>
                 </div>
             </div>
-            <button type="button" class="md-btn-primary" @click="saveWorkspace">
-                Save changes
+            <button
+                type="button"
+                class="md-btn-primary"
+                :disabled="settingsSaving"
+                @click="saveWorkspace"
+            >
+                {{ settingsSaving ? 'Saving…' : 'Save changes' }}
             </button>
         </section>
     </AppLayout>
