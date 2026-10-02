@@ -171,6 +171,18 @@ class ConversationController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, int $conversation): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $model = $this->chat->findFor($this->organization($request), $conversation);
+        $this->authorize('view', $model);
+
+        $this->chat->leave($model, $user);
+
+        return response()->json(['ok' => true]);
+    }
+
     private function organization(Request $request): Organization
     {
         /** @var Organization $organization */

@@ -142,6 +142,8 @@ class MailDeskApi {
     return ConversationSummary.fromJson(json['data'] as Map<String, dynamic>);
   }
 
+  Future<void> deleteConversation(int id) => _send('DELETE', '/api/app/conversations/$id');
+
   Future<void> typing(int conversationId) => _send('POST', '/api/app/conversations/$conversationId/typing');
 
   Future<void> deleteMessage(int conversationId, int messageId) {

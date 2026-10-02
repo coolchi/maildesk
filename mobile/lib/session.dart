@@ -600,6 +600,12 @@ class Session extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> deleteChat(ConversationSummary conversation) async {
+    await api.deleteConversation(conversation.id);
+    conversations = [for (final item in conversations) if (item.id != conversation.id) item];
+    notifyListeners();
+  }
+
   Future<List<ConversationSummary>> archivedConversations() {
     return api.conversations(archived: true);
   }

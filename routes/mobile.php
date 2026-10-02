@@ -51,6 +51,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/conversations', [ConversationController::class, 'index']);
         Route::post('/conversations', [ConversationController::class, 'store']);
         Route::get('/conversations/{conversation}', [ConversationController::class, 'show'])->whereNumber('conversation');
+        Route::delete('/conversations/{conversation}', [ConversationController::class, 'destroy'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/members', [ConversationController::class, 'addMembers'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/pin', [ConversationController::class, 'pin'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'mute'])->whereNumber('conversation');

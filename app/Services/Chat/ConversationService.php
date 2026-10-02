@@ -186,6 +186,13 @@ class ConversationService
             ->update(['archived_at' => $archived ? now() : null]);
     }
 
+    public function leave(Conversation $conversation, User $user): void
+    {
+        $conversation->participants()
+            ->where('user_id', $user->id)
+            ->delete();
+    }
+
     public function markRead(Conversation $conversation, User $user): ?string
     {
         $participant = $conversation->participants()->where('user_id', $user->id)->first();
@@ -273,6 +280,18 @@ class ConversationService
                     ->first();
 
                 if ($existing) {
+                    $existing->participants()->firstOrCreate(
+                        ['user_id' => $user->id],
+                        [
+                            'role' => ConversationParticipant::RoleMember,
+                            'last_read_at' => now(),
+                        ],
+                    );
+                    $existing->participants()->firstOrCreate(
+                        ['user_id' => $otherUserId],
+                        ['role' => ConversationParticipant::RoleMember],
+                    );
+
                     return $existing->load(['participants.user:id,name,last_seen_at']);
                 }
 
