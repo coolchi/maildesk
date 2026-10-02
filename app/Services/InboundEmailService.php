@@ -15,6 +15,7 @@ use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Organization;
 use App\Models\Thread;
+use App\Support\EmailSnippet;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -240,9 +241,7 @@ class InboundEmailService
 
     protected function snippet(InboundEmail $email): string
     {
-        $text = $email->text ?? strip_tags((string) $email->html);
-
-        return Str::limit(trim(preg_replace('/\s+/', ' ', $text)), 180);
+        return EmailSnippet::from($email->text, $email->html);
     }
 
     protected function storeAttachments(Message $message, InboundEmail $email): void

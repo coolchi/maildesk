@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\EmailHtmlSanitizer;
+use App\Support\EmailSnippet;
 use Database\Factories\ThreadFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -81,7 +82,7 @@ class Thread extends Model
         return [
             'id' => $this->id,
             'subject' => $this->subject,
-            'snippet' => $this->snippet ?? '',
+            'snippet' => EmailSnippet::display($this->snippet),
             'ai' => $this->aiWorkspacePayload(),
             'from' => $fromEmail,
             'from_email' => $fromEmail,

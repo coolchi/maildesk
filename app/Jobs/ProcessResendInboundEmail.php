@@ -13,6 +13,7 @@ use App\Models\Organization;
 use App\Models\Thread;
 use App\Services\GroupAddressService;
 use App\Services\SmartTriageService;
+use App\Support\EmailSnippet;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Http\Client\ConnectionException;
@@ -326,9 +327,7 @@ class ProcessResendInboundEmail implements ShouldQueue
 
     protected function snippet(InboundEmail $email): string
     {
-        $text = $email->text ?? strip_tags((string) $email->html);
-
-        return Str::limit(trim(preg_replace('/\s+/', ' ', $text)), 180);
+        return EmailSnippet::from($email->text, $email->html);
     }
 
     protected function storeAttachments(Message $message, InboundEmail $email): void

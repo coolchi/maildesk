@@ -107,6 +107,22 @@ class InboundEmailTest extends TestCase
         $this->assertSame(0, Thread::query()->where('organization_id', $other->organization_id)->count());
     }
 
+    public function test_forwarded_inbound_snippet_skips_the_forward_wrapper(): void
+    {
+        $this->mailbox();
+
+        $this->postGeneric([
+            'subject' => 'Fwd: Order issue',
+            'text' => "---------- Forwarded message ----------\nFrom: Jane <jane@example.com>\nSubject: Order issue\n\nHi, my order has not arrived.",
+            'html' => '<p>---------- Forwarded message ----------</p><p>Hi, my order has not arrived.</p>',
+        ])->assertCreated();
+
+        $this->assertSame(
+            'Hi, my order has not arrived.',
+            Thread::query()->value('snippet'),
+        );
+    }
+
     public function test_recipient_matching_is_case_insensitive_and_checks_cc(): void
     {
         $mailbox = $this->mailbox('Billing@Acme.test');
