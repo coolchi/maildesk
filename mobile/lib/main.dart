@@ -1,8 +1,17 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:maildesk/screens/home_shell.dart';
 import 'package:maildesk/screens/login_page.dart';
 import 'package:maildesk/session.dart';
 import 'package:maildesk/theme.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    await Firebase.initializeApp();
+  } catch (_) {}
+}
 
 class Desk extends InheritedNotifier<Session> {
   const Desk({super.key, required Session session, required super.child}) : super(notifier: session);
@@ -70,8 +79,12 @@ class _MailDeskAppState extends State<MailDeskApp> {
   }
 }
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } catch (_) {}
   runApp(const MailDeskApp());
 }
 

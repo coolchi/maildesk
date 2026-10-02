@@ -7,6 +7,7 @@ import 'package:maildesk/api.dart';
 import 'package:maildesk/desk_cache.dart';
 import 'package:maildesk/live.dart';
 import 'package:maildesk/models.dart';
+import 'package:maildesk/push.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Session extends ChangeNotifier {
@@ -34,6 +35,7 @@ class Session extends ChangeNotifier {
   DeskCache? _cache;
   final Set<String> _receiptAck = {};
   final alerts = Alerts();
+  late final DeskPush push = DeskPush(alerts: alerts);
   LiveConnection? _live;
   Timer? _poll;
   Timer? _typingTimer;
@@ -403,7 +405,10 @@ class Session extends ChangeNotifier {
       refresh().then((_) {
         final after = threads.where((thread) => thread.unread).length;
         if (!inboxVisible && after > before) {
-          alerts.show(id: 1, title: workspace?.name ?? 'MailDesk', body: 'New mail');
+          final newest = threads.where((thread) => thread.unread).toList();
+          final title = newest.isNotEmpty ? newest.first.sender : (workspace?.name ?? 'MailDesk');
+          final body = newest.isNotEmpty ? newest.first.subject : 'New mail';
+          alerts.show(id: 1, title: title, body: body);
         }
       });
     }
@@ -575,6 +580,11 @@ class Session extends ChangeNotifier {
       return;
     }
     await alerts.start();
+    unawaited(
+      push.start(
+        register: (deviceToken, platform) => api.registerDevice(token: deviceToken, platform: platform),
+      ),
+    );
     final live = LiveConnection(config: config, token: auth, onEvent: onLive);
     _live = live;
     await live.connect([
@@ -585,6 +595,7 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> _clearAuth() async {
+    await push.stop(unregister: api.unregisterDevice);
     await _live?.disconnect();
     _poll?.cancel();
     token = null;

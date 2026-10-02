@@ -52,6 +52,17 @@ class MailDeskApi {
 
   Future<void> logout() => _send('POST', '/api/app/logout');
 
+  Future<void> registerDevice({required String token, required String platform}) {
+    return _send('POST', '/api/app/devices', {
+      'token': token,
+      'platform': platform,
+    });
+  }
+
+  Future<void> unregisterDevice(String token) {
+    return _send('DELETE', '/api/app/devices', {'token': token});
+  }
+
   Future<List<Person>> members() async {
     final json = await _send('GET', '/api/app/members');
     return _list(json).map(Person.fromJson).toList();
@@ -263,7 +274,7 @@ class MailDeskApi {
     try {
       response = await switch (method) {
         'POST' => http.post(uri, headers: _headers, body: body == null ? null : jsonEncode(body)),
-        'DELETE' => http.delete(uri, headers: _headers),
+        'DELETE' => http.delete(uri, headers: _headers, body: body == null ? null : jsonEncode(body)),
         _ => http.get(uri, headers: _headers),
       }.timeout(const Duration(seconds: 20));
     } catch (_) {

@@ -6,8 +6,10 @@ use App\Events\ChatDelivered;
 use App\Events\ChatMessageSent;
 use App\Events\ChatRead;
 use App\Jobs\SendChatPush;
+use App\Jobs\SendMailPush;
 use App\Models\ChatMessage;
 use App\Models\DeviceToken;
+use App\Models\Message;
 use App\Models\Organization;
 use App\Models\Thread;
 use App\Models\User;
@@ -316,13 +318,54 @@ class MobileAppTest extends TestCase
 
         $messageId = ChatMessage::query()->value('id');
 
-        (new SendChatPush($messageId))->handle();
+        $this->app->call([new SendChatPush($messageId), 'handle']);
 
         Http::assertSent(function ($request) use ($user) {
             return $request->url() === 'https://fcm.googleapis.com/fcm/send'
                 && $request['registration_ids'] === ['grace-phone']
                 && $request['notification']['title'] === $user->name
-                && $request['notification']['body'] === 'Ping';
+                && $request['notification']['body'] === 'Ping'
+                && $request['data']['type'] === 'chat';
+        });
+    }
+
+    public function test_mail_push_is_sent_to_workspace_devices(): void
+    {
+        Http::fake([
+            'fcm.googleapis.com/*' => Http::response(['success' => 1]),
+        ]);
+        config(['services.fcm.server_key' => 'test-key']);
+
+        [$user, $organization] = $this->member();
+        DeviceToken::query()->create([
+            'user_id' => $user->id,
+            'token' => 'ada-phone',
+            'platform' => 'android',
+        ]);
+
+        $thread = Thread::factory()->create([
+            'organization_id' => $organization->id,
+            'subject' => 'Invoice 14',
+            'snippet' => 'Please find the invoice attached.',
+        ]);
+        $message = Message::factory()->create([
+            'organization_id' => $organization->id,
+            'thread_id' => $thread->id,
+            'direction' => 'inbound',
+            'from_email' => 'billing@vendor.test',
+            'from_name' => 'Vendor Billing',
+            'subject' => 'Invoice 14',
+        ]);
+
+        $this->app->call([new SendMailPush($message->id), 'handle']);
+
+        Http::assertSent(function ($request) use ($thread) {
+            return $request->url() === 'https://fcm.googleapis.com/fcm/send'
+                && $request['registration_ids'] === ['ada-phone']
+                && $request['notification']['title'] === 'Vendor Billing'
+                && str_contains($request['notification']['body'], 'Invoice 14')
+                && $request['data']['type'] === 'mail'
+                && $request['data']['thread_id'] === (string) $thread->id;
         });
     }
 

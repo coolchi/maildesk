@@ -7,6 +7,7 @@ use App\Jobs\ClassifyInboundMessage;
 use App\Jobs\DispatchWebhook;
 use App\Jobs\FetchInboundEmailBody;
 use App\Jobs\SendAutoReply;
+use App\Jobs\SendMailPush;
 use App\Mail\DTO\InboundEmail;
 use App\Models\Attachment;
 use App\Models\Domain;
@@ -103,6 +104,7 @@ class InboundEmailService
         ]);
 
         InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
+        SendMailPush::dispatch($message->id)->afterCommit();
 
         // Mail to a group address (staff@...) is copied to each member via the queue.
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());

@@ -5,6 +5,8 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val googleServicesFile = file("google-services.json")
+
 android {
     namespace = "ng.maildesk.maildesk"
     compileSdk = flutter.compileSdkVersion
@@ -27,8 +29,6 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
     }
 
     buildTypes {
@@ -46,4 +46,8 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+
+if (googleServicesFile.exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }

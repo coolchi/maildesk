@@ -6,9 +6,9 @@ use App\Enums\ConversationType;
 use App\Models\ChatMessage;
 use App\Models\ConversationParticipant;
 use App\Models\DeviceToken;
+use App\Services\Push\FcmClient;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 class SendChatPush implements ShouldQueue
@@ -24,11 +24,9 @@ class SendChatPush implements ShouldQueue
 
     public function __construct(public int $messageId) {}
 
-    public function handle(): void
+    public function handle(FcmClient $fcm): void
     {
-        $key = config('services.fcm.server_key');
-
-        if (! is_string($key) || $key === '') {
+        if (! $fcm->enabled()) {
             return;
         }
 
@@ -43,9 +41,9 @@ class SendChatPush implements ShouldQueue
             ->where('user_id', '!=', $message->user_id)
             ->pluck('user_id');
 
-        $tokens = DeviceToken::query()->whereIn('user_id', $userIds)->pluck('token');
+        $tokens = DeviceToken::query()->whereIn('user_id', $userIds)->pluck('token')->all();
 
-        if ($tokens->isEmpty()) {
+        if ($tokens === []) {
             return;
         }
 
@@ -54,19 +52,16 @@ class SendChatPush implements ShouldQueue
         $title = $isGroup ? ($message->conversation->name ?: 'Group') : $sender;
         $body = $isGroup ? $sender.': '.$message->body : $message->body;
 
-        Http::withHeaders([
-            'Authorization' => 'key='.$key,
-        ])->timeout(5)->post('https://fcm.googleapis.com/fcm/send', [
-            'registration_ids' => $tokens->all(),
-            'priority' => 'high',
-            'notification' => [
+        $fcm->send(
+            $tokens,
+            [
                 'title' => $title,
-                'body' => Str::limit($body, 140),
+                'body' => Str::limit((string) $body, 140),
             ],
-            'data' => [
+            [
                 'type' => 'chat',
                 'conversation_id' => (string) $message->conversation_id,
             ],
-        ])->throw();
+        );
     }
 }

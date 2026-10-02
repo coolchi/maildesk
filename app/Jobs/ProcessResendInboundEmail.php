@@ -159,6 +159,7 @@ class ProcessResendInboundEmail implements ShouldQueue
         ]);
 
         InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
+        SendMailPush::dispatch($message->id)->afterCommit();
 
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());
 
