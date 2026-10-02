@@ -6,6 +6,7 @@ import 'package:maildesk/attachments.dart';
 import 'package:maildesk/main.dart';
 import 'package:maildesk/media.dart';
 import 'package:maildesk/models.dart';
+import 'package:maildesk/outbox.dart';
 import 'package:maildesk/quotes.dart';
 import 'package:maildesk/theme.dart';
 
@@ -128,10 +129,19 @@ class _MailPageState extends State<MailPage> {
     }
     setState(() => sending = true);
     try {
-      await Desk.of(context).api.reply(widget.thread.id, body, files: [for (final file in files) file.path]);
+      final result = await Desk.of(context).replyMail(widget.thread.id, body, files: [for (final file in files) file.path]);
       reply.clear();
       files.clear();
-      await _load();
+      if (!mounted) {
+        return;
+      }
+      if (result == OutboxResult.queued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Reply queued. We’ll send it when you’re back online.')),
+        );
+      } else {
+        await _load();
+      }
     } on ApiException catch (exception) {
       if (mounted) {
         setState(() => error = exception.message);
@@ -151,11 +161,20 @@ class _MailPageState extends State<MailPage> {
     }
     setState(() => sending = true);
     try {
-      await Desk.of(context).api.forward(widget.thread.id, to: to, body: reply.text.trim());
+      final result = await Desk.of(context).forwardMail(widget.thread.id, to: to, body: reply.text.trim());
       forwardTo.clear();
       reply.clear();
       files.clear();
-      await _load();
+      if (!mounted) {
+        return;
+      }
+      if (result == OutboxResult.queued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Forward queued. We’ll send it when you’re back online.')),
+        );
+      } else {
+        await _load();
+      }
     } on ApiException catch (exception) {
       if (mounted) {
         setState(() => error = exception.message);

@@ -5,6 +5,7 @@ import 'package:maildesk/api.dart';
 import 'package:maildesk/attachments.dart';
 import 'package:maildesk/main.dart';
 import 'package:maildesk/models.dart';
+import 'package:maildesk/outbox.dart';
 import 'package:maildesk/theme.dart';
 
 class ComposePage extends StatefulWidget {
@@ -182,28 +183,24 @@ class _ComposePageState extends State<ComposePage> {
       error = null;
     });
     try {
-      await Desk.of(context).api.compose(
+      final result = await Desk.of(context).composeMail(
             to: to.text.trim(),
             cc: _extra(cc),
             bcc: _extra(bcc),
             subject: subject.text.trim(),
             body: body.text.trim(),
             files: [for (final file in files) file.path],
+            draftId: (widget.draft?.id != null && widget.draft!.id > 0) ? widget.draft!.id : null,
           );
       if (!mounted) {
         return;
       }
-      final draftId = widget.draft?.id;
-      if (draftId != null) {
-        try {
-          await Desk.of(context).api.deleteDraft(draftId);
-        } on ApiException {
-          // The message is already sent.
-        }
+      if (result == OutboxResult.queued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Saved. We’ll send it when you’re back online.')),
+        );
       }
-      if (mounted) {
-        Navigator.of(context).pop(true);
-      }
+      Navigator.of(context).pop(true);
     } on ApiException catch (exception) {
       if (mounted) {
         setState(() {
@@ -216,17 +213,23 @@ class _ComposePageState extends State<ComposePage> {
 
   Future<void> _draft() async {
     try {
-      await Desk.of(context).api.saveDraft(
-            id: widget.draft?.id,
+      final result = await Desk.of(context).saveMailDraft(
+            id: (widget.draft?.id != null && widget.draft!.id > 0) ? widget.draft!.id : null,
             to: to.text.trim(),
             cc: _extra(cc),
             bcc: _extra(bcc),
             subject: subject.text.trim(),
             body: body.text.trim(),
           );
-      if (mounted) {
-        Navigator.of(context).pop(false);
+      if (!mounted) {
+        return;
       }
+      if (result == OutboxResult.queued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Draft saved on this phone. We’ll sync it when you’re back online.')),
+        );
+      }
+      Navigator.of(context).pop(false);
     } on ApiException catch (exception) {
       setState(() => error = exception.message);
     }

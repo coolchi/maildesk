@@ -7,6 +7,7 @@ import 'package:maildesk/api.dart';
 import 'package:maildesk/desk_cache.dart';
 import 'package:maildesk/live.dart';
 import 'package:maildesk/models.dart';
+import 'package:maildesk/outbox.dart';
 import 'package:maildesk/push.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,6 +22,7 @@ class Session extends ChangeNotifier {
   RealtimeConfig? realtime;
   List<ConversationSummary> conversations = [];
   List<MailThread> threads = [];
+  List<OutboxItem> outbox = [];
   String? error;
   int? errorStatus;
   String? theme;
@@ -40,6 +42,7 @@ class Session extends ChangeNotifier {
   Timer? _poll;
   Timer? _typingTimer;
   var _expiring = false;
+  var _flushingOutbox = false;
 
   Session() {
     MailDeskApi.onUnauthorized = expire;
@@ -179,6 +182,7 @@ class Session extends ChangeNotifier {
         notifyListeners();
       }
       unawaited(_ackReceipts());
+      unawaited(flushOutbox());
     } on ApiException catch (exception) {
       if (exception.status == 401) {
         await expire();
@@ -344,6 +348,228 @@ class Session extends ChangeNotifier {
     return message;
   }
 
+  Future<OutboxResult> composeMail({
+    required String to,
+    required String subject,
+    required String body,
+    String? cc,
+    String? bcc,
+    List<String> files = const [],
+    int? draftId,
+  }) async {
+    try {
+      await api.compose(to: to, subject: subject, body: body, cc: cc, bcc: bcc, files: files);
+      if (draftId != null) {
+        try {
+          await api.deleteDraft(draftId);
+        } on ApiException {
+          // Already sent.
+        }
+      }
+      return OutboxResult.sent;
+    } on ApiException catch (exception) {
+      if (!isOfflineError(exception)) {
+        rethrow;
+      }
+      await _enqueue(
+        OutboxItem(
+          id: newOutboxId(),
+          kind: OutboxKind.compose,
+          organizationId: workspace?.id ?? 0,
+          createdAt: DateTime.now().toIso8601String(),
+          draftId: draftId,
+          to: to,
+          cc: cc,
+          bcc: bcc,
+          subject: subject,
+          body: body,
+          files: files,
+        ),
+      );
+      return OutboxResult.queued;
+    }
+  }
+
+  Future<OutboxResult> saveMailDraft({
+    int? id,
+    String? to,
+    String? cc,
+    String? bcc,
+    String? subject,
+    String? body,
+  }) async {
+    try {
+      await api.saveDraft(id: id, to: to, cc: cc, bcc: bcc, subject: subject, body: body);
+      return OutboxResult.sent;
+    } on ApiException catch (exception) {
+      if (!isOfflineError(exception)) {
+        rethrow;
+      }
+      await _enqueue(
+        OutboxItem(
+          id: newOutboxId(),
+          kind: OutboxKind.draft,
+          organizationId: workspace?.id ?? 0,
+          createdAt: DateTime.now().toIso8601String(),
+          draftId: id,
+          to: to ?? '',
+          cc: cc,
+          bcc: bcc,
+          subject: subject ?? '',
+          body: body ?? '',
+        ),
+      );
+      return OutboxResult.queued;
+    }
+  }
+
+  Future<OutboxResult> replyMail(int threadId, String body, {List<String> files = const []}) async {
+    try {
+      await api.reply(threadId, body, files: files);
+      return OutboxResult.sent;
+    } on ApiException catch (exception) {
+      if (!isOfflineError(exception)) {
+        rethrow;
+      }
+      await _enqueue(
+        OutboxItem(
+          id: newOutboxId(),
+          kind: OutboxKind.reply,
+          organizationId: workspace?.id ?? 0,
+          createdAt: DateTime.now().toIso8601String(),
+          threadId: threadId,
+          body: body,
+          files: files,
+        ),
+      );
+      return OutboxResult.queued;
+    }
+  }
+
+  Future<OutboxResult> forwardMail(int threadId, {required String to, String body = ''}) async {
+    try {
+      await api.forward(threadId, to: to, body: body);
+      return OutboxResult.sent;
+    } on ApiException catch (exception) {
+      if (!isOfflineError(exception)) {
+        rethrow;
+      }
+      await _enqueue(
+        OutboxItem(
+          id: newOutboxId(),
+          kind: OutboxKind.forward,
+          organizationId: workspace?.id ?? 0,
+          createdAt: DateTime.now().toIso8601String(),
+          threadId: threadId,
+          to: to,
+          body: body,
+        ),
+      );
+      return OutboxResult.queued;
+    }
+  }
+
+  Future<void> flushOutbox() async {
+    final organizationId = workspace?.id;
+    if (_flushingOutbox || organizationId == null || outbox.isEmpty || token == null) {
+      return;
+    }
+    _flushingOutbox = true;
+    final remaining = <OutboxItem>[];
+    var delivered = 0;
+    try {
+      for (var index = 0; index < outbox.length; index++) {
+        final item = outbox[index];
+        try {
+          await _deliverOutboxItem(item);
+          delivered++;
+        } on ApiException catch (exception) {
+          if (isOfflineError(exception) || (exception.status != null && exception.status! >= 500)) {
+            remaining.addAll(outbox.sublist(index));
+            break;
+          }
+          // Drop permanent client errors so a bad address does not block the queue.
+        }
+      }
+      if (remaining.length != outbox.length || delivered > 0) {
+        outbox = remaining;
+        await _persistOutbox();
+        notifyListeners();
+      }
+      if (delivered > 0) {
+        await alerts.show(
+          id: 42,
+          title: workspace?.name ?? 'MailDesk',
+          body: delivered == 1 ? 'Queued mail was sent.' : '$delivered queued messages were sent.',
+        );
+        try {
+          final nextThreads = await api.inbox();
+          threads = nextThreads;
+          final organizationId = workspace?.id;
+          if (organizationId != null) {
+            unawaited(_cache?.saveLists(organizationId: organizationId, threads: threads, conversations: conversations));
+          }
+          notifyListeners();
+        } on ApiException {
+          // The outbox flush already succeeded.
+        }
+      }
+    } finally {
+      _flushingOutbox = false;
+    }
+  }
+
+  Future<void> _enqueue(OutboxItem item) async {
+    if (item.organizationId == 0) {
+      throw ApiException('Choose a workspace before sending.');
+    }
+    outbox = [...outbox, item];
+    await _persistOutbox();
+    notifyListeners();
+  }
+
+  Future<void> _persistOutbox() async {
+    final organizationId = workspace?.id;
+    if (organizationId == null) {
+      return;
+    }
+    await _cache?.saveOutbox(organizationId, outbox);
+  }
+
+  Future<void> _deliverOutboxItem(OutboxItem item) async {
+    switch (item.kind) {
+      case OutboxKind.compose:
+        await api.compose(
+          to: item.to,
+          cc: item.cc,
+          bcc: item.bcc,
+          subject: item.subject,
+          body: item.body,
+          files: item.files,
+        );
+        if (item.draftId != null) {
+          try {
+            await api.deleteDraft(item.draftId!);
+          } on ApiException {
+            // Already gone.
+          }
+        }
+      case OutboxKind.draft:
+        await api.saveDraft(
+          id: item.draftId,
+          to: item.to,
+          cc: item.cc,
+          bcc: item.bcc,
+          subject: item.subject,
+          body: item.body,
+        );
+      case OutboxKind.reply:
+        await api.reply(item.threadId ?? 0, item.body, files: item.files);
+      case OutboxKind.forward:
+        await api.forward(item.threadId ?? 0, to: item.to, body: item.body);
+    }
+  }
+
   Future<void> pin(ConversationSummary conversation) async {
     final updated = await api.pinConversation(conversation.id, !conversation.pinned);
     conversations = [
@@ -448,6 +674,7 @@ class Session extends ChangeNotifier {
       ..clear()
       ..addAll(_cache?.readMessages(organizationId) ?? {});
     mailCache.clear();
+    outbox = _cache?.readOutbox(organizationId) ?? [];
   }
 
   Future<void> _ack(bool open, int conversationId) async {
@@ -592,6 +819,7 @@ class Session extends ChangeNotifier {
       'private-organizations.$organizationId.inbox',
     ]);
     _poll = Timer.periodic(const Duration(seconds: 12), (_) => refresh());
+    unawaited(flushOutbox());
   }
 
   Future<void> _clearAuth() async {
@@ -606,6 +834,7 @@ class Session extends ChangeNotifier {
     threads = [];
     messages.clear();
     mailCache.clear();
+    outbox = [];
     _receiptAck.clear();
     unawaited(_cache?.clear());
     error = null;

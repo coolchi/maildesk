@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:maildesk/models.dart';
+import 'package:maildesk/outbox.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -141,6 +142,25 @@ class DeskCache {
     await _touchOrder(dir, '$conversationId', _keptChats);
   }
 
+  List<OutboxItem> readOutbox(int organizationId) {
+    final json = _jsonList(_prefs.getString('desk.outbox.$organizationId'));
+    if (json == null) {
+      return [];
+    }
+    return [
+      for (final item in json)
+        if (item is Map<String, dynamic>) OutboxItem.fromJson(item)
+        else if (item is Map) OutboxItem.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  Future<void> saveOutbox(int organizationId, List<OutboxItem> items) {
+    return _prefs.setString(
+      'desk.outbox.$organizationId',
+      jsonEncode([for (final item in items) item.toJson()]),
+    );
+  }
+
   Uint8List? readBytes(String url) {
     final memory = _memoryBytes.remove(url);
     if (memory != null) {
@@ -270,6 +290,17 @@ Map<String, dynamic>? _jsonMap(String? raw) {
     return null;
   }
   return Map<String, dynamic>.from(json);
+}
+
+List<dynamic>? _jsonList(String? raw) {
+  if (raw == null || raw.isEmpty) {
+    return null;
+  }
+  final json = jsonDecode(raw);
+  if (json is! List) {
+    return null;
+  }
+  return json;
 }
 
 List<T> _models<T>(Object? json, T Function(Map<String, dynamic>) decode) {

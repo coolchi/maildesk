@@ -6,6 +6,7 @@ import 'package:maildesk/desk_cache.dart';
 import 'package:maildesk/empty.dart';
 import 'package:maildesk/main.dart';
 import 'package:maildesk/models.dart';
+import 'package:maildesk/outbox.dart';
 import 'package:maildesk/screens/compose_page.dart';
 import 'package:maildesk/screens/mail_page.dart';
 import 'package:maildesk/theme.dart';
@@ -87,7 +88,30 @@ class _InboxPageState extends State<InboxPage> {
     }
     try {
       if (folder == 'drafts') {
-        drafts = await session.api.drafts();
+        try {
+          drafts = await session.api.drafts();
+        } on ApiException catch (exception) {
+          if (!isOfflineError(exception)) {
+            rethrow;
+          }
+          drafts = [];
+        }
+        drafts = [
+          ...session.outbox
+              .where((item) => item.kind == OutboxKind.draft || item.kind == OutboxKind.compose)
+              .map(
+                (item) => MailDraft(
+                  id: -item.id.hashCode.abs(),
+                  subject: item.subject,
+                  to: item.to.isEmpty ? null : item.to,
+                  cc: item.cc,
+                  bcc: item.bcc,
+                  body: item.body,
+                  updated: item.kind == OutboxKind.compose ? 'Queued' : 'Offline',
+                ),
+              ),
+          ...drafts,
+        ];
       } else {
         final next = await session.api.inbox(folder: folder, query: search.text);
         if (sameMailThreads(threads, next)) {
@@ -706,8 +730,25 @@ class _InboxPageState extends State<InboxPage> {
           ),
           onTap: () async {
             HapticFeedback.selectionClick();
+            if (draft.updated == 'Queued') {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('This message will send when you’re back online.')),
+              );
+              return;
+            }
+            final editable = draft.id > 0
+                ? draft
+                : MailDraft(
+                    id: 0,
+                    subject: draft.subject,
+                    to: draft.to,
+                    cc: draft.cc,
+                    bcc: draft.bcc,
+                    body: draft.body,
+                    updated: draft.updated,
+                  );
             final sent = await Navigator.of(context).push<bool>(
-              MaterialPageRoute(builder: (_) => ComposePage(draft: draft)),
+              MaterialPageRoute(builder: (_) => ComposePage(draft: draft.id > 0 ? draft : editable)),
             );
             if (!mounted) {
               return;
