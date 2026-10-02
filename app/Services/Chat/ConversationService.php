@@ -25,11 +25,18 @@ class ConversationService
     /**
      * @return Collection<int, Conversation>
      */
-    public function listFor(Organization $organization, User $user): Collection
+    public function listFor(Organization $organization, User $user, bool $archived = false): Collection
     {
         return Conversation::query()
             ->where('organization_id', $organization->id)
-            ->whereHas('participants', fn ($query) => $query->where('user_id', $user->id))
+            ->whereHas('participants', function ($query) use ($user, $archived) {
+                $query->where('user_id', $user->id);
+                if ($archived) {
+                    $query->whereNotNull('archived_at');
+                } else {
+                    $query->whereNull('archived_at');
+                }
+            })
             ->with(['participants.user:id,name,last_seen_at'])
             ->withCount(['messages as unread_count' => function ($query) use ($user) {
                 $userId = (int) $user->id;
@@ -163,6 +170,20 @@ class ConversationService
         $conversation->participants()
             ->where('user_id', $user->id)
             ->update(['pinned_at' => $pinned ? now() : null]);
+    }
+
+    public function mute(Conversation $conversation, User $user, bool $muted): void
+    {
+        $conversation->participants()
+            ->where('user_id', $user->id)
+            ->update(['muted_at' => $muted ? now() : null]);
+    }
+
+    public function archive(Conversation $conversation, User $user, bool $archived): void
+    {
+        $conversation->participants()
+            ->where('user_id', $user->id)
+            ->update(['archived_at' => $archived ? now() : null]);
     }
 
     public function markRead(Conversation $conversation, User $user): ?string

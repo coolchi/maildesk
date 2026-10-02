@@ -142,6 +142,12 @@ class SearchController extends Controller
     {
         $limit = $recent ? 8 : 12;
         $conversations = $this->chat->listFor($organization, $user);
+        if (! $recent) {
+            $conversations = $conversations
+                ->concat($this->chat->listFor($organization, $user, archived: true))
+                ->unique('id')
+                ->values();
+        }
 
         if (! $recent) {
             $like = strtolower($query);

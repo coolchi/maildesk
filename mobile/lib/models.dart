@@ -195,6 +195,8 @@ class ConversationSummary {
     this.preview,
     this.lastMessageAt,
     this.pinned = false,
+    this.muted = false,
+    this.archived = false,
   });
 
   final int id;
@@ -204,6 +206,8 @@ class ConversationSummary {
   final String? lastMessageAt;
   final int unreadCount;
   final bool pinned;
+  final bool muted;
+  final bool archived;
   final List<Participant> participants;
 
   bool get isGroup => type == 'group';
@@ -213,6 +217,8 @@ class ConversationSummary {
     String? lastMessageAt,
     int? unreadCount,
     bool? pinned,
+    bool? muted,
+    bool? archived,
     List<Participant>? participants,
   }) {
     return ConversationSummary(
@@ -223,6 +229,8 @@ class ConversationSummary {
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
       unreadCount: unreadCount ?? this.unreadCount,
       pinned: pinned ?? this.pinned,
+      muted: muted ?? this.muted,
+      archived: archived ?? this.archived,
       participants: participants ?? this.participants,
     );
   }
@@ -236,6 +244,8 @@ class ConversationSummary {
       lastMessageAt: json['last_message_at'] as String?,
       unreadCount: json['unread_count'] as int? ?? 0,
       pinned: json['pinned'] as bool? ?? false,
+      muted: json['muted'] as bool? ?? false,
+      archived: json['archived'] as bool? ?? false,
       participants: ((json['participants'] as List?) ?? [])
           .map((item) => Participant.fromJson(item as Map<String, dynamic>))
           .toList(),
@@ -250,6 +260,8 @@ class ConversationSummary {
         'last_message_at': lastMessageAt,
         'unread_count': unreadCount,
         'pinned': pinned,
+        'muted': muted,
+        'archived': archived,
         'participants': participants.map((item) => item.toJson()).toList(),
       };
 }

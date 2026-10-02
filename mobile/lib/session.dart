@@ -580,6 +580,30 @@ class Session extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> mute(ConversationSummary conversation) async {
+    final updated = await api.muteConversation(conversation.id, !conversation.muted);
+    conversations = [
+      for (final item in conversations)
+        if (item.id == conversation.id) updated else item,
+    ];
+    notifyListeners();
+  }
+
+  Future<void> archive(ConversationSummary conversation) async {
+    final updated = await api.archiveConversation(conversation.id, !conversation.archived);
+    if (updated.archived) {
+      conversations = [for (final item in conversations) if (item.id != conversation.id) item];
+    } else {
+      conversations = [updated, ...conversations.where((item) => item.id != conversation.id)];
+      _sortChats();
+    }
+    notifyListeners();
+  }
+
+  Future<List<ConversationSummary>> archivedConversations() {
+    return api.conversations(archived: true);
+  }
+
   Future<void> pulseTyping(int conversationId) => api.typing(conversationId);
 
   void onLive(String event, Map<String, dynamic> data) {
@@ -701,10 +725,12 @@ class Session extends ChangeNotifier {
     messages[message.conversationId] = [...withoutPending, message];
     rememberMessages(message.conversationId, messages[message.conversationId]!);
     final index = conversations.indexWhere((item) => item.id == message.conversationId);
+    var muted = false;
     if (index == -1) {
       refresh();
     } else {
       final existing = conversations[index];
+      muted = existing.muted;
       final open = openConversationId == message.conversationId;
       conversations = [
         existing.copyWith(
@@ -716,7 +742,7 @@ class Session extends ChangeNotifier {
       ];
       _sortChats();
     }
-    if (notify) {
+    if (notify && !muted) {
       alerts.show(
         id: message.id,
         title: message.userName,

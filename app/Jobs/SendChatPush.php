@@ -39,6 +39,7 @@ class SendChatPush implements ShouldQueue
         $userIds = ConversationParticipant::query()
             ->where('conversation_id', $message->conversation_id)
             ->where('user_id', '!=', $message->user_id)
+            ->whereNull('muted_at')
             ->pluck('user_id');
 
         $tokens = DeviceToken::query()->whereIn('user_id', $userIds)->pluck('token')->all();

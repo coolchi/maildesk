@@ -53,6 +53,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/conversations/{conversation}', [ConversationController::class, 'show'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/members', [ConversationController::class, 'addMembers'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/pin', [ConversationController::class, 'pin'])->whereNumber('conversation');
+        Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'mute'])->whereNumber('conversation');
+        Route::post('/conversations/{conversation}/archive', [ConversationController::class, 'archive'])->whereNumber('conversation');
 
         Route::get('/conversations/{conversation}/messages', [ChatMessageController::class, 'index'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/messages', [ChatMessageController::class, 'store'])

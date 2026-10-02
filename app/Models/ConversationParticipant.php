@@ -23,6 +23,8 @@ class ConversationParticipant extends Model
         'last_read_at',
         'last_delivered_at',
         'pinned_at',
+        'muted_at',
+        'archived_at',
     ];
 
     protected function casts(): array
@@ -31,6 +33,8 @@ class ConversationParticipant extends Model
             'last_read_at' => 'datetime',
             'last_delivered_at' => 'datetime',
             'pinned_at' => 'datetime',
+            'muted_at' => 'datetime',
+            'archived_at' => 'datetime',
         ];
     }
 

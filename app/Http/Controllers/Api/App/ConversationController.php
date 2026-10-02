@@ -25,8 +25,9 @@ class ConversationController extends Controller
         /** @var User $user */
         $user = $request->user();
         $organization = $this->organization($request);
+        $archived = $request->boolean('archived');
 
-        $conversations = $this->chat->listFor($organization, $user);
+        $conversations = $this->chat->listFor($organization, $user, $archived);
 
         return response()->json([
             'data' => $conversations->map(fn ($conversation) => $conversation->toAppArray($user))->values(),
@@ -125,6 +126,44 @@ class ConversationController extends Controller
         ]);
 
         $this->chat->pin($model, $user, $validated['pinned']);
+        $model->load(['participants.user:id,name,last_seen_at']);
+
+        return response()->json([
+            'data' => $model->toAppArray($user),
+        ]);
+    }
+
+    public function mute(Request $request, int $conversation): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $model = $this->chat->findFor($this->organization($request), $conversation);
+        $this->authorize('view', $model);
+
+        $validated = $request->validate([
+            'muted' => ['required', 'boolean'],
+        ]);
+
+        $this->chat->mute($model, $user, $validated['muted']);
+        $model->load(['participants.user:id,name,last_seen_at']);
+
+        return response()->json([
+            'data' => $model->toAppArray($user),
+        ]);
+    }
+
+    public function archive(Request $request, int $conversation): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $model = $this->chat->findFor($this->organization($request), $conversation);
+        $this->authorize('view', $model);
+
+        $validated = $request->validate([
+            'archived' => ['required', 'boolean'],
+        ]);
+
+        $this->chat->archive($model, $user, $validated['archived']);
         $model->load(['participants.user:id,name,last_seen_at']);
 
         return response()->json([

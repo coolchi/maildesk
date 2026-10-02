@@ -10,10 +10,16 @@ import 'package:maildesk/screens/people_page.dart';
 import 'package:maildesk/theme.dart';
 
 class ChatListPage extends StatelessWidget {
-  const ChatListPage({super.key});
+  const ChatListPage({super.key, this.archived = false});
+
+  final bool archived;
 
   @override
   Widget build(BuildContext context) {
+    if (archived) {
+      return const _ArchivedChats();
+    }
+
     final session = Desk.of(context);
     final colors = deskColors(context);
     if (session.conversations.isEmpty) {
@@ -30,9 +36,20 @@ class ChatListPage extends StatelessWidget {
       onRefresh: session.refresh,
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
-        itemCount: session.conversations.length,
+        itemCount: session.conversations.length + 1,
         separatorBuilder: (context, index) => Divider(height: 1, color: colors.border),
         itemBuilder: (context, index) {
+          if (index == session.conversations.length) {
+            return ListTile(
+              leading: Icon(LucideIcons.archive, color: colors.muted),
+              title: Text('Archived chats', style: TextStyle(color: colors.secondary)),
+              trailing: Icon(LucideIcons.chevronRight, size: 16, color: colors.muted),
+              onTap: () {
+                HapticFeedback.selectionClick();
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChatListPage(archived: true)));
+              },
+            );
+          }
           final conversation = session.conversations[index];
           return _Row(conversation: conversation, userId: session.user?.id);
         },
@@ -50,11 +67,87 @@ class ChatListPage extends StatelessWidget {
   }
 }
 
+class _ArchivedChats extends StatefulWidget {
+  const _ArchivedChats();
+
+  @override
+  State<_ArchivedChats> createState() => _ArchivedChatsState();
+}
+
+class _ArchivedChatsState extends State<_ArchivedChats> {
+  List<ConversationSummary> chats = [];
+  var loading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final next = await Desk.read(context).archivedConversations();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        chats = next;
+        loading = false;
+        error = null;
+      });
+    } on ApiException catch (exception) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        loading = false;
+        error = exception.message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = deskColors(context);
+    return Scaffold(
+      backgroundColor: colors.bg,
+      appBar: AppBar(title: const Text('Archived chats')),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+              ? Center(child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))
+              : chats.isEmpty
+                  ? const EmptyPane(
+                      icon: LucideIcons.archive,
+                      title: 'No archived chats',
+                      message: 'Long-press a chat and choose Archive to tuck it away.',
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: chats.length,
+                        separatorBuilder: (context, index) => Divider(height: 1, color: colors.border),
+                        itemBuilder: (context, index) {
+                          return _Row(
+                            conversation: chats[index],
+                            userId: Desk.of(context).user?.id,
+                            onChanged: _load,
+                          );
+                        },
+                      ),
+                    ),
+    );
+  }
+}
+
 class _Row extends StatelessWidget {
-  const _Row({required this.conversation, required this.userId});
+  const _Row({required this.conversation, required this.userId, this.onChanged});
 
   final ConversationSummary conversation;
   final int? userId;
+  final Future<void> Function()? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +167,10 @@ class _Row extends StatelessWidget {
         children: [
           if (conversation.pinned) ...[
             Icon(LucideIcons.pin, size: 14, color: colors.accent),
+            const SizedBox(width: 4),
+          ],
+          if (conversation.muted) ...[
+            Icon(LucideIcons.bellOff, size: 14, color: colors.muted),
             const SizedBox(width: 4),
           ],
           Expanded(
@@ -115,17 +212,69 @@ class _Row extends StatelessWidget {
         HapticFeedback.selectionClick();
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => ConversationPage(conversation: conversation)));
       },
-      onLongPress: () async {
-        HapticFeedback.mediumImpact();
-        try {
-          await Desk.of(context).pin(conversation);
-        } on ApiException catch (exception) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(exception.message)));
-          }
-        }
-      },
+      onLongPress: () => _actions(context),
     );
+  }
+
+  Future<void> _actions(BuildContext context) async {
+    HapticFeedback.mediumImpact();
+    final colors = deskColors(context);
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: colors.panel,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(conversation.name, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colors.text)),
+              const SizedBox(height: 4),
+              Text('Chat options', style: TextStyle(color: colors.muted, fontSize: 13)),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: Icon(conversation.pinned ? LucideIcons.pinOff : LucideIcons.pin),
+                title: Text(conversation.pinned ? 'Unpin' : 'Pin'),
+                onTap: () => Navigator.pop(context, 'pin'),
+              ),
+              ListTile(
+                leading: Icon(conversation.muted ? LucideIcons.bell : LucideIcons.bellOff),
+                title: Text(conversation.muted ? 'Unmute' : 'Mute'),
+                subtitle: Text(conversation.muted ? 'Show alerts again' : 'Silence alerts for this chat'),
+                onTap: () => Navigator.pop(context, 'mute'),
+              ),
+              ListTile(
+                leading: Icon(conversation.archived ? LucideIcons.archiveRestore : LucideIcons.archive),
+                title: Text(conversation.archived ? 'Unarchive' : 'Archive'),
+                subtitle: Text(conversation.archived ? 'Move back to chats' : 'Hide from the main list'),
+                onTap: () => Navigator.pop(context, 'archive'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null || !context.mounted) {
+      return;
+    }
+    final session = Desk.of(context);
+    try {
+      switch (choice) {
+        case 'pin':
+          await session.pin(conversation);
+        case 'mute':
+          await session.mute(conversation);
+        case 'archive':
+          await session.archive(conversation);
+          await onChanged?.call();
+      }
+    } on ApiException catch (exception) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(exception.message)));
+      }
+    }
   }
 }
 

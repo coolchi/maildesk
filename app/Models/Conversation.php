@@ -68,6 +68,8 @@ class Conversation extends Model
             : ($others->first()?->user?->name ?? 'Chat');
         $presence = app(PresenceService::class);
 
+        $viewerRow = $participants->firstWhere('user_id', $viewer->id);
+
         return [
             'id' => $this->id,
             'type' => $this->type->value,
@@ -75,7 +77,9 @@ class Conversation extends Model
             'preview' => $this->last_message_preview,
             'last_message_at' => $this->last_message_at?->toIso8601String(),
             'unread_count' => (int) ($this->unread_count ?? 0),
-            'pinned' => $participants->firstWhere('user_id', $viewer->id)?->pinned_at !== null,
+            'pinned' => $viewerRow?->pinned_at !== null,
+            'muted' => $viewerRow?->muted_at !== null,
+            'archived' => $viewerRow?->archived_at !== null,
             'participants' => $participants->map(function (ConversationParticipant $participant) use ($presence) {
                 $status = $presence->forUser($participant->user);
 

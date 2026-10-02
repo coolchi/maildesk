@@ -74,8 +74,9 @@ class MailDeskApi {
     return SearchResults.fromJson(json);
   }
 
-  Future<List<ConversationSummary>> conversations() async {
-    final json = await _send('GET', '/api/app/conversations');
+  Future<List<ConversationSummary>> conversations({bool archived = false}) async {
+    final params = archived ? '?archived=1' : '';
+    final json = await _send('GET', '/api/app/conversations$params');
     return _list(json).map(ConversationSummary.fromJson).toList();
   }
 
@@ -128,6 +129,16 @@ class MailDeskApi {
 
   Future<ConversationSummary> pinConversation(int id, bool pinned) async {
     final json = await _send('POST', '/api/app/conversations/$id/pin', {'pinned': pinned});
+    return ConversationSummary.fromJson(json['data'] as Map<String, dynamic>);
+  }
+
+  Future<ConversationSummary> muteConversation(int id, bool muted) async {
+    final json = await _send('POST', '/api/app/conversations/$id/mute', {'muted': muted});
+    return ConversationSummary.fromJson(json['data'] as Map<String, dynamic>);
+  }
+
+  Future<ConversationSummary> archiveConversation(int id, bool archived) async {
+    final json = await _send('POST', '/api/app/conversations/$id/archive', {'archived': archived});
     return ConversationSummary.fromJson(json['data'] as Map<String, dynamic>);
   }
 
