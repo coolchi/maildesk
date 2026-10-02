@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:maildesk/desk_cache.dart';
 import 'package:maildesk/models.dart';
 
 class ApiException implements Exception {
@@ -233,6 +234,10 @@ class MailDeskApi {
   }
 
   Future<Uint8List> fetchBytes(String url) async {
+    final cached = DeskCache.current?.readBytes(url);
+    if (cached != null) {
+      return cached;
+    }
     late http.Response response;
     try {
       response = await http.get(Uri.parse(url), headers: {
@@ -244,7 +249,9 @@ class MailDeskApi {
       throw ApiException('Could not reach MailDesk. Check the server address.');
     }
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      return response.bodyBytes;
+      final bytes = response.bodyBytes;
+      await DeskCache.current?.writeBytes(url, bytes);
+      return bytes;
     }
     _rejectIfUnauthenticated(response.statusCode);
     throw ApiException('Could not open this file.', status: response.statusCode);

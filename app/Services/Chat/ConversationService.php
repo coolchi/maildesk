@@ -30,7 +30,7 @@ class ConversationService
         return Conversation::query()
             ->where('organization_id', $organization->id)
             ->whereHas('participants', fn ($query) => $query->where('user_id', $user->id))
-            ->with(['participants.user:id,name'])
+            ->with(['participants.user:id,name,last_seen_at'])
             ->withCount(['messages as unread_count' => function ($query) use ($user) {
                 $userId = (int) $user->id;
                 $query->where(function ($query) use ($userId) {
@@ -60,7 +60,7 @@ class ConversationService
     {
         return Conversation::query()
             ->where('organization_id', $organization->id)
-            ->with(['participants.user:id,name'])
+            ->with(['participants.user:id,name,last_seen_at'])
             ->findOrFail($conversationId);
     }
 
@@ -221,7 +221,7 @@ class ConversationService
             );
         }
 
-        return $conversation->load(['participants.user:id,name']);
+        return $conversation->load(['participants.user:id,name,last_seen_at']);
     }
 
     /**
@@ -252,7 +252,7 @@ class ConversationService
                     ->first();
 
                 if ($existing) {
-                    return $existing->load(['participants.user:id,name']);
+                    return $existing->load(['participants.user:id,name,last_seen_at']);
                 }
 
                 $conversation = Conversation::query()->create([
@@ -265,13 +265,13 @@ class ConversationService
 
                 $this->attachParticipants($conversation, $user, [$otherUserId]);
 
-                return $conversation->load(['participants.user:id,name']);
+                return $conversation->load(['participants.user:id,name,last_seen_at']);
             });
         } catch (UniqueConstraintViolationException) {
             return Conversation::query()
                 ->where('organization_id', $organization->id)
                 ->where('direct_key', $key)
-                ->with(['participants.user:id,name'])
+                ->with(['participants.user:id,name,last_seen_at'])
                 ->firstOrFail();
         }
     }
@@ -291,7 +291,7 @@ class ConversationService
 
         $this->attachParticipants($conversation, $user, $memberIds);
 
-        return $conversation->load(['participants.user:id,name']);
+        return $conversation->load(['participants.user:id,name,last_seen_at']);
     }
 
     /**

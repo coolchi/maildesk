@@ -79,6 +79,8 @@ class Participant {
     required this.role,
     this.lastReadAt,
     this.lastDeliveredAt,
+    this.lastSeenAt,
+    this.online = false,
   });
 
   final int id;
@@ -86,14 +88,18 @@ class Participant {
   final String role;
   final String? lastReadAt;
   final String? lastDeliveredAt;
+  final String? lastSeenAt;
+  final bool online;
 
-  Participant copyWith({String? lastReadAt, String? lastDeliveredAt}) {
+  Participant copyWith({String? lastReadAt, String? lastDeliveredAt, String? lastSeenAt, bool? online}) {
     return Participant(
       id: id,
       name: name,
       role: role,
       lastReadAt: lastReadAt ?? this.lastReadAt,
       lastDeliveredAt: lastDeliveredAt ?? this.lastDeliveredAt,
+      lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      online: online ?? this.online,
     );
   }
 
@@ -104,8 +110,20 @@ class Participant {
       role: json['role'] as String? ?? 'member',
       lastReadAt: json['last_read_at'] as String?,
       lastDeliveredAt: json['last_delivered_at'] as String?,
+      lastSeenAt: json['last_seen_at'] as String?,
+      online: json['online'] as bool? ?? false,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'role': role,
+        'last_read_at': lastReadAt,
+        'last_delivered_at': lastDeliveredAt,
+        'last_seen_at': lastSeenAt,
+        'online': online,
+      };
 }
 
 class ConversationSummary {
@@ -164,6 +182,17 @@ class ConversationSummary {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'type': type,
+        'name': name,
+        'preview': preview,
+        'last_message_at': lastMessageAt,
+        'unread_count': unreadCount,
+        'pinned': pinned,
+        'participants': participants.map((item) => item.toJson()).toList(),
+      };
 }
 
 class ChatFile {
@@ -196,6 +225,16 @@ class ChatFile {
       durationMs: json['duration_ms'] as int?,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'filename': filename,
+        'url': url,
+        'is_image': isImage,
+        'content_type': contentType,
+        'size_label': sizeLabel,
+        'duration_ms': durationMs,
+      };
 }
 
 class ChatMessage {
@@ -249,6 +288,16 @@ class ChatMessage {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'conversation_id': conversationId,
+        'body': body,
+        'created_at': createdAt,
+        'kind': kind,
+        'user': {'id': userId, 'name': userName},
+        'attachments': attachments.map((item) => item.toJson()).toList(),
+      };
 }
 
 class MailThread {
@@ -283,6 +332,16 @@ class MailThread {
       fromEmail: json['from_email'] as String?,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'subject': subject,
+        'snippet': snippet,
+        'unread': unread,
+        'updated': updated,
+        'from_name': fromName,
+        'from_email': fromEmail,
+      };
 }
 
 class MailFile {
@@ -322,6 +381,17 @@ class MailFile {
       contentType: json['content_type'] as String?,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'filename': filename,
+        'url': url,
+        'preview_url': previewUrl,
+        'size_label': sizeLabel,
+        'is_image': isImage,
+        'is_video': isVideo,
+        'preview_kind': previewKind,
+        'content_type': contentType,
+      };
 }
 
 class AiCapabilities {
@@ -438,6 +508,15 @@ class MailMessage {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+        'from': from,
+        'from_name': fromName,
+        'html': html,
+        'text': body,
+        'sent': sent,
+        'attachments': attachments.map((item) => item.toJson()).toList(),
+      };
+
   static String _plain(String html) {
     return html
         .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
@@ -463,6 +542,11 @@ class MailDetail {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'subject': subject,
+        'messages': messages.map((item) => item.toJson()).toList(),
+      };
 }
 
 String initials(String name) {
@@ -489,4 +573,64 @@ String shortTime(String? iso) {
   }
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return '${months[date.month - 1]} ${date.day}';
+}
+
+/// Peers in a chat, excluding the signed-in person.
+List<Participant> otherParticipants(ConversationSummary conversation, int? userId) {
+  return [
+    for (final participant in conversation.participants)
+      if (participant.id != userId) participant,
+  ];
+}
+
+bool conversationOnline(ConversationSummary conversation, int? userId) {
+  return otherParticipants(conversation, userId).any((participant) => participant.online);
+}
+
+/// "Online" or "Active 5m ago" for a direct chat; group chats keep a people count.
+String? presenceLabel(ConversationSummary conversation, int? userId) {
+  final others = otherParticipants(conversation, userId);
+  if (conversation.isGroup) {
+    final online = others.where((participant) => participant.online).length;
+    final people = '${conversation.participants.length} people';
+    if (online == 0) {
+      return people;
+    }
+    return '$people · $online online';
+  }
+  if (others.isEmpty) {
+    return 'Offline';
+  }
+  final peer = others.first;
+  if (peer.online) {
+    return 'Online';
+  }
+  return activeAgo(peer.lastSeenAt) ??
+      activeAgo(peer.lastReadAt) ??
+      activeAgo(peer.lastDeliveredAt) ??
+      'Offline';
+}
+
+String? activeAgo(String? iso) {
+  final date = DateTime.tryParse(iso ?? '')?.toLocal();
+  if (date == null) {
+    return null;
+  }
+  final seconds = DateTime.now().difference(date).inSeconds;
+  if (seconds < 60) {
+    return 'Active just now';
+  }
+  if (seconds < 3600) {
+    final minutes = (seconds / 60).floor();
+    return 'Active ${minutes}m ago';
+  }
+  if (seconds < 86400) {
+    final hours = (seconds / 3600).floor();
+    return 'Active ${hours}h ago';
+  }
+  final days = (seconds / 86400).floor();
+  if (days < 7) {
+    return 'Active ${days}d ago';
+  }
+  return 'Active ${shortTime(iso)}';
 }

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ConversationType;
+use App\Services\Chat\PresenceService;
 use Database\Factories\ConversationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -59,12 +60,13 @@ class Conversation extends Model
     {
         $participants = $this->relationLoaded('participants')
             ? $this->participants
-            : $this->participants()->with('user:id,name')->get();
+            : $this->participants()->with('user:id,name,last_seen_at')->get();
 
         $others = $participants->where('user_id', '!=', $viewer->id);
         $title = $this->type === ConversationType::Group
             ? ($this->name ?: 'Group')
             : ($others->first()?->user?->name ?? 'Chat');
+        $presence = app(PresenceService::class);
 
         return [
             'id' => $this->id,
@@ -74,13 +76,19 @@ class Conversation extends Model
             'last_message_at' => $this->last_message_at?->toIso8601String(),
             'unread_count' => (int) ($this->unread_count ?? 0),
             'pinned' => $participants->firstWhere('user_id', $viewer->id)?->pinned_at !== null,
-            'participants' => $participants->map(fn (ConversationParticipant $participant) => [
-                'id' => $participant->user_id,
-                'name' => $participant->user?->name ?? 'Former member',
-                'role' => $participant->role,
-                'last_read_at' => $participant->last_read_at?->toIso8601String(),
-                'last_delivered_at' => $participant->last_delivered_at?->toIso8601String(),
-            ])->values()->all(),
+            'participants' => $participants->map(function (ConversationParticipant $participant) use ($presence) {
+                $status = $presence->forUser($participant->user);
+
+                return [
+                    'id' => $participant->user_id,
+                    'name' => $participant->user?->name ?? 'Former member',
+                    'role' => $participant->role,
+                    'last_read_at' => $participant->last_read_at?->toIso8601String(),
+                    'last_delivered_at' => $participant->last_delivered_at?->toIso8601String(),
+                    'online' => $status['online'],
+                    'last_seen_at' => $status['last_seen_at'],
+                ];
+            })->values()->all(),
         ];
     }
 }

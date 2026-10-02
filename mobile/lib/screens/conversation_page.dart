@@ -39,6 +39,10 @@ class _ConversationPageState extends State<ConversationPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _session ??= Desk.read(context);
+    final existing = _session!.messages[widget.conversation.id];
+    if (existing != null && existing.isNotEmpty) {
+      loading = false;
+    }
   }
 
   @override
@@ -65,7 +69,8 @@ class _ConversationPageState extends State<ConversationPage> {
     final session = Desk.of(context);
     try {
       final detail = await session.api.conversation(widget.conversation.id);
-      session.messages[widget.conversation.id] = detail.messages;
+      session.rememberMessages(widget.conversation.id, detail.messages);
+      session.rememberConversation(detail.conversation);
       if (mounted) {
         setState(() {
           loading = false;
@@ -360,7 +365,11 @@ class _ConversationPageState extends State<ConversationPage> {
           orElse: () => widget.conversation,
         )!;
     final typing = session.typingConversationId == widget.conversation.id ? session.typingName : null;
-    final subtitle = conversation.isGroup ? '${conversation.participants.length} people' : null;
+    final presence = presenceLabel(conversation, session.user?.id);
+    final online = conversationOnline(conversation, session.user?.id);
+    final subtitle = typing != null
+        ? '$typing is typing…'
+        : presence;
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -371,9 +380,23 @@ class _ConversationPageState extends State<ConversationPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(conversation.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            Row(
+              children: [
+                Flexible(
+                  child: Text(conversation.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+                if (online && !conversation.isGroup) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(color: Color(0xFF22C55E), shape: BoxShape.circle),
+                  ),
+                ],
+              ],
+            ),
             if (subtitle != null)
-              Text(subtitle, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: colors.muted)),
+              Text(subtitle, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: online ? const Color(0xFF22C55E) : colors.muted)),
           ],
         ),
       ),
@@ -717,17 +740,6 @@ class _Bubble extends StatelessWidget {
                 VoiceNote(api: api, url: '${file.url}?inline=1', mine: mine)
               else
                 Text('${file.filename}${file.sizeLabel == null ? '' : ' · ${file.sizeLabel}'}', style: TextStyle(color: ink)),
-              if (message.kind != 'voice' && !(file.contentType ?? '').startsWith('audio/'))
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: DownloadButton(
-                    api: api,
-                    url: file.url,
-                    filename: file.filename,
-                    mimeType: file.contentType,
-                    color: mine ? Colors.white : colors.accent,
-                  ),
-                ),
               const SizedBox(height: 4),
             ],
             if (message.body.trim().isNotEmpty)

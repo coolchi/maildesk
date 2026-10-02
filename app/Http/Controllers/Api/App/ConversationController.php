@@ -125,7 +125,7 @@ class ConversationController extends Controller
         ]);
 
         $this->chat->pin($model, $user, $validated['pinned']);
-        $model->load(['participants.user:id,name']);
+        $model->load(['participants.user:id,name,last_seen_at']);
 
         return response()->json([
             'data' => $model->toAppArray($user),

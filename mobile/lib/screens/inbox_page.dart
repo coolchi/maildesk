@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter/services.dart';
 import 'package:maildesk/api.dart';
+import 'package:maildesk/desk_cache.dart';
 import 'package:maildesk/empty.dart';
 import 'package:maildesk/main.dart';
 import 'package:maildesk/models.dart';
@@ -35,7 +36,16 @@ class _InboxPageState extends State<InboxPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final cached = _cachedInbox();
+      if (cached.isNotEmpty) {
+        setState(() => threads = cached);
+      }
+      _load(silent: threads.isNotEmpty);
+    });
   }
 
   @override
@@ -50,23 +60,47 @@ class _InboxPageState extends State<InboxPage> {
     if (oldWidget.folder != widget.folder ||
         oldWidget.reload != widget.reload) {
       selected.clear();
-      _load();
+      if (widget.folder == 'inbox' && search.text.trim().isEmpty) {
+        final cached = _cachedInbox();
+        if (cached.isNotEmpty) {
+          threads = cached;
+        }
+      } else if (widget.folder != 'drafts') {
+        threads = [];
+      }
+      _load(silent: threads.isNotEmpty || drafts.isNotEmpty);
     }
   }
 
-  Future<void> _load() async {
+  List<MailThread> _cachedInbox() {
+    if (widget.folder != 'inbox' || search.text.trim().isNotEmpty) {
+      return [];
+    }
+    return List<MailThread>.of(Desk.read(context).threads);
+  }
+
+  Future<void> _load({bool silent = false}) async {
     final session = Desk.read(context);
     final folder = widget.folder;
-    setState(() => loading = true);
+    if (!silent && threads.isEmpty && drafts.isEmpty) {
+      setState(() => loading = true);
+    }
     try {
       if (folder == 'drafts') {
         drafts = await session.api.drafts();
       } else {
-        threads = await session.api.inbox(folder: folder, query: search.text);
+        final next = await session.api.inbox(folder: folder, query: search.text);
+        if (sameMailThreads(threads, next)) {
+          if (mounted) {
+            setState(() => loading = false);
+          }
+          return;
+        }
+        threads = next;
         selected.removeWhere(
           (id) => threads.every((thread) => thread.id != id),
         );
-        if (folder == 'inbox') {
+        if (folder == 'inbox' && search.text.trim().isEmpty) {
           session.setThreads(threads);
         }
       }

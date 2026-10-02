@@ -31,6 +31,12 @@ class _MailPageState extends State<MailPage> {
   ThreadSummary? summary;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    detail ??= Desk.read(context).storedMail(widget.thread.id);
+  }
+
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -47,8 +53,16 @@ class _MailPageState extends State<MailPage> {
   }
 
   Future<void> _load() async {
+    final session = Desk.read(context);
+    if (detail == null) {
+      final stored = session.storedMail(widget.thread.id);
+      if (stored != null && mounted) {
+        setState(() => detail = stored);
+      }
+    }
     try {
-      final mail = await Desk.read(context).api.mail(widget.thread.id);
+      final mail = await session.api.mail(widget.thread.id);
+      await session.rememberMail(widget.thread.id, mail);
       if (mounted) {
         setState(() {
           detail = mail;

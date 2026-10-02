@@ -34,7 +34,7 @@ class ChatListPage extends StatelessWidget {
         separatorBuilder: (context, index) => Divider(height: 1, color: colors.border),
         itemBuilder: (context, index) {
           final conversation = session.conversations[index];
-          return _Row(conversation: conversation);
+          return _Row(conversation: conversation, userId: session.user?.id);
         },
       ),
     );
@@ -51,20 +51,24 @@ class ChatListPage extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
-  const _Row({required this.conversation});
+  const _Row({required this.conversation, required this.userId});
 
   final ConversationSummary conversation;
+  final int? userId;
 
   @override
   Widget build(BuildContext context) {
     final colors = deskColors(context);
     final unread = conversation.unreadCount > 0;
+    final online = conversationOnline(conversation, userId);
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      leading: CircleAvatar(
-        backgroundColor: colors.accent.withValues(alpha: unread ? 0.18 : 0.1),
-        foregroundColor: colors.accent,
-        child: conversation.isGroup ? const Icon(LucideIcons.users, size: 20) : Text(initials(conversation.name)),
+      leading: _Avatar(
+        colors: colors,
+        unread: unread,
+        online: online,
+        group: conversation.isGroup,
+        label: conversation.name,
       ),
       title: Row(
         children: [
@@ -121,6 +125,55 @@ class _Row extends StatelessWidget {
           }
         }
       },
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({
+    required this.colors,
+    required this.unread,
+    required this.online,
+    required this.group,
+    required this.label,
+  });
+
+  final MailDeskColors colors;
+  final bool unread;
+  final bool online;
+  final bool group;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: colors.accent.withValues(alpha: unread ? 0.18 : 0.1),
+            foregroundColor: colors.accent,
+            child: group ? const Icon(LucideIcons.users, size: 20) : Text(initials(label)),
+          ),
+          if (online)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF22C55E),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: colors.bg, width: 2),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

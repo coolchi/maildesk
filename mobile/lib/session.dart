@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:maildesk/alerts.dart';
 import 'package:maildesk/api.dart';
+import 'package:maildesk/desk_cache.dart';
 import 'package:maildesk/live.dart';
 import 'package:maildesk/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +30,8 @@ class Session extends ChangeNotifier {
   String? typingName;
 
   final Map<int, List<ChatMessage>> messages = {};
+  final Map<int, MailDetail> mailCache = {};
+  DeskCache? _cache;
   final Set<String> _receiptAck = {};
   final alerts = Alerts();
   LiveConnection? _live;
@@ -48,16 +51,33 @@ class Session extends ChangeNotifier {
 
   Future<void> restore() async {
     final prefs = await SharedPreferences.getInstance();
+    _cache = await DeskCache.open();
+    DeskCache.current = _cache;
     baseUrl = prefs.getString('base_url') ?? baseUrl;
     theme = prefs.getString('theme');
     token = prefs.getString('token');
     final organizationId = prefs.getInt('organization_id');
     if (token != null) {
+      _showCachedAccount();
+      if (organizationId != null) {
+        _showCachedWorkspace(organizationId);
+      }
+      if (workspace != null) {
+        ready = true;
+        notifyListeners();
+        unawaited(_resume(organizationId));
+        return;
+      }
       try {
         await _loadAccount();
         final match = workspaces.where((item) => item.id == organizationId);
         if (match.isNotEmpty) {
-          await chooseWorkspace(match.first, remember: false);
+          _showCachedWorkspace(match.first.id);
+          workspace = match.first;
+          ready = true;
+          notifyListeners();
+          unawaited(chooseWorkspace(match.first, remember: false));
+          return;
         }
       } on ApiException {
         await _clearAuth();
@@ -65,6 +85,19 @@ class Session extends ChangeNotifier {
     }
     ready = true;
     notifyListeners();
+  }
+
+  Future<void> _resume(int? organizationId) async {
+    try {
+      await _loadAccount();
+      final match = workspaces.where((item) => item.id == organizationId);
+      if (match.isEmpty) {
+        return;
+      }
+      await chooseWorkspace(match.first, remember: false);
+    } on ApiException {
+      await expire();
+    }
   }
 
   Future<void> setTheme(String value) async {
@@ -112,11 +145,16 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> chooseWorkspace(Workspace next, {bool remember = true}) async {
+    final switching = workspace?.id != next.id;
     workspace = next;
+    if (switching) {
+      _showCachedWorkspace(next.id);
+    }
     if (remember) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('organization_id', next.id);
     }
+    notifyListeners();
     await refresh();
     await _connect();
     notifyListeners();
@@ -124,10 +162,21 @@ class Session extends ChangeNotifier {
 
   Future<void> refresh() async {
     try {
-      conversations = await api.conversations();
-      threads = await api.inbox();
+      final nextConversations = await api.conversations();
+      final nextThreads = await api.inbox();
+      final changed = error != null || !sameConversations(conversations, nextConversations) || !sameMailThreads(threads, nextThreads);
+      conversations = nextConversations;
+      threads = nextThreads;
       error = null;
       errorStatus = null;
+      final organizationId = workspace?.id;
+      if (organizationId != null) {
+        unawaited(_cache?.saveLists(organizationId: organizationId, threads: threads, conversations: conversations));
+      }
+      if (changed) {
+        notifyListeners();
+      }
+      unawaited(_ackReceipts());
     } on ApiException catch (exception) {
       if (exception.status == 401) {
         await expire();
@@ -135,10 +184,56 @@ class Session extends ChangeNotifier {
       }
       error = exception.message;
       errorStatus = exception.status;
+      notifyListeners();
+    }
+  }
+
+  void rememberMessages(int conversationId, List<ChatMessage> next) {
+    messages[conversationId] = next;
+    final organizationId = workspace?.id;
+    if (organizationId != null) {
+      unawaited(_cache?.saveMessages(organizationId, conversationId, next));
+    }
+  }
+
+  void rememberConversation(ConversationSummary conversation) {
+    final index = conversations.indexWhere((item) => item.id == conversation.id);
+    if (index == -1) {
+      conversations = [conversation, ...conversations];
+    } else {
+      conversations = [
+        for (final item in conversations)
+          if (item.id == conversation.id) conversation else item,
+      ];
+    }
+    final organizationId = workspace?.id;
+    if (organizationId != null) {
+      unawaited(_cache?.saveLists(organizationId: organizationId, threads: threads, conversations: conversations));
     }
     notifyListeners();
-    if (error == null) {
-      unawaited(_ackReceipts());
+  }
+
+  MailDetail? storedMail(int threadId) {
+    final memory = mailCache[threadId];
+    if (memory != null) {
+      return memory;
+    }
+    final organizationId = workspace?.id;
+    if (organizationId == null) {
+      return null;
+    }
+    final stored = _cache?.readMail(organizationId, threadId);
+    if (stored != null) {
+      mailCache[threadId] = stored;
+    }
+    return stored;
+  }
+
+  Future<void> rememberMail(int threadId, MailDetail detail) async {
+    mailCache[threadId] = detail;
+    final organizationId = workspace?.id;
+    if (organizationId != null) {
+      await _cache?.saveMail(organizationId, threadId, detail);
     }
   }
 
@@ -189,6 +284,10 @@ class Session extends ChangeNotifier {
 
   void setThreads(List<MailThread> next) {
     threads = next;
+    final organizationId = workspace?.id;
+    if (organizationId != null) {
+      unawaited(_cache?.saveLists(organizationId: organizationId, threads: threads, conversations: conversations));
+    }
     notifyListeners();
   }
 
@@ -205,7 +304,7 @@ class Session extends ChangeNotifier {
     }
     final removedWasLatest = current.isNotEmpty && current.last.id == messageId;
     final next = [for (final item in current) if (item.id != messageId) item];
-    messages[conversationId] = next;
+    rememberMessages(conversationId, next);
     if (removedWasLatest) {
       final index = conversations.indexWhere((item) => item.id == conversationId);
       if (index != -1 && next.isNotEmpty) {
@@ -321,6 +420,29 @@ class Session extends ChangeNotifier {
         .map((item) => Workspace.fromJson(item as Map<String, dynamic>))
         .toList();
     realtime = RealtimeConfig.fromJson(json['realtime'] as Map<String, dynamic>? ?? {});
+    unawaited(_cache?.saveAccount(json));
+  }
+
+  void _showCachedAccount() {
+    final account = _cache?.readAccount();
+    if (account == null || account['user'] is! Map) {
+      return;
+    }
+    _applyAccount(account);
+  }
+
+  void _showCachedWorkspace(int organizationId) {
+    final match = workspaces.where((item) => item.id == organizationId);
+    if (match.isNotEmpty) {
+      workspace = match.first;
+    }
+    final lists = _cache?.readLists(organizationId);
+    threads = lists?.threads ?? [];
+    conversations = lists?.conversations ?? [];
+    messages
+      ..clear()
+      ..addAll(_cache?.readMessages(organizationId) ?? {});
+    mailCache.clear();
   }
 
   Future<void> _ack(bool open, int conversationId) async {
@@ -345,6 +467,7 @@ class Session extends ChangeNotifier {
     );
     final withoutPending = pendingIndex < 0 ? current : ([...current]..removeAt(pendingIndex));
     messages[message.conversationId] = [...withoutPending, message];
+    rememberMessages(message.conversationId, messages[message.conversationId]!);
     final index = conversations.indexWhere((item) => item.id == message.conversationId);
     if (index == -1) {
       refresh();
@@ -471,7 +594,9 @@ class Session extends ChangeNotifier {
     conversations = [];
     threads = [];
     messages.clear();
+    mailCache.clear();
     _receiptAck.clear();
+    unawaited(_cache?.clear());
     error = null;
     errorStatus = null;
     final prefs = await SharedPreferences.getInstance();
