@@ -18,6 +18,65 @@ class Person {
   }
 }
 
+class SearchPerson {
+  const SearchPerson({
+    required this.id,
+    required this.name,
+    this.email,
+    this.kind = 'member',
+  });
+
+  final int id;
+  final String name;
+  final String? email;
+  final String kind;
+
+  bool get isMember => kind == 'member';
+
+  factory SearchPerson.fromJson(Map<String, dynamic> json) {
+    return SearchPerson(
+      id: json['id'] as int,
+      name: json['name'] as String? ?? 'Person',
+      email: json['email'] as String?,
+      kind: json['kind'] as String? ?? 'member',
+    );
+  }
+}
+
+class SearchResults {
+  const SearchResults({
+    this.query = '',
+    this.people = const [],
+    this.chats = const [],
+    this.mail = const [],
+  });
+
+  final String query;
+  final List<SearchPerson> people;
+  final List<ConversationSummary> chats;
+  final List<MailThread> mail;
+
+  bool get isEmpty => people.isEmpty && chats.isEmpty && mail.isEmpty;
+
+  factory SearchResults.fromJson(Map<String, dynamic> json) {
+    return SearchResults(
+      query: json['query'] as String? ?? '',
+      people: ((json['people'] as List?) ?? [])
+          .whereType<Map>()
+          .map((item) => SearchPerson.fromJson(Map<String, dynamic>.from(item)))
+          .toList(),
+      chats: ((json['chats'] as List?) ?? [])
+          .whereType<Map>()
+          .map((item) => ConversationSummary.fromJson(Map<String, dynamic>.from(item)))
+          .toList(),
+      mail: ((json['mail'] as List?) ?? [])
+          .whereType<Map>()
+          .map((item) => MailThread.fromJson(Map<String, dynamic>.from(item)))
+          .toList(),
+    );
+  }
+}
+
 class Workspace {
   const Workspace({
     required this.id,

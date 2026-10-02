@@ -68,6 +68,12 @@ class MailDeskApi {
     return _list(json).map(Person.fromJson).toList();
   }
 
+  Future<SearchResults> search([String query = '']) async {
+    final params = query.trim().isEmpty ? '' : '?q=${Uri.encodeQueryComponent(query.trim())}';
+    final json = await _send('GET', '/api/app/search$params');
+    return SearchResults.fromJson(json);
+  }
+
   Future<List<ConversationSummary>> conversations() async {
     final json = await _send('GET', '/api/app/conversations');
     return _list(json).map(ConversationSummary.fromJson).toList();

@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\App\ConversationController;
 use App\Http\Controllers\Api\App\DeviceController;
 use App\Http\Controllers\Api\App\InboxController;
 use App\Http\Controllers\Api\App\MemberController;
+use App\Http\Controllers\Api\App\SearchController;
 use App\Http\Controllers\Api\App\SessionController;
 use App\Http\Middleware\EnsureMobileWorkspace;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +27,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/inbox/threads/{thread}/summarize', [AiController::class, 'summarize'])->whereNumber('thread');
 
         Route::get('/members', [MemberController::class, 'index']);
+        Route::get('/search', SearchController::class);
 
         Route::get('/inbox/threads', [InboxController::class, 'index']);
         Route::post('/inbox/read', [InboxController::class, 'readAll']);
