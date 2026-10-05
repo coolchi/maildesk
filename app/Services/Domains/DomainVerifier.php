@@ -58,7 +58,7 @@ class DomainVerifier
         // DNS can match our own placeholders while Resend still rejects the domain.
         $waitingOnProvider = is_string($providerStatus) && $providerStatus !== 'verified';
         $verified = $failing === [] && ! $waitingOnProvider;
-        $warnings = $this->warnings($domain->name, $checks);
+        $warnings = $this->warnings($domain->name, $checks, $dns);
 
         $dns['checks'] = $checks;
         $dns['results'] = $results;
@@ -85,14 +85,20 @@ class DomainVerifier
 
     /**
      * @param  array<string, bool>  $checks
+     * @param  array<string, mixed>  $dns
      * @return list<string>
      */
-    private function warnings(string $domain, array $checks): array
+    private function warnings(string $domain, array $checks, array $dns = []): array
     {
         $warnings = [];
 
         if (! ($checks['dmarc'] ?? false)) {
             $warnings[] = "DMARC record missing or invalid at _dmarc.{$domain}. Mail will still send, but adding one (e.g. \"v=DMARC1; p=none;\") improves deliverability.";
+        }
+
+        // Warn if inbound MX was skipped due to existing MX records
+        if ($dns['auto_publish']['skipped_inbound_mx'] ?? false) {
+            $warnings[] = "Receiving MX record was not published automatically because {$domain} already has MX records. The existing mail provider's MX records were left untouched, and MailDesk receiving was not enabled.";
         }
 
         return $warnings;
@@ -121,10 +127,16 @@ class DomainVerifier
         try {
             // Resolved lazily: the record manager itself depends on this class.
             $counts = app(DnsRecordManager::class)->apply($domain, $connection);
-            $dns['auto_publish'] = [...$counts, 'error' => null, 'at' => now()->toIso8601String()];
+            $dns['auto_publish'] = [
+                'created' => $counts['created'],
+                'updated' => $counts['updated'],
+                'skipped_inbound_mx' => $counts['skipped_inbound_mx'] ?? false,
+                'error' => null,
+                'at' => now()->toIso8601String(),
+            ];
         } catch (DnsProviderException $e) {
             Log::warning('Automatic DNS publish failed', ['domain' => $domain->name, 'error' => $e->getMessage()]);
-            $dns['auto_publish'] = ['created' => 0, 'updated' => 0, 'error' => $e->getMessage(), 'at' => now()->toIso8601String()];
+            $dns['auto_publish'] = ['created' => 0, 'updated' => 0, 'skipped_inbound_mx' => false, 'error' => $e->getMessage(), 'at' => now()->toIso8601String()];
         }
 
         return $dns;
@@ -265,7 +277,20 @@ class DomainVerifier
                 ]);
             }
 
-            // The tracking update often returns a domain payload with no DNS
+            // Enable receiving so Resend issues the inbound MX record.
+            // This lets customers receive email at their domain automatically.
+            if (! $this->resend->isReceivingEnabled($remote ?? [])) {
+                try {
+                    $this->resend->enableReceiving((string) $domain->provider_domain_id);
+                } catch (RuntimeException $e) {
+                    Log::warning('Could not enable receiving', [
+                        'domain' => $domain->name,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // The tracking/receiving updates often return a domain payload with no DNS
             // records. Re-read the domain so we publish Resend's records, not
             // the local placeholders. Verification is requested only after
             // those records have been published.

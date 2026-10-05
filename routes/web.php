@@ -205,6 +205,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/domains/{domain}/dns/connect', [DomainDnsController::class, 'connect'])->name('domains.dns.connect');
     Route::delete('/domains/{domain}/dns/connect', [DomainDnsController::class, 'disconnect'])->name('domains.dns.disconnect');
     Route::post('/domains/{domain}/dns/apply', [DomainDnsController::class, 'apply'])->name('domains.dns.apply');
+    Route::post('/domains/{domain}/dns/enable-receiving', [DomainDnsController::class, 'enableReceiving'])->name('domains.dns.enable-receiving');
     Route::put('/domains/{domain}/dns/records/{record}', [DomainDnsController::class, 'update'])->name('domains.dns.records.update');
     Route::delete('/domains/{domain}/dns/records/{record}', [DomainDnsController::class, 'destroy'])->name('domains.dns.records.destroy');
     Route::get('/logs', [LogController::class, 'index'])->name('logs');
