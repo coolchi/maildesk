@@ -193,10 +193,19 @@ const empty = computed(() => !domains.value.length);
                             </Link>
                         </td>
                         <td class="px-4 py-3">
-                            <StatusBadge
-                                :status="domain.status"
-                                :loading="domain.status === 'pending'"
-                            />
+                            <div class="flex flex-col gap-1">
+                                <StatusBadge
+                                    :status="domain.status"
+                                    :loading="domain.status === 'pending'"
+                                />
+                                <span
+                                    v-if="domain.status === 'partially_verified' && domain.pending_records?.length"
+                                    class="text-[10px] text-amber-400/80"
+                                    :title="`Pending: ${domain.pending_records.join(', ')}`"
+                                >
+                                    {{ domain.pending_records.slice(0, 2).join(', ') }}{{ domain.pending_records.length > 2 ? '…' : '' }} pending
+                                </span>
+                            </div>
                         </td>
                         <td class="px-4 py-3 text-zinc-400">
                             {{ domain.region }}

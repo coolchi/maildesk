@@ -38,6 +38,14 @@ watch(
 
 const statusLabel = computed(() => props.domain.status || "pending");
 
+const isPartiallyVerified = computed(() => props.domain.status === "partially_verified");
+
+const pendingRecordsMessage = computed(() => {
+    const pending = props.domain.pending_records || [];
+    if (pending.length === 0) return "";
+    return `Pending verification: ${pending.join(", ")}`;
+});
+
 const checkedAt = computed(() =>
     props.domain.checked_at
         ? new Date(props.domain.checked_at).toLocaleString()
@@ -51,7 +59,7 @@ const warnings = computed(() =>
 
 const foundFor = (key) => props.domain.results?.[key]?.found || [];
 
-const step = ref(statusLabel.value === "verified" ? 3 : 2);
+const step = ref(statusLabel.value === "verified" || statusLabel.value === "partially_verified" ? 3 : 2);
 
 const dnsRows = computed(() => {
     if (props.domain.dns_rows?.length) {
@@ -273,6 +281,18 @@ const verify = () => {
                 />
             </template>
         </PageHeader>
+
+        <div
+            v-if="isPartiallyVerified"
+            class="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300"
+        >
+            <p class="font-medium">Domain is partially verified</p>
+            <p class="mt-1 text-amber-200/80">
+                Your DNS records are published, but Resend hasn't finished verifying all of them.
+                <template v-if="pendingRecordsMessage">{{ pendingRecordsMessage }}.</template>
+                This can take a few minutes. You can still send from this domain.
+            </p>
+        </div>
 
         <div
             v-if="warnings.length"

@@ -79,9 +79,11 @@ class Payment extends Model
      */
     public function toBillingArray(): array
     {
+        $tz = $this->organization?->getTimezone() ?? 'Africa/Lagos';
+
         return [
             'id' => $this->id,
-            'date' => $this->created_at?->format('M j, Y'),
+            'date' => $this->created_at?->timezone($tz)->format('M j, Y'),
             'plan' => $this->plan?->name ?? $this->plan_key,
             'amount' => $this->amount,
             'amount_formatted' => '₦'.number_format($this->amount / 100, 2),
