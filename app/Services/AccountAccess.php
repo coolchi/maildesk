@@ -29,6 +29,8 @@ class AccountAccess
 
     public const TRIAL_EXPIRED_MESSAGE = 'Your free trial has ended. Choose a plan to continue using this workspace.';
 
+    public const TRIAL_EXPIRED_MEMBER_MESSAGE = 'Your free trial has ended. An owner or admin needs to choose a plan before this workspace can be used.';
+
     public const QUOTA_MESSAGE = 'This workspace has reached its plan email limit for the current period. Upgrade or wait until the period renews.';
 
     public function isSuspended(?Organization $organization): bool
