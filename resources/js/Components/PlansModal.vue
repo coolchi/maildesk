@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
 import { usePlansModal } from '@/composables/usePlansModal';
 import { useToast } from '@/composables/useToast';
+import { volumeIndexFor } from '@/utils/planPricing';
 import { Check, X } from '@lucide/vue';
 
 const { state, close } = usePlansModal();
@@ -10,29 +11,9 @@ const page = usePage();
 const toast = useToast();
 
 const mode = ref('marketing');
-const volumeIndex = ref(1);
+const volumeIndex = ref(0);
 const currency = ref('NGN');
 const paying = ref(null);
-
-watch(
-    () => state.open,
-    (open) => {
-        if (open) {
-            mode.value = state.mode || 'marketing';
-            volumeIndex.value = 1;
-            currency.value =
-                page.props.plans?.default_currency === 'USD' ? 'USD' : 'NGN';
-            paying.value = null;
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
-    },
-);
-
-watch(mode, () => {
-    volumeIndex.value = 1;
-});
 
 const onKey = (e) => {
     if (e.key === 'Escape' && state.open) close();
@@ -57,7 +38,44 @@ const currencies = computed(
     () => sharedPlans.value?.currencies || ['USD', 'NGN'],
 );
 const checkout = computed(() => sharedPlans.value?.checkout || null);
-const volumeLabel = computed(() => config.value.labels[volumeIndex.value]);
+
+const placeVolume = (preferred = 1) => {
+    volumeIndex.value = volumeIndexFor(
+        config.value.labels?.length ?? 0,
+        preferred,
+    );
+};
+
+watch(
+    () => state.open,
+    (open) => {
+        if (open) {
+            mode.value = state.mode || 'marketing';
+            placeVolume(1);
+            currency.value =
+                page.props.plans?.default_currency === 'USD' ? 'USD' : 'NGN';
+            paying.value = null;
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+    },
+);
+
+watch(mode, () => {
+    placeVolume(1);
+});
+
+watch(
+    () => config.value.labels?.length ?? 0,
+    (count) => {
+        volumeIndex.value = volumeIndexFor(count, volumeIndex.value);
+    },
+);
+
+const volumeLabel = computed(
+    () => config.value.labels[volumeIndex.value] || '',
+);
 
 const priceBucket = computed(() => {
     const prices = config.value.prices || {};
@@ -202,11 +220,15 @@ const features = computed(() =>
     mode.value === 'marketing' ? marketingFeatures : transactionalFeatures,
 );
 
-const metricLabel = computed(() =>
-    mode.value === 'marketing'
+const metricLabel = computed(() => {
+    if (!volumeLabel.value) {
+        return mode.value === 'marketing' ? 'Contacts' : 'Emails / mo';
+    }
+
+    return mode.value === 'marketing'
         ? `${volumeLabel.value} contacts`
-        : `${volumeLabel.value} emails / mo`,
-);
+        : `${volumeLabel.value} emails / mo`;
+});
 </script>
 
 <template>
@@ -324,7 +346,7 @@ const metricLabel = computed(() =>
                                     v-model.number="volumeIndex"
                                     type="range"
                                     min="0"
-                                    :max="config.labels.length - 1"
+                                    :max="Math.max((config.labels.length || 1) - 1, 0)"
                                     step="1"
                                     class="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-zinc-800 accent-cyan-400"
                                 />
