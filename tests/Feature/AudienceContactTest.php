@@ -418,4 +418,57 @@ class AudienceContactTest extends TestCase
         $errors = session('errors');
         $this->assertStringContainsString('No valid contacts found', $errors->first('file'));
     }
+
+    public function test_can_edit_contact_name_and_company(): void
+    {
+        [$user, $org] = $this->member();
+
+        $contact = $this->createContact($org, 'edit@example.com', 'Original', 'Name', 'Old Co');
+
+        $this->as($user, $org)
+            ->patch(route('audience.update', $contact), [
+                'first_name' => 'Updated',
+                'last_name' => 'Person',
+                'company' => 'New Corp',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $contact->refresh();
+        $this->assertSame('Updated', $contact->first_name);
+        $this->assertSame('Person', $contact->last_name);
+        $this->assertSame('New Corp', $contact->company);
+    }
+
+    public function test_can_edit_contact_status(): void
+    {
+        [$user, $org] = $this->member();
+
+        $contact = $this->createContact($org, 'status@example.com');
+        $this->assertTrue($contact->isSubscribed());
+
+        $this->as($user, $org)
+            ->patch(route('audience.update', $contact), [
+                'status' => 'unsubscribed',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $contact->refresh();
+        $this->assertFalse($contact->isSubscribed());
+        $this->assertNotNull($contact->unsubscribed_at);
+    }
+
+    public function test_cannot_edit_contact_from_another_organization(): void
+    {
+        [$user, $org] = $this->member();
+        $otherOrg = Organization::factory()->create();
+        $otherContact = Contact::factory()->create(['organization_id' => $otherOrg->id]);
+
+        $this->as($user, $org)
+            ->patch(route('audience.update', $otherContact), [
+                'first_name' => 'Hacker',
+            ])
+            ->assertNotFound();
+    }
 }

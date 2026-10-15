@@ -4,15 +4,16 @@ import { resolve } from 'node:path';
 
 const source = readFileSync(resolve(process.cwd(), 'resources/js/Layouts/AppLayout.vue'), 'utf8');
 
-describe('AppLayout "Create account" wording', () => {
-    it('labels the switcher item, modal title and submit button "Create account"', () => {
-        expect(source).toMatch(/<Plus :size="14" class="text-cyan-300" \/>\s*Create account\s*<\/button>/);
-        expect(source).toContain('title="Create account"');
-        expect(source).toMatch(/@click="createTeam">\s*Create account\s*<\/button>/);
+describe('AppLayout "Create workspace" wording', () => {
+    it('labels the switcher item, modal title and submit button "Create workspace"', () => {
+        expect(source).toMatch(/<Plus :size="14" class="text-cyan-300" \/>\s*Create workspace\s*<\/button>/);
+        expect(source).toContain('title="Create workspace"');
+        expect(source).toMatch(/@click="createTeam">\s*Create workspace\s*<\/button>/);
     });
 
-    it('no longer shows "Create team" to users', () => {
+    it('no longer shows "Create team" or "Create account" to users', () => {
         expect(source).not.toMatch(/create (a |new )?team/i);
+        expect(source).not.toMatch(/>Create account</i);
     });
 
     it('keeps the internal names and the workspaces.store route', () => {

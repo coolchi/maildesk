@@ -38,7 +38,7 @@ class WorkspaceInvitationNotification extends Notification implements ShouldQueu
                 'inviterName' => $inviter,
                 'role' => $invitation->role,
                 'acceptUrl' => $invitation->acceptUrl(),
-                'expiresAt' => $invitation->expires_at?->timezone(config('app.timezone'))->format('M j, Y g:i A'),
+                'expiresAt' => $invitation->expires_at?->timezone($organization->getTimezone())->format('M j, Y g:i A'),
             ]);
     }
 }

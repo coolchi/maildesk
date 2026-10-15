@@ -143,7 +143,7 @@ class ApiKey extends Model
     /**
      * @return array<string, mixed>
      */
-    public function toWorkspaceArray(): array
+    public function toWorkspaceArray(?string $timezone = null): array
     {
         $abilities = $this->abilities ?? ['*'];
         $permission = in_array('emails:send', $abilities, true) && ! in_array('*', $abilities, true)
@@ -158,6 +158,8 @@ class ApiKey extends Model
             }
         }
 
+        $tz = $timezone ?? $this->organization?->getTimezone() ?? 'Africa/Lagos';
+
         return [
             'id' => $this->id,
             'name' => $this->name,
@@ -166,11 +168,11 @@ class ApiKey extends Model
             'domain' => $domain,
             'created' => $this->created_at?->diffForHumans() ?? '',
             'last_used' => $this->last_used_at?->diffForHumans() ?? 'Never',
-            'expires' => $this->expires_at?->toFormattedDateString() ?? 'Never',
-            'expires_at' => $this->expires_at?->toDateString(),
+            'expires' => $this->expires_at?->timezone($tz)->toFormattedDateString() ?? 'Never',
+            'expires_at' => $this->expires_at?->timezone($tz)->toDateString(),
             'expired' => $this->isExpired(),
             'revoked' => $this->isRevoked(),
-            'revoked_at' => $this->revoked_at?->toFormattedDateString(),
+            'revoked_at' => $this->revoked_at?->timezone($tz)->toFormattedDateString(),
         ];
     }
 }
