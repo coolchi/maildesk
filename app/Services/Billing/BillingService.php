@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\RevenueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -402,7 +403,7 @@ class BillingService
         $organization->update([
             'plan' => $plan->name,
             'product' => $plan->product,
-            'mrr' => $plan->price,
+            'mrr' => (int) round(app(RevenueService::class)->monthlyAmount((int) $plan->price, $plan->interval)),
             'status' => 'active',
         ]);
 

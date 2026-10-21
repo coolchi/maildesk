@@ -51,19 +51,13 @@ class PlansCatalog
      *     volumes: list<int>,
      *     labels: list<string>,
      *     prices: array{usd: array{free: list<?int>, pro: list<?int>}, ngn: array{free: list<?int>, pro: list<?int>}},
-     *     keys: array{free: ?string, pro: ?string, enterprise: ?string}
+     *     keys: array{free: ?string, pro: ?string, enterprise: ?string},
+     *     month: array{prices: array<string, mixed>, keys: array{free: ?string, pro: ?string, enterprise: ?string}},
+     *     year: array{prices: array<string, mixed>, keys: array{free: ?string, pro: ?string, enterprise: ?string}}
      * }
      */
     private static function matrixForProduct($plans): array
     {
-        $free = $plans->first(fn (Plan $plan) => str_contains(strtolower($plan->key), 'starter')
-            || str_contains(strtolower($plan->key), 'free')
-            || in_array(strtolower($plan->name), ['starter', 'free'], true));
-        $pro = $plans->first(fn (Plan $plan) => str_contains(strtolower($plan->key), 'pro')
-            || strtolower($plan->name) === 'pro');
-        $enterprise = $plans->first(fn (Plan $plan) => str_contains(strtolower($plan->key), 'enterprise')
-            || strtolower($plan->name) === 'enterprise');
-
         $volumes = $plans
             ->map(fn (Plan $plan) => $plan->emails ?? $plan->contacts)
             ->filter()
@@ -76,7 +70,34 @@ class PlansCatalog
             $volumes = [1000, 5000, 10000, 25000, 50000, 100000];
         }
 
-        $labels = array_map(fn (int $n) => self::formatVolume($n), $volumes);
+        $month = self::cycle($plans, $volumes, yearly: false);
+        $year = self::cycle($plans, $volumes, yearly: true);
+
+        return [
+            'volumes' => $volumes,
+            'labels' => array_map(fn (int $n) => self::formatVolume($n), $volumes),
+            // Top-level prices/keys stay monthly so existing callers keep working.
+            'prices' => $month['prices'],
+            'keys' => $month['keys'],
+            'month' => $month,
+            'year' => $year,
+        ];
+    }
+
+    /**
+     * @param  Collection<int, Plan>  $plans
+     * @param  list<int>  $volumes
+     * @return array{prices: array<string, mixed>, keys: array{free: ?string, pro: ?string, enterprise: ?string}}
+     */
+    private static function cycle($plans, array $volumes, bool $yearly): array
+    {
+        $free = self::tier($plans, $yearly, fn (Plan $plan) => str_contains(strtolower($plan->key), 'starter')
+            || str_contains(strtolower($plan->key), 'free')
+            || in_array(strtolower($plan->name), ['starter', 'free'], true));
+        $pro = self::tier($plans, $yearly, fn (Plan $plan) => str_contains(strtolower($plan->key), 'pro')
+            || strtolower($plan->name) === 'pro');
+        $enterprise = self::tier($plans, $yearly, fn (Plan $plan) => str_contains(strtolower($plan->key), 'enterprise')
+            || strtolower($plan->name) === 'enterprise');
 
         $usdFree = [];
         $usdPro = [];
@@ -105,8 +126,6 @@ class PlansCatalog
         }
 
         return [
-            'volumes' => $volumes,
-            'labels' => $labels,
             'prices' => [
                 'usd' => [
                     'free' => $usdFree,
@@ -123,6 +142,25 @@ class PlansCatalog
                 'enterprise' => $enterprise?->key,
             ],
         ];
+    }
+
+    /**
+     * @param  Collection<int, Plan>  $plans
+     */
+    private static function tier($plans, bool $yearly, callable $matches): ?Plan
+    {
+        return $plans->first(function (Plan $plan) use ($yearly, $matches) {
+            if (self::isYearly($plan->interval) !== $yearly) {
+                return false;
+            }
+
+            return $matches($plan);
+        });
+    }
+
+    private static function isYearly(?string $interval): bool
+    {
+        return in_array(strtolower((string) $interval), ['year', 'yearly', 'annual', 'annually'], true);
     }
 
     private static function usdAmount(?Plan $plan): ?int

@@ -13,6 +13,7 @@ const toast = useToast();
 const mode = ref('marketing');
 const volumeIndex = ref(0);
 const currency = ref('NGN');
+const billingInterval = ref('month');
 const paying = ref(null);
 
 const onKey = (e) => {
@@ -51,6 +52,7 @@ watch(
     (open) => {
         if (open) {
             mode.value = state.mode || 'marketing';
+            billingInterval.value = 'month';
             placeVolume(1);
             currency.value =
                 page.props.plans?.default_currency === 'USD' ? 'USD' : 'NGN';
@@ -77,8 +79,30 @@ const volumeLabel = computed(
     () => config.value.labels[volumeIndex.value] || '',
 );
 
+const annualAvailable = computed(() => {
+    const keys = config.value.year?.keys;
+
+    return Boolean(keys?.free || keys?.pro || keys?.enterprise);
+});
+
+const cycle = computed(() => {
+    const selected = config.value?.[billingInterval.value];
+    if (selected?.prices && selected?.keys) {
+        return selected;
+    }
+
+    return {
+        prices: config.value.prices || {},
+        keys: config.value.keys || {
+            free: null,
+            pro: null,
+            enterprise: null,
+        },
+    };
+});
+
 const priceBucket = computed(() => {
-    const prices = config.value.prices || {};
+    const prices = cycle.value.prices || {};
     const key = currency.value.toLowerCase();
     if (prices[key]?.free && prices[key]?.pro) {
         return prices[key];
@@ -96,11 +120,15 @@ const proPrice = computed(
 
 const planKeys = computed(
     () =>
-        config.value.keys || {
+        cycle.value.keys || {
             free: null,
             pro: null,
             enterprise: null,
         },
+);
+
+const periodSuffix = computed(() =>
+    billingInterval.value === 'year' ? '/ yr' : '/ mo',
 );
 
 const formatPrice = (n) => {
@@ -300,6 +328,36 @@ const metricLabel = computed(() => {
                                         {{ code === 'NGN' ? '₦ NGN' : '$ USD' }}
                                     </button>
                                 </div>
+                                <div
+                                    v-if="annualAvailable"
+                                    class="mt-3 inline-flex rounded-full border border-zinc-800 bg-black p-1"
+                                >
+                                    <button
+                                        type="button"
+                                        class="rounded-full px-3.5 py-1.5 text-xs font-medium transition"
+                                        :class="
+                                            billingInterval === 'month'
+                                                ? 'bg-zinc-800 text-white'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        "
+                                        @click="billingInterval = 'month'"
+                                    >
+                                        Monthly
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="rounded-full px-3.5 py-1.5 text-xs font-medium transition"
+                                        :class="
+                                            billingInterval === 'year'
+                                                ? 'bg-zinc-800 text-white'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        "
+                                        @click="billingInterval = 'year'"
+                                    >
+                                        Annual
+                                        <span class="text-cyan-300">· 2 months free</span>
+                                    </button>
+                                </div>
                             </div>
 
                             <div class="mb-8 flex justify-center">
@@ -378,7 +436,7 @@ const metricLabel = computed(() => {
                                         {{ formatPrice(freePrice) }}
                                         <span
                                             class="text-base font-normal text-zinc-500"
-                                            >/ mo</span
+                                            >{{ periodSuffix }}</span
                                         >
                                     </div>
                                     <div
@@ -456,7 +514,7 @@ const metricLabel = computed(() => {
                                             {{ formatPrice(proPrice) }}
                                             <span
                                                 class="text-base font-normal text-zinc-500"
-                                                >/ mo</span
+                                                >{{ periodSuffix }}</span
                                             >
                                         </template>
                                         <template v-else>Custom</template>

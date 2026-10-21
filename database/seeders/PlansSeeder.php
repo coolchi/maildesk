@@ -27,6 +27,23 @@ class PlansSeeder extends Seeder
                 ['key' => $plan['key']],
                 $plan,
             );
+
+            // Annual is ten months of the monthly price: two months free, one charge per year.
+            if (($plan['interval'] ?? 'month') !== 'month') {
+                continue;
+            }
+
+            $annual = $plan;
+            $annual['key'] = $plan['key'].'_annual';
+            $annual['interval'] = 'year';
+            $annual['price'] = (int) $plan['price'] * 10;
+            $annual['price_kobo'] = $plan['price_kobo'] === null ? null : (int) $plan['price_kobo'] * 10;
+            $annual['featured'] = false;
+
+            Plan::query()->updateOrCreate(
+                ['key' => $annual['key']],
+                $annual,
+            );
         }
     }
 

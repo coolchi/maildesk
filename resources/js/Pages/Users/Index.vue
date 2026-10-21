@@ -11,12 +11,14 @@ import { useToast } from '@/composables/useToast';
 import {
     Check,
     Inbox,
+    Loader2,
     LogIn,
     Mail,
     Megaphone,
     Pencil,
     Plus,
     Power,
+    Save,
     Search,
     Send,
     Trash2,
@@ -48,6 +50,7 @@ const showForm = ref(false);
 const showDelete = ref(false);
 const editing = ref(null);
 const deleteTarget = ref(null);
+const saving = ref(false);
 
 const showImpersonate = ref(false);
 const impersonating = ref(false);
@@ -108,12 +111,14 @@ const stats = computed(() => ({
 
 const openCreate = () => {
     editing.value = null;
+    saving.value = false;
     form.value = blankForm();
     showForm.value = true;
 };
 
 const openEdit = (user) => {
     editing.value = user;
+    saving.value = false;
     const [local, domain] = user.email.split('@');
     form.value = {
         name: user.name,
@@ -191,6 +196,8 @@ const saveUser = () => {
         return;
     }
 
+    saving.value = true;
+
     if (editing.value) {
         const payload = {
             name,
@@ -217,6 +224,9 @@ const saveUser = () => {
                         errors.name ||
                         'Could not update.',
                 ),
+            onFinish: () => {
+                saving.value = false;
+            },
         });
         return;
     }
@@ -248,6 +258,9 @@ const saveUser = () => {
                         errors.password ||
                         'Could not create.',
                 ),
+            onFinish: () => {
+                saving.value = false;
+            },
         },
     );
 };
@@ -765,9 +778,29 @@ const roleHint = {
                 >
                     Cancel
                 </button>
-                <button type="button" class="md-btn-primary" @click="saveUser">
-                    <Mail :size="14" />
-                    {{ editing ? 'Save changes' : 'Create user' }}
+                <button
+                    type="button"
+                    class="md-btn-primary users-save-btn"
+                    :disabled="saving"
+                    :aria-busy="saving"
+                    @click="saveUser"
+                >
+                    <Loader2
+                        v-if="saving"
+                        :size="14"
+                        class="animate-spin"
+                    />
+                    <Save v-else-if="editing" :size="14" class="users-save-icon" />
+                    <Plus v-else :size="14" class="users-save-icon" />
+                    {{
+                        saving
+                            ? editing
+                                ? 'Saving…'
+                                : 'Creating…'
+                            : editing
+                              ? 'Save changes'
+                              : 'Create user'
+                    }}
                 </button>
             </template>
         </Modal>
@@ -879,3 +912,50 @@ const roleHint = {
         </Modal>
     </AppLayout>
 </template>
+
+<style scoped>
+.users-save-btn {
+    position: relative;
+    overflow: hidden;
+    transition:
+        transform 180ms ease,
+        box-shadow 180ms ease,
+        background-color 180ms ease;
+    box-shadow: 0 0 0 0 rgb(34 211 238 / 0);
+    animation: users-save-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.users-save-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px -10px rgb(34 211 238 / 0.7);
+}
+
+.users-save-btn:active:not(:disabled) {
+    transform: translateY(0) scale(0.97);
+    box-shadow: 0 2px 8px -4px rgb(34 211 238 / 0.55);
+}
+
+.users-save-btn:disabled {
+    opacity: 0.75;
+    cursor: wait;
+}
+
+.users-save-icon {
+    transition: transform 220ms ease;
+}
+
+.users-save-btn:hover:not(:disabled) .users-save-icon {
+    transform: scale(1.12) rotate(-8deg);
+}
+
+@keyframes users-save-enter {
+    from {
+        opacity: 0.55;
+        transform: translateY(6px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+</style>

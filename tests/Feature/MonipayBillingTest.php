@@ -300,6 +300,37 @@ class MonipayBillingTest extends TestCase
         $this->assertSame('paid', $payment->fresh()->status);
     }
 
+    public function test_annual_plan_fulfils_one_year_and_stores_monthly_mrr(): void
+    {
+        $annual = Plan::factory()->create([
+            'key' => 'tx_pro_annual',
+            'name' => 'Pro',
+            'product' => 'transactional',
+            'price' => 200,
+            'price_kobo' => 2_000_000,
+            'interval' => 'year',
+        ]);
+        [$user, $org] = $this->workspace();
+        $payment = $this->pendingPayment($org, $user, [
+            'plan_id' => $annual->id,
+            'plan_key' => $annual->key,
+            'amount' => 2_000_000,
+        ]);
+        Http::fake($this->verifyResponse($payment, ['amount' => 2_000_000]));
+
+        $this->as($user, $org)
+            ->get(route('billing.monipay.callback', ['reference' => $payment->reference]))
+            ->assertSessionHas('success');
+
+        $subscription = Subscription::query()->where('organization_id', $org->id)->sole();
+        $this->assertSame($annual->id, $subscription->plan_id);
+        $this->assertTrue($subscription->current_period_ends_at->between(
+            now()->addYear()->subMinute(),
+            now()->addYear()->addMinute(),
+        ));
+        $this->assertSame(17, $org->fresh()->mrr);
+    }
+
     public function test_paying_again_for_same_plan_extends_the_period(): void
     {
         [$user, $org] = $this->workspace();
