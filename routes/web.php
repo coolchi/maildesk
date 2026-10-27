@@ -26,6 +26,7 @@ use App\Http\Controllers\InboxController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\MailboxController;
 use App\Http\Controllers\MailboxSignatureController;
+use App\Http\Controllers\MailClientConfigController;
 use App\Http\Controllers\MailDraftController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\ProfileController;
@@ -62,6 +63,10 @@ Route::get('/', function (Request $request, TenantResolver $tenants) {
 
 // Public send-API guide. The rest of the API reference stays in the app.
 Route::get('/docs/send', [DashboardController::class, 'sendDocs'])->name('docs.send');
+
+// Standard Thunderbird autoconfig endpoint (works per-tenant).
+Route::get('/mail/config-v1.1.xml', [MailClientConfigController::class, 'autoconfigPublic'])
+    ->name('mail.autoconfig');
 
 // Public, signed unsubscribe links embedded in broadcast emails.
 Route::get('/unsubscribe/{recipient}', [UnsubscribeController::class, 'show'])
@@ -245,6 +250,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('settings.mail-clients.rotate');
     Route::post('/settings/mail-clients/{mailbox}/disable', [SettingsController::class, 'disableMailClient'])
         ->name('settings.mail-clients.disable');
+    Route::get('/settings/mail-clients/{mailbox}/mobileconfig', [MailClientConfigController::class, 'mobileconfig'])
+        ->whereNumber('mailbox')->name('settings.mail-clients.mobileconfig');
+    Route::get('/settings/mail-clients/{mailbox}/autoconfig', [MailClientConfigController::class, 'autoconfig'])
+        ->whereNumber('mailbox')->name('settings.mail-clients.autoconfig');
+    Route::get('/settings/mail-clients/{mailbox}/autodiscover', [MailClientConfigController::class, 'autodiscover'])
+        ->whereNumber('mailbox')->name('settings.mail-clients.autodiscover');
     Route::post('/settings/invitations', [WorkspaceInvitationController::class, 'store'])
         ->middleware('throttle:30,1')->name('invitations.store');
     Route::delete('/settings/invitations/{invitation}', [WorkspaceInvitationController::class, 'destroy'])
