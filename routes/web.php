@@ -64,9 +64,17 @@ Route::get('/', function (Request $request, TenantResolver $tenants) {
 // Public send-API guide. The rest of the API reference stays in the app.
 Route::get('/docs/send', [DashboardController::class, 'sendDocs'])->name('docs.send');
 
-// Standard Thunderbird autoconfig endpoint (works per-tenant).
+// Standard Thunderbird autoconfig endpoint (works for logged-out requests).
 Route::get('/mail/config-v1.1.xml', [MailClientConfigController::class, 'autoconfigPublic'])
     ->name('mail.autoconfig');
+
+// Thunderbird .well-known autoconfig path (same as /mail/config-v1.1.xml).
+Route::get('/.well-known/autoconfig/mail/config-v1.1.xml', [MailClientConfigController::class, 'autoconfigPublic'])
+    ->name('mail.autoconfig.wellknown');
+
+// Public Outlook autodiscover (supports GET and POST with XML body).
+Route::match(['get', 'post'], '/autodiscover/autodiscover.xml', [MailClientConfigController::class, 'autodiscoverPublic'])
+    ->name('mail.autodiscover');
 
 // Public, signed unsubscribe links embedded in broadcast emails.
 Route::get('/unsubscribe/{recipient}', [UnsubscribeController::class, 'show'])

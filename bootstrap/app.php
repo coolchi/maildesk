@@ -60,7 +60,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // One-click unsubscribe (RFC 8058) is POSTed by mail providers
         // without a CSRF token; the signed URL protects it instead.
-        $middleware->validateCsrfTokens(except: ['unsubscribe/*']);
+        // Outlook autodiscover POSTs XML from mail clients without CSRF.
+        $middleware->validateCsrfTokens(except: [
+            'unsubscribe/*',
+            'autodiscover/autodiscover.xml',
+        ]);
 
         $middleware->alias([
             'platform.admin' => EnsurePlatformAdmin::class,
