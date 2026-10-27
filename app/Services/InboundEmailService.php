@@ -6,6 +6,7 @@ use App\Events\InboxUpdated;
 use App\Jobs\ClassifyInboundMessage;
 use App\Jobs\DispatchWebhook;
 use App\Jobs\FetchInboundEmailBody;
+use App\Jobs\PushInboundToStalwart;
 use App\Jobs\SendAutoReply;
 use App\Jobs\SendMailPush;
 use App\Mail\DTO\InboundEmail;
@@ -106,6 +107,12 @@ class InboundEmailService
 
         InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
         SendMailPush::dispatch($message->id)->afterCommit();
+
+        if ($this->shouldPushToStalwart($mailbox)) {
+            if ($email->deferredFetchEmailId === null) {
+                PushInboundToStalwart::dispatch($message->id)->afterCommit();
+            }
+        }
 
         // Mail to a group address (staff@...) is copied to each member via the queue.
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());
@@ -263,5 +270,26 @@ class InboundEmailService
                 'path' => $path,
             ]);
         }
+    }
+
+    protected function shouldPushToStalwart(?Mailbox $mailbox): bool
+    {
+        if (! config('maildesk.stalwart.enabled')) {
+            return false;
+        }
+
+        if ($mailbox === null) {
+            return false;
+        }
+
+        if (! $mailbox->imap_enabled) {
+            return false;
+        }
+
+        if (blank($mailbox->imap_password)) {
+            return false;
+        }
+
+        return true;
     }
 }

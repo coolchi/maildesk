@@ -44,6 +44,7 @@ class Message extends Model
         'sent_at',
         'scheduled_at',
         'received_at',
+        'stalwart_pushed_at',
     ];
 
     protected function casts(): array
@@ -60,6 +61,7 @@ class Message extends Model
             'sent_at' => 'datetime',
             'scheduled_at' => 'datetime',
             'received_at' => 'datetime',
+            'stalwart_pushed_at' => 'datetime',
         ];
     }
 
