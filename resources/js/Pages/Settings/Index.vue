@@ -228,6 +228,7 @@ const mailClientsCanManage = computed(() => Boolean(mailClients.value.can_manage
 const revealedAppPassword = ref(page.props.flash?.mail_client_app_password || '');
 const revealedMailboxId = ref(page.props.flash?.mail_client_mailbox_id || null);
 const mailClientBusy = ref(null);
+const expandedMailbox = ref(null);
 
 const copyText = async (value, label) => {
     try {
@@ -1288,140 +1289,395 @@ const downloadInvoice = () => {
         <!-- Mail clients (IMAP / POP / SMTP) -->
         <div
             v-else-if="tab === 'mail-clients'"
-            class="mx-auto max-w-2xl space-y-5"
+            class="mx-auto max-w-4xl space-y-6"
             data-testid="mail-clients-settings"
         >
-            <section class="md-card space-y-4 p-5 sm:p-6">
-                <div>
-                    <h3 class="text-sm font-medium text-white">Mail clients</h3>
+            <!-- Server Settings -->
+            <section class="md-card overflow-hidden">
+                <div class="border-b border-zinc-800 px-5 py-4">
+                    <h3 class="text-sm font-medium text-white">Mail server settings</h3>
                     <p class="mt-1 text-sm text-zinc-500">
-                        Add a MailDesk address to Gmail, Apple Mail, or Outlook
-                        over IMAP (and optional POP3), like cPanel webmail.
-                        Sending from those apps uses authenticated SMTP on the
-                        same host.
+                        Use these settings to connect your mailbox to email clients like Gmail, Apple Mail, Outlook, or Thunderbird.
+                        Username is your full email address; password is the app password generated below.
                     </p>
                 </div>
 
                 <div
                     v-if="!mailClients.enabled"
-                    class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
+                    class="px-5 py-4"
                 >
-                    Mail client hosting is not enabled on this platform
-                    (<code class="text-amber-50">STALWART_ENABLED</code>). Ask a
-                    platform admin to connect Stalwart.
-                </div>
-
-                <div
-                    v-else
-                    class="grid gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 text-xs text-zinc-300 sm:grid-cols-3"
-                >
-                    <div>
-                        <p class="mb-1 font-medium text-zinc-200">IMAP</p>
-                        <p>{{ mailClients.server?.imap?.host }}:{{ mailClients.server?.imap?.port }}</p>
-                        <p class="text-zinc-500">{{ mailClients.server?.imap?.encryption }}</p>
-                        <button
-                            type="button"
-                            class="mt-1 text-cyan-300 hover:underline"
-                            @click="copyText(`${mailClients.server?.imap?.host}:${mailClients.server?.imap?.port}`, 'IMAP host')"
-                        >
-                            Copy host
-                        </button>
-                    </div>
-                    <div>
-                        <p class="mb-1 font-medium text-zinc-200">SMTP</p>
-                        <p>{{ mailClients.server?.smtp?.host }}:{{ mailClients.server?.smtp?.port }}</p>
-                        <p class="text-zinc-500">{{ mailClients.server?.smtp?.encryption }}</p>
-                        <button
-                            type="button"
-                            class="mt-1 text-cyan-300 hover:underline"
-                            @click="copyText(`${mailClients.server?.smtp?.host}:${mailClients.server?.smtp?.port}`, 'SMTP host')"
-                        >
-                            Copy host
-                        </button>
-                    </div>
-                    <div>
-                        <p class="mb-1 font-medium text-zinc-200">POP3</p>
-                        <p>{{ mailClients.server?.pop?.host }}:{{ mailClients.server?.pop?.port }}</p>
-                        <p class="text-zinc-500">{{ mailClients.server?.pop?.encryption }}</p>
+                    <div class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                        Mail client hosting is not enabled on this platform.
+                        Ask a platform admin to enable Stalwart.
                     </div>
                 </div>
 
-                <p class="text-xs text-zinc-500">
-                    {{ mailClients.docs?.gmail }}
-                </p>
-            </section>
-
-            <section class="md-card space-y-3 p-5 sm:p-6">
-                <h3 class="text-sm font-medium text-white">Mailboxes</h3>
-                <p
-                    v-if="!(mailClients.mailboxes || []).length"
-                    class="text-sm text-zinc-500"
-                >
-                    No mailboxes yet. Create users first, then enable mail
-                    clients here.
-                </p>
-                <ul class="divide-y divide-zinc-800">
-                    <li
-                        v-for="mailbox in mailClients.mailboxes || []"
-                        :key="mailbox.id"
-                        class="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                        <div class="min-w-0">
-                            <p class="truncate text-sm text-zinc-100">
-                                {{ mailbox.email }}
-                            </p>
-                            <p class="text-xs text-zinc-500">
-                                <span v-if="mailbox.imap_enabled" class="text-emerald-300">IMAP on</span>
-                                <span v-else>IMAP off</span>
-                                <span v-if="mailbox.has_app_password"> · app password set</span>
-                            </p>
-                            <div
-                                v-if="revealedMailboxId === mailbox.id && revealedAppPassword"
-                                class="mt-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100"
-                            >
-                                <p class="mb-1 font-medium">App password (shown once)</p>
-                                <code class="break-all">{{ revealedAppPassword }}</code>
-                                <button
-                                    type="button"
-                                    class="ml-2 text-cyan-200 hover:underline"
-                                    @click="copyText(revealedAppPassword, 'App password')"
-                                >
-                                    Copy
-                                </button>
+                <div v-else class="grid gap-4 p-5 sm:grid-cols-3">
+                    <!-- IMAP -->
+                    <div class="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+                        <div class="mb-3 flex items-center justify-between">
+                            <span class="text-sm font-medium text-white">IMAP</span>
+                            <span class="rounded bg-cyan-400/15 px-1.5 py-0.5 text-[10px] font-medium text-cyan-300">Incoming</span>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Server</span>
+                                <div class="flex items-center gap-1.5">
+                                    <code class="font-mono text-zinc-300">{{ mailClients.server?.imap?.host }}</code>
+                                    <button type="button" class="text-zinc-500 hover:text-cyan-400" title="Copy" @click="copyText(mailClients.server?.imap?.host, 'IMAP server')">
+                                        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Port</span>
+                                <div class="flex items-center gap-1.5">
+                                    <code class="font-mono text-zinc-300">{{ mailClients.server?.imap?.port }}</code>
+                                    <button type="button" class="text-zinc-500 hover:text-cyan-400" title="Copy" @click="copyText(String(mailClients.server?.imap?.port), 'IMAP port')">
+                                        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Security</span>
+                                <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-400">{{ mailClients.server?.imap?.encryption }}</span>
                             </div>
                         </div>
-                        <div class="flex flex-wrap gap-2">
-                            <button
-                                v-if="!mailbox.imap_enabled"
-                                type="button"
-                                class="md-btn-solid text-xs"
-                                :disabled="!mailClientsCanManage || !mailClients.enabled || mailClientBusy === mailbox.id"
-                                @click="enableMailClient(mailbox)"
-                            >
-                                Enable
-                            </button>
-                            <template v-else>
-                                <button
-                                    type="button"
-                                    class="md-btn text-xs"
-                                    :disabled="!mailClientsCanManage || mailClientBusy === mailbox.id"
-                                    @click="rotateMailClient(mailbox)"
-                                >
-                                    Rotate password
-                                </button>
-                                <button
-                                    type="button"
-                                    class="md-btn text-xs text-rose-300"
-                                    :disabled="!mailClientsCanManage || mailClientBusy === mailbox.id"
-                                    @click="disableMailClient(mailbox)"
-                                >
-                                    Disable
-                                </button>
-                            </template>
+                    </div>
+
+                    <!-- SMTP -->
+                    <div class="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+                        <div class="mb-3 flex items-center justify-between">
+                            <span class="text-sm font-medium text-white">SMTP</span>
+                            <span class="rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Outgoing</span>
                         </div>
-                    </li>
-                </ul>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Server</span>
+                                <div class="flex items-center gap-1.5">
+                                    <code class="font-mono text-zinc-300">{{ mailClients.server?.smtp?.host }}</code>
+                                    <button type="button" class="text-zinc-500 hover:text-cyan-400" title="Copy" @click="copyText(mailClients.server?.smtp?.host, 'SMTP server')">
+                                        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Port</span>
+                                <div class="flex items-center gap-1.5">
+                                    <code class="font-mono text-zinc-300">{{ mailClients.server?.smtp?.port }}</code>
+                                    <button type="button" class="text-zinc-500 hover:text-cyan-400" title="Copy" @click="copyText(String(mailClients.server?.smtp?.port), 'SMTP port')">
+                                        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Security</span>
+                                <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-400">{{ mailClients.server?.smtp?.encryption }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- POP3 -->
+                    <div class="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+                        <div class="mb-3 flex items-center justify-between">
+                            <span class="text-sm font-medium text-white">POP3</span>
+                            <span class="rounded bg-purple-400/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-300">Incoming</span>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Server</span>
+                                <div class="flex items-center gap-1.5">
+                                    <code class="font-mono text-zinc-300">{{ mailClients.server?.pop?.host }}</code>
+                                    <button type="button" class="text-zinc-500 hover:text-cyan-400" title="Copy" @click="copyText(mailClients.server?.pop?.host, 'POP3 server')">
+                                        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Port</span>
+                                <div class="flex items-center gap-1.5">
+                                    <code class="font-mono text-zinc-300">{{ mailClients.server?.pop?.port }}</code>
+                                    <button type="button" class="text-zinc-500 hover:text-cyan-400" title="Copy" @click="copyText(String(mailClients.server?.pop?.port), 'POP3 port')">
+                                        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-zinc-500">Security</span>
+                                <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-400">{{ mailClients.server?.pop?.encryption }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
+
+            <!-- Mailboxes -->
+            <section class="md-card overflow-hidden">
+                <div class="border-b border-zinc-800 px-5 py-4">
+                    <h3 class="text-sm font-medium text-white">Mailboxes</h3>
+                    <p class="mt-1 text-sm text-zinc-500">
+                        Enable IMAP access and manage app passwords for each mailbox. App passwords are shown once when generated - copy it immediately.
+                    </p>
+                </div>
+
+                <div v-if="!(mailClients.mailboxes || []).length" class="px-5 py-8 text-center text-sm text-zinc-500">
+                    No mailboxes yet. Create users first, then enable mail clients here.
+                </div>
+
+                <div v-else class="divide-y divide-zinc-800/80">
+                    <div
+                        v-for="mailbox in mailClients.mailboxes || []"
+                        :key="mailbox.id"
+                        class="group"
+                    >
+                        <div
+                            class="flex cursor-pointer items-center gap-3 px-5 py-3.5 hover:bg-zinc-900/50"
+                            @click="expandedMailbox = expandedMailbox === mailbox.id ? null : mailbox.id"
+                        >
+                            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium text-zinc-300">
+                                {{ mailbox.email.slice(0, 1).toUpperCase() }}
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="truncate font-mono text-sm text-white">{{ mailbox.email }}</span>
+                                    <span v-if="mailbox.imap_enabled" class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">IMAP on</span>
+                                    <span v-if="mailbox.has_app_password" class="rounded-full bg-cyan-400/15 px-2 py-0.5 text-[10px] font-medium text-cyan-300">app password set</span>
+                                </div>
+                            </div>
+                            <svg class="h-4 w-4 text-zinc-500 transition-transform" :class="{ 'rotate-180': expandedMailbox === mailbox.id }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+
+                        <!-- Expanded details -->
+                        <div v-if="expandedMailbox === mailbox.id" class="border-t border-zinc-800/50 bg-zinc-950/50 px-5 py-4">
+                            <div class="grid gap-6 lg:grid-cols-2">
+                                <!-- Settings -->
+                                <div class="space-y-4">
+                                    <h4 class="text-xs font-medium uppercase tracking-wide text-zinc-500">Account Settings</h4>
+
+                                    <!-- Username -->
+                                    <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
+                                        <div class="flex items-center justify-between text-xs">
+                                            <span class="text-zinc-500">Username</span>
+                                            <div class="flex items-center gap-1.5">
+                                                <code class="font-mono text-cyan-300">{{ mailbox.email }}</code>
+                                                <button type="button" class="text-zinc-500 hover:text-cyan-400" @click.stop="copyText(mailbox.email, 'Username')">
+                                                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- App Password display -->
+                                    <div
+                                        v-if="revealedMailboxId === mailbox.id && revealedAppPassword"
+                                        class="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3"
+                                    >
+                                        <div class="mb-2 flex items-center gap-2 text-xs text-emerald-300">
+                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                            <span>New password generated - copy it now!</span>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <code class="flex-1 rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-white">{{ revealedAppPassword }}</code>
+                                            <button type="button" class="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-white hover:bg-zinc-700" @click.stop="copyText(revealedAppPassword, 'App password')">
+                                                Copy
+                                            </button>
+                                        </div>
+                                        <p class="mt-2 text-[11px] text-zinc-500">This password will not be shown again. Store it securely.</p>
+                                    </div>
+
+                                    <!-- Actions -->
+                                    <div class="flex flex-wrap gap-2">
+                                        <button
+                                            v-if="!mailbox.imap_enabled"
+                                            type="button"
+                                            class="md-btn-solid text-xs"
+                                            :disabled="!mailClientsCanManage || !mailClients.enabled || mailClientBusy === mailbox.id"
+                                            @click.stop="enableMailClient(mailbox)"
+                                        >
+                                            Enable IMAP
+                                        </button>
+                                        <template v-else>
+                                            <button
+                                                type="button"
+                                                class="md-btn-solid text-xs"
+                                                :disabled="!mailClientsCanManage || mailClientBusy === mailbox.id"
+                                                @click.stop="rotateMailClient(mailbox)"
+                                            >
+                                                {{ mailbox.has_app_password ? 'Rotate password' : 'Generate password' }}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="md-btn text-xs text-rose-300 hover:text-rose-200"
+                                                :disabled="!mailClientsCanManage || mailClientBusy === mailbox.id"
+                                                @click.stop="disableMailClient(mailbox)"
+                                            >
+                                                Disable IMAP
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <!-- Config Downloads -->
+                                <div v-if="mailbox.imap_enabled" class="space-y-4">
+                                    <h4 class="text-xs font-medium uppercase tracking-wide text-zinc-500">Quick Setup</h4>
+
+                                    <div class="space-y-2">
+                                        <a
+                                            :href="route('settings.mail-clients.mobileconfig', mailbox.id)"
+                                            class="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-white transition hover:border-zinc-700 hover:bg-zinc-800/50"
+                                            @click.stop
+                                        >
+                                            <svg class="h-4 w-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                            <div class="flex-1">
+                                                <div class="font-medium">Apple Mail Profile</div>
+                                                <div class="text-xs text-zinc-500">.mobileconfig for Mac, iPhone, iPad</div>
+                                            </div>
+                                            <svg class="h-4 w-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                        </a>
+
+                                        <a
+                                            :href="route('settings.mail-clients.autoconfig', mailbox.id)"
+                                            class="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-white transition hover:border-zinc-700 hover:bg-zinc-800/50"
+                                            @click.stop
+                                        >
+                                            <svg class="h-4 w-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                            <div class="flex-1">
+                                                <div class="font-medium">Thunderbird Config</div>
+                                                <div class="text-xs text-zinc-500">Autoconfig XML for Thunderbird</div>
+                                            </div>
+                                            <svg class="h-4 w-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                        </a>
+
+                                        <a
+                                            :href="route('settings.mail-clients.autodiscover', mailbox.id)"
+                                            class="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-white transition hover:border-zinc-700 hover:bg-zinc-800/50"
+                                            @click.stop
+                                        >
+                                            <svg class="h-4 w-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                            <div class="flex-1">
+                                                <div class="font-medium">Outlook Autodiscover</div>
+                                                <div class="text-xs text-zinc-500">POX XML for Outlook</div>
+                                            </div>
+                                            <svg class="h-4 w-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                        </a>
+                                    </div>
+                                </div>
+                                <div v-else class="flex items-center justify-center rounded-lg border border-dashed border-zinc-800 p-6 text-center">
+                                    <p class="text-sm text-zinc-500">Enable IMAP to download config files</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Setup Guides -->
+            <section class="md-card overflow-hidden">
+                <div class="border-b border-zinc-800 px-5 py-4">
+                    <h3 class="text-sm font-medium text-white">Setup guides</h3>
+                    <p class="mt-1 text-sm text-zinc-500">
+                        Step-by-step instructions for connecting your favorite email client.
+                    </p>
+                </div>
+
+                <div class="divide-y divide-zinc-800/80">
+                    <!-- Gmail App -->
+                    <details class="group">
+                        <summary class="flex cursor-pointer items-center gap-3 px-5 py-3.5 hover:bg-zinc-900/50">
+                            <span class="text-sm font-medium text-white">Gmail App (Android/iOS)</span>
+                            <svg class="ml-auto h-4 w-4 text-zinc-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </summary>
+                        <ol class="space-y-2 border-t border-zinc-800/50 bg-zinc-950/50 px-5 py-4 text-sm text-zinc-300">
+                            <li>1. Open Gmail and tap your profile icon in the top right</li>
+                            <li>2. Tap "Add another account" → "Other"</li>
+                            <li>3. Enter your full email address</li>
+                            <li>4. Select "Personal (IMAP)"</li>
+                            <li>5. Enter your app password (not your web login password)</li>
+                            <li>6. Enter the incoming server settings (IMAP host, port, SSL)</li>
+                            <li>7. Enter the outgoing server settings (SMTP host, port, SSL)</li>
+                            <li>8. Tap "Next" to finish setup</li>
+                        </ol>
+                    </details>
+
+                    <!-- Apple Mail -->
+                    <details class="group">
+                        <summary class="flex cursor-pointer items-center gap-3 px-5 py-3.5 hover:bg-zinc-900/50">
+                            <span class="text-sm font-medium text-white">Apple Mail (Mac/iPhone/iPad)</span>
+                            <svg class="ml-auto h-4 w-4 text-zinc-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </summary>
+                        <ol class="space-y-2 border-t border-zinc-800/50 bg-zinc-950/50 px-5 py-4 text-sm text-zinc-300">
+                            <li>1. Download the .mobileconfig profile from the mailbox settings above</li>
+                            <li>2. <strong>On Mac:</strong> Open the file, then go to System Settings → Privacy & Security → Profiles → Install</li>
+                            <li>3. <strong>On iPhone/iPad:</strong> Open the file, then go to Settings → General → VPN & Device Management → Install</li>
+                            <li>4. Enter your app password when prompted</li>
+                            <li>5. Your account will be automatically configured</li>
+                        </ol>
+                    </details>
+
+                    <!-- Outlook -->
+                    <details class="group">
+                        <summary class="flex cursor-pointer items-center gap-3 px-5 py-3.5 hover:bg-zinc-900/50">
+                            <span class="text-sm font-medium text-white">Microsoft Outlook</span>
+                            <svg class="ml-auto h-4 w-4 text-zinc-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </summary>
+                        <ol class="space-y-2 border-t border-zinc-800/50 bg-zinc-950/50 px-5 py-4 text-sm text-zinc-300">
+                            <li>1. Open Outlook and go to File → Add Account</li>
+                            <li>2. Enter your email address and click "Advanced options"</li>
+                            <li>3. Check "Let me set up my account manually" and click Connect</li>
+                            <li>4. Choose IMAP</li>
+                            <li>5. Enter incoming server settings (IMAP host, port 993, SSL/TLS)</li>
+                            <li>6. Enter outgoing server settings (SMTP host, port 465, SSL/TLS)</li>
+                            <li>7. Enter your app password for authentication</li>
+                            <li>8. Click "Done" to finish</li>
+                        </ol>
+                    </details>
+
+                    <!-- Thunderbird -->
+                    <details class="group">
+                        <summary class="flex cursor-pointer items-center gap-3 px-5 py-3.5 hover:bg-zinc-900/50">
+                            <span class="text-sm font-medium text-white">Mozilla Thunderbird</span>
+                            <svg class="ml-auto h-4 w-4 text-zinc-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </summary>
+                        <ol class="space-y-2 border-t border-zinc-800/50 bg-zinc-950/50 px-5 py-4 text-sm text-zinc-300">
+                            <li>1. Open Thunderbird and go to Account Settings</li>
+                            <li>2. Click "Account Actions" → "Add Mail Account"</li>
+                            <li>3. Enter your name, email address, and app password</li>
+                            <li>4. Thunderbird may auto-detect settings. If not, click "Configure manually"</li>
+                            <li>5. Set incoming server: IMAP, SSL/TLS, port 993</li>
+                            <li>6. Set outgoing server: SMTP, SSL/TLS, port 465</li>
+                            <li>7. Click "Done" to finish</li>
+                        </ol>
+                    </details>
+
+                    <!-- Android -->
+                    <details class="group">
+                        <summary class="flex cursor-pointer items-center gap-3 px-5 py-3.5 hover:bg-zinc-900/50">
+                            <span class="text-sm font-medium text-white">Android Email App</span>
+                            <svg class="ml-auto h-4 w-4 text-zinc-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </summary>
+                        <ol class="space-y-2 border-t border-zinc-800/50 bg-zinc-950/50 px-5 py-4 text-sm text-zinc-300">
+                            <li>1. Open your email app and tap "Add account"</li>
+                            <li>2. Select "Other" or "IMAP"</li>
+                            <li>3. Enter your email address</li>
+                            <li>4. Choose "Manual setup" → "Personal (IMAP)"</li>
+                            <li>5. Enter incoming server (IMAP host), port 993, Security type SSL</li>
+                            <li>6. Enter outgoing server (SMTP host), port 465, Security type SSL</li>
+                            <li>7. Use your app password for authentication</li>
+                            <li>8. Tap "Next" to complete setup</li>
+                        </ol>
+                    </details>
+                </div>
+            </section>
+
+            <!-- Warning if no manage permission -->
+            <div
+                v-if="!mailClientsCanManage"
+                class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+            >
+                Only workspace owners and admins can enable IMAP access and manage app passwords.
+            </div>
         </div>
 
         <!-- SMTP -->
