@@ -297,4 +297,78 @@ class PushInboundToStalwartTest extends TestCase
         $this->assertStringContainsString('In-Reply-To: <parent@example.com>', $appended);
         $this->assertStringContainsString('References:', $appended);
     }
+
+    public function test_handles_array_references_with_angle_brackets(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $message = $this->createInboundMessage($mailbox, [
+            'references' => ['<ref1@example.com>', '<ref2@example.com>'],
+        ]);
+
+        $job = new PushInboundToStalwart($message->id);
+        $job->handle($this->fakeImap);
+
+        $this->fakeImap->assertAppended('INBOX');
+        $appended = $this->fakeImap->lastAppendedMessage();
+        $this->assertStringContainsString('ref1@example.com', $appended);
+        $this->assertStringContainsString('ref2@example.com', $appended);
+    }
+
+    public function test_handles_space_separated_in_reply_to(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $message = $this->createInboundMessage($mailbox, [
+            'in_reply_to' => '<parent1@example.com> <parent2@example.com>',
+        ]);
+
+        $job = new PushInboundToStalwart($message->id);
+        $job->handle($this->fakeImap);
+
+        $this->fakeImap->assertAppended('INBOX');
+        $appended = $this->fakeImap->lastAppendedMessage();
+        $this->assertStringContainsString('parent1@example.com', $appended);
+    }
+
+    public function test_skips_invalid_message_ids_in_references(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $message = $this->createInboundMessage($mailbox, [
+            'references' => ['<valid@example.com>', 'invalid-no-at-sign', '', null, '<another@test.com>'],
+        ]);
+
+        $job = new PushInboundToStalwart($message->id);
+        $job->handle($this->fakeImap);
+
+        $this->fakeImap->assertAppended('INBOX');
+        $appended = $this->fakeImap->lastAppendedMessage();
+        $this->assertStringContainsString('valid@example.com', $appended);
+        $this->assertStringContainsString('another@test.com', $appended);
+        $this->assertStringNotContainsString('invalid-no-at-sign', $appended);
+    }
+
+    public function test_inbound_service_dispatches_for_deferred_path(): void
+    {
+        Queue::fake([PushInboundToStalwart::class]);
+
+        $mailbox = $this->createMailboxWithImap();
+
+        $email = new InboundEmail(
+            fromEmail: 'customer@example.com',
+            fromName: 'Customer',
+            to: [$mailbox->email],
+            subject: 'Test email',
+            text: null,
+            html: null,
+            messageId: '<deferred@example.com>',
+            provider: 'resend',
+            providerMessageId: 're_123',
+        );
+        $email->deferredFetchEmailId = 're_123';
+
+        $service = app(InboundEmailService::class);
+        $message = $service->receive($email);
+
+        $this->assertNotNull($message);
+        Queue::assertPushed(PushInboundToStalwart::class, fn ($job) => $job->messageId === $message->id);
+    }
 }

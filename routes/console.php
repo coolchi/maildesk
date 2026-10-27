@@ -32,3 +32,8 @@ Schedule::job(new DetectWorkspaceAbuse)->hourly()->withoutOverlapping();
 
 // Pull IMAP (Stalwart) into the shared inbox for mail-client–enabled mailboxes.
 Schedule::command('mail:sync-imap')->everyMinute()->withoutOverlapping();
+
+// Safety net: push any messages that weren't pushed to Stalwart (e.g. job failures).
+Schedule::command('mail:push-to-stalwart --since="-24 hours"')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
