@@ -19,6 +19,17 @@ class MailClientConfigController extends Controller
     ) {}
 
     /**
+     * Look up a mailbox by email globally (bypassing tenant scopes).
+     */
+    protected function findMailboxByEmailGlobally(string $email): ?Mailbox
+    {
+        return Mailbox::query()
+            ->where('email', $email)
+            ->where('imap_enabled', true)
+            ->first();
+    }
+
+    /**
      * Apple Mail / iOS .mobileconfig profile.
      */
     public function mobileconfig(Request $request, Mailbox $mailbox): Response
@@ -73,6 +84,7 @@ class MailClientConfigController extends Controller
         $config = config('maildesk.stalwart.clients', []);
         $imap = $config['imap'] ?? [];
         $smtp = $config['smtp'] ?? [];
+        $pop = $config['pop'] ?? [];
         $provider = config('app.name', 'MailDesk');
 
         $xml = $this->renderAutoconfig([
@@ -88,6 +100,11 @@ class MailClientConfigController extends Controller
                 'host' => $smtp['host'] ?? 'mail.localhost',
                 'port' => $smtp['port'] ?? 465,
                 'security' => $smtp['encryption'] ?? 'ssl',
+            ],
+            'pop' => [
+                'host' => $pop['host'] ?? 'mail.localhost',
+                'port' => $pop['port'] ?? 995,
+                'security' => $pop['encryption'] ?? 'ssl',
             ],
         ]);
 
@@ -109,6 +126,7 @@ class MailClientConfigController extends Controller
         $config = config('maildesk.stalwart.clients', []);
         $imap = $config['imap'] ?? [];
         $smtp = $config['smtp'] ?? [];
+        $pop = $config['pop'] ?? [];
         $provider = config('app.name', 'MailDesk');
 
         $xml = $this->renderAutodiscover([
@@ -124,6 +142,11 @@ class MailClientConfigController extends Controller
                 'host' => $smtp['host'] ?? 'mail.localhost',
                 'port' => $smtp['port'] ?? 465,
                 'security' => $smtp['encryption'] ?? 'ssl',
+            ],
+            'pop' => [
+                'host' => $pop['host'] ?? 'mail.localhost',
+                'port' => $pop['port'] ?? 995,
+                'security' => $pop['encryption'] ?? 'ssl',
             ],
         ]);
 
@@ -225,7 +248,7 @@ XML;
     }
 
     /**
-     * @param  array{provider: string, provider_short: string, email: string, imap: array{host: string, port: int, security: string}, smtp: array{host: string, port: int, security: string}}  $data
+     * @param  array{provider: string, provider_short: string, email: string, imap: array{host: string, port: int, security: string}, smtp: array{host: string, port: int, security: string}, pop?: array{host: string, port: int, security: string}}  $data
      */
     protected function renderAutoconfig(array $data): string
     {
@@ -237,6 +260,22 @@ XML;
         $smtpHost = htmlspecialchars($data['smtp']['host'], ENT_XML1);
         $domain = substr(strrchr($data['email'], '@') ?: '@maildesk.ng', 1);
         $domainEscaped = htmlspecialchars($domain, ENT_XML1);
+
+        $popSection = '';
+        if (isset($data['pop'])) {
+            $popSocketType = $this->securityToSocketType($data['pop']['security']);
+            $popHost = htmlspecialchars($data['pop']['host'], ENT_XML1);
+            $popSection = <<<POPXML
+
+        <incomingServer type="pop3">
+            <hostname>{$popHost}</hostname>
+            <port>{$data['pop']['port']}</port>
+            <socketType>{$popSocketType}</socketType>
+            <authentication>password-cleartext</authentication>
+            <username>%EMAILADDRESS%</username>
+        </incomingServer>
+POPXML;
+        }
 
         return <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
@@ -251,7 +290,7 @@ XML;
             <socketType>{$imapSocketType}</socketType>
             <authentication>password-cleartext</authentication>
             <username>%EMAILADDRESS%</username>
-        </incomingServer>
+        </incomingServer>{$popSection}
         <outgoingServer type="smtp">
             <hostname>{$smtpHost}</hostname>
             <port>{$data['smtp']['port']}</port>
@@ -274,7 +313,7 @@ XML;
     }
 
     /**
-     * @param  array{provider: string, email: string, display_name: string, imap: array{host: string, port: int, security: string}, smtp: array{host: string, port: int, security: string}}  $data
+     * @param  array{provider: string, email: string, display_name: string, imap: array{host: string, port: int, security: string}, smtp: array{host: string, port: int, security: string}, pop?: array{host: string, port: int, security: string}}  $data
      */
     protected function renderAutodiscover(array $data): string
     {
@@ -283,6 +322,25 @@ XML;
         $email = htmlspecialchars($data['email'], ENT_XML1);
         $imapHost = htmlspecialchars($data['imap']['host'], ENT_XML1);
         $smtpHost = htmlspecialchars($data['smtp']['host'], ENT_XML1);
+
+        $popProtocol = '';
+        if (isset($data['pop'])) {
+            $sslPop = $data['pop']['security'] === 'ssl' ? 'on' : 'off';
+            $popHost = htmlspecialchars($data['pop']['host'], ENT_XML1);
+            $popProtocol = <<<POPXML
+
+            <Protocol>
+                <Type>POP3</Type>
+                <Server>{$popHost}</Server>
+                <Port>{$data['pop']['port']}</Port>
+                <SSL>{$sslPop}</SSL>
+                <LoginName>{$email}</LoginName>
+                <DomainRequired>off</DomainRequired>
+                <SPA>off</SPA>
+                <AuthRequired>on</AuthRequired>
+            </Protocol>
+POPXML;
+        }
 
         return <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
@@ -300,7 +358,7 @@ XML;
                 <DomainRequired>off</DomainRequired>
                 <SPA>off</SPA>
                 <AuthRequired>on</AuthRequired>
-            </Protocol>
+            </Protocol>{$popProtocol}
             <Protocol>
                 <Type>SMTP</Type>
                 <Server>{$smtpHost}</Server>
@@ -321,6 +379,7 @@ XML;
 
     /**
      * Standard Thunderbird autoconfig endpoint (uses email query param).
+     * Works for logged-out requests by looking up the mailbox globally.
      */
     public function autoconfigPublic(Request $request): Response
     {
@@ -329,11 +388,7 @@ XML;
             abort(400, 'Invalid or missing emailaddress parameter.');
         }
 
-        $organization = CurrentOrganization::from($request);
-        $mailbox = $organization->mailboxes()
-            ->where('email', $email)
-            ->where('imap_enabled', true)
-            ->first();
+        $mailbox = $this->findMailboxByEmailGlobally($email);
 
         if (! $mailbox) {
             abort(404, 'No mailbox found for this email address.');
@@ -342,6 +397,7 @@ XML;
         $config = config('maildesk.stalwart.clients', []);
         $imap = $config['imap'] ?? [];
         $smtp = $config['smtp'] ?? [];
+        $pop = $config['pop'] ?? [];
         $provider = config('app.name', 'MailDesk');
 
         $xml = $this->renderAutoconfig([
@@ -357,6 +413,70 @@ XML;
                 'host' => $smtp['host'] ?? 'mail.localhost',
                 'port' => $smtp['port'] ?? 465,
                 'security' => $smtp['encryption'] ?? 'ssl',
+            ],
+            'pop' => [
+                'host' => $pop['host'] ?? 'mail.localhost',
+                'port' => $pop['port'] ?? 995,
+                'security' => $pop['encryption'] ?? 'ssl',
+            ],
+        ]);
+
+        return response($xml, 200, [
+            'Content-Type' => 'application/xml',
+        ]);
+    }
+
+    /**
+     * Public Outlook autodiscover endpoint (GET and POST).
+     * Parses email from query param (GET) or XML body (POST).
+     */
+    public function autodiscoverPublic(Request $request): Response
+    {
+        $email = null;
+
+        if ($request->isMethod('POST')) {
+            $body = $request->getContent();
+            if (preg_match('/<EMailAddress>([^<]+)<\/EMailAddress>/i', $body, $m)) {
+                $email = trim($m[1]);
+            }
+        } else {
+            $email = $request->query('email') ?? $request->query('emailaddress');
+        }
+
+        if (! is_string($email) || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            abort(400, 'Invalid or missing email address.');
+        }
+
+        $mailbox = $this->findMailboxByEmailGlobally($email);
+
+        if (! $mailbox) {
+            abort(404, 'No mailbox found for this email address.');
+        }
+
+        $config = config('maildesk.stalwart.clients', []);
+        $imap = $config['imap'] ?? [];
+        $smtp = $config['smtp'] ?? [];
+        $pop = $config['pop'] ?? [];
+        $provider = config('app.name', 'MailDesk');
+
+        $xml = $this->renderAutodiscover([
+            'provider' => $provider,
+            'email' => $mailbox->email,
+            'display_name' => $mailbox->display_name ?: $mailbox->email,
+            'imap' => [
+                'host' => $imap['host'] ?? 'mail.localhost',
+                'port' => $imap['port'] ?? 993,
+                'security' => $imap['encryption'] ?? 'ssl',
+            ],
+            'smtp' => [
+                'host' => $smtp['host'] ?? 'mail.localhost',
+                'port' => $smtp['port'] ?? 465,
+                'security' => $smtp['encryption'] ?? 'ssl',
+            ],
+            'pop' => [
+                'host' => $pop['host'] ?? 'mail.localhost',
+                'port' => $pop['port'] ?? 995,
+                'security' => $pop['encryption'] ?? 'ssl',
             ],
         ]);
 

@@ -125,9 +125,11 @@ class MailClientConfigControllerTest extends TestCase
         $this->assertStringContainsString('<clientConfig version="1.1">', $content);
         $this->assertStringContainsString('<emailProvider id="acme.test">', $content);
         $this->assertStringContainsString('<incomingServer type="imap">', $content);
+        $this->assertStringContainsString('<incomingServer type="pop3">', $content);
         $this->assertStringContainsString('<outgoingServer type="smtp">', $content);
         $this->assertStringContainsString('mail.test', $content);
         $this->assertStringContainsString('<port>993</port>', $content);
+        $this->assertStringContainsString('<port>995</port>', $content);
         $this->assertStringContainsString('<port>465</port>', $content);
         $this->assertStringContainsString('<socketType>SSL</socketType>', $content);
     }
@@ -153,9 +155,11 @@ class MailClientConfigControllerTest extends TestCase
         $content = $response->getContent();
         $this->assertStringContainsString('<Autodiscover', $content);
         $this->assertStringContainsString('<Type>IMAP</Type>', $content);
+        $this->assertStringContainsString('<Type>POP3</Type>', $content);
         $this->assertStringContainsString('<Type>SMTP</Type>', $content);
         $this->assertStringContainsString('<Server>mail.test</Server>', $content);
         $this->assertStringContainsString('<Port>993</Port>', $content);
+        $this->assertStringContainsString('<Port>995</Port>', $content);
         $this->assertStringContainsString('<Port>465</Port>', $content);
         $this->assertStringContainsString('<SSL>on</SSL>', $content);
     }
@@ -213,6 +217,123 @@ class MailClientConfigControllerTest extends TestCase
             ->withSession(['current_organization_id' => $org->id])
             ->get(route('mail.autoconfig'))
             ->assertStatus(400);
+    }
+
+    public function test_autoconfig_public_works_for_logged_out_requests(): void
+    {
+        $this->enableStalwart();
+        $org = Organization::factory()->create();
+        $mailbox = Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'hello@learna.ng',
+            'imap_enabled' => true,
+        ]);
+
+        $response = $this->get(route('mail.autoconfig', ['emailaddress' => 'hello@learna.ng']));
+
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'application/xml');
+
+        $content = $response->getContent();
+        $this->assertStringContainsString('<clientConfig version="1.1">', $content);
+        $this->assertStringContainsString('<domain>learna.ng</domain>', $content);
+        $this->assertStringContainsString('<incomingServer type="imap">', $content);
+        $this->assertStringContainsString('<incomingServer type="pop3">', $content);
+        $this->assertStringContainsString('<outgoingServer type="smtp">', $content);
+    }
+
+    public function test_autoconfig_public_returns_404_for_unknown_email_without_leaking_data(): void
+    {
+        $this->enableStalwart();
+
+        $response = $this->get(route('mail.autoconfig', ['emailaddress' => 'unknown@example.com']));
+
+        $response->assertNotFound();
+    }
+
+    public function test_autoconfig_wellknown_path_works(): void
+    {
+        $this->enableStalwart();
+        $org = Organization::factory()->create();
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'test@acme.test',
+            'imap_enabled' => true,
+        ]);
+
+        $response = $this->get('/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=test@acme.test');
+
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'application/xml');
+
+        $this->assertStringContainsString('<clientConfig version="1.1">', $response->getContent());
+    }
+
+    public function test_autodiscover_public_get_endpoint_works(): void
+    {
+        $this->enableStalwart();
+        $org = Organization::factory()->create();
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'outlook@domain.test',
+            'imap_enabled' => true,
+        ]);
+
+        $response = $this->get(route('mail.autodiscover', ['email' => 'outlook@domain.test']));
+
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'application/xml');
+
+        $content = $response->getContent();
+        $this->assertStringContainsString('<Autodiscover', $content);
+        $this->assertStringContainsString('<Type>IMAP</Type>', $content);
+        $this->assertStringContainsString('<Type>POP3</Type>', $content);
+        $this->assertStringContainsString('<Type>SMTP</Type>', $content);
+    }
+
+    public function test_autodiscover_public_post_endpoint_parses_xml(): void
+    {
+        $this->enableStalwart();
+        $org = Organization::factory()->create();
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'email' => 'user@office.test',
+            'imap_enabled' => true,
+        ]);
+
+        $xmlBody = <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006">
+    <Request>
+        <EMailAddress>user@office.test</EMailAddress>
+        <AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a</AcceptableResponseSchema>
+    </Request>
+</Autodiscover>
+XML;
+
+        $response = $this->post(route('mail.autodiscover'), [], [
+            'Content-Type' => 'application/xml',
+        ]);
+
+        $response = $this->call('POST', route('mail.autodiscover'), [], [], [], [
+            'CONTENT_TYPE' => 'application/xml',
+        ], $xmlBody);
+
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'application/xml');
+
+        $content = $response->getContent();
+        $this->assertStringContainsString('<Autodiscover', $content);
+        $this->assertStringContainsString('user@office.test', $content);
+    }
+
+    public function test_autodiscover_public_returns_404_for_unknown_email(): void
+    {
+        $this->enableStalwart();
+
+        $response = $this->get(route('mail.autodiscover', ['email' => 'nonexistent@void.test']));
+
+        $response->assertNotFound();
     }
 
     public function test_mobileconfig_xml_is_valid_plist(): void

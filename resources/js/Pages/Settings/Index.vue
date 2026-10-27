@@ -209,17 +209,17 @@ const platformSmtp = computed(() => activeSmtp.value);
 const smtpForm = ref({
     enabled: Boolean(props.smtp?.enabled),
     host: props.smtp?.host || '',
-    port: props.smtp?.port || 587,
+    port: props.smtp?.port || 465,
     username: props.smtp?.username || '',
     password: '',
     clear_password: false,
-    encryption: props.smtp?.encryption || 'tls',
+    encryption: props.smtp?.encryption || 'ssl',
 });
 const smtpErrors = ref({});
 const smtpSaving = ref(false);
 const encryptionOptions = [
-    { value: 'tls', label: 'TLS (STARTTLS, usually port 587)' },
     { value: 'ssl', label: 'SSL (implicit TLS, usually port 465)' },
+    { value: 'tls', label: 'TLS (STARTTLS, usually port 587)' },
     { value: 'none', label: 'None (unencrypted, not recommended)' },
 ];
 
@@ -1777,7 +1777,7 @@ const downloadInvoice = () => {
                                 min="1"
                                 max="65535"
                                 class="md-input font-mono text-sm"
-                                placeholder="587"
+                                placeholder="465"
                                 data-testid="smtp-port"
                             />
                             <p v-if="smtpErrors.port" class="mt-1 text-xs text-rose-300">{{ smtpErrors.port }}</p>

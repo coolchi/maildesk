@@ -80,11 +80,16 @@ class ImapSyncService
         }
 
         try {
-            $check = imap_check($stream);
-            $uidValidity = (string) ($check->uidvalidity ?? '');
+            $status = @imap_status($stream, $mailboxPath, SA_UIDVALIDITY);
+            $uidValidity = $status && isset($status->uidvalidity) ? (string) $status->uidvalidity : '';
             $lastUid = (int) ($mailbox->imap_last_uid ?? 0);
 
             if ($uidValidity !== '' && $mailbox->imap_uidvalidity && $uidValidity !== (string) $mailbox->imap_uidvalidity) {
+                Log::info('IMAP UIDVALIDITY changed, resetting sync', [
+                    'mailbox' => $mailbox->email,
+                    'old_uidvalidity' => $mailbox->imap_uidvalidity,
+                    'new_uidvalidity' => $uidValidity,
+                ]);
                 $lastUid = 0;
             }
 

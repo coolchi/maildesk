@@ -31,10 +31,10 @@ return [
         'smtp' => [
             'driver' => 'smtp',
             'host' => env('MAILDESK_SMTP_HOST'),
-            'port' => env('MAILDESK_SMTP_PORT', 587),
+            'port' => env('MAILDESK_SMTP_PORT', 465),
             'username' => env('MAILDESK_SMTP_USERNAME'),
             'password' => env('MAILDESK_SMTP_PASSWORD'),
-            'encryption' => env('MAILDESK_SMTP_ENCRYPTION', 'tls'),
+            'encryption' => env('MAILDESK_SMTP_ENCRYPTION', 'ssl'),
         ],
     ],
 
