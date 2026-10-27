@@ -182,4 +182,41 @@ return [
         'organization_id' => env('MAILDESK_E2E_ORGANIZATION_ID'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Stalwart IMAP / POP / SMTP (mail clients)
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, MailDesk provisions mailbox accounts into Stalwart so
+    | Gmail / Apple Mail / Outlook can connect (cPanel-style hosting). The
+    | sync command pulls IMAP into the shared inbox; outbound from an IMAP
+    | mailbox submits via Stalwart SMTP so Sent stays in sync.
+    |
+    */
+    'stalwart' => [
+        'enabled' => (bool) env('STALWART_ENABLED', false),
+        'url' => rtrim((string) env('STALWART_URL', 'http://127.0.0.1:18081'), '/'),
+        'admin_user' => env('STALWART_ADMIN_USER'),
+        'admin_password' => env('STALWART_ADMIN_PASSWORD'),
+        'timeout' => (int) env('STALWART_HTTP_TIMEOUT', 15),
+        'auto_provision' => (bool) env('STALWART_AUTO_PROVISION', true),
+        'clients' => [
+            'imap' => [
+                'host' => env('STALWART_IMAP_HOST', 'mail.localhost'),
+                'port' => (int) env('STALWART_IMAP_PORT', 993),
+                'encryption' => env('STALWART_IMAP_ENCRYPTION', 'ssl'), // ssl|tls|none
+            ],
+            'smtp' => [
+                'host' => env('STALWART_SMTP_HOST', 'mail.localhost'),
+                'port' => (int) env('STALWART_SMTP_PORT', 465),
+                'encryption' => env('STALWART_SMTP_ENCRYPTION', 'ssl'),
+            ],
+            'pop' => [
+                'host' => env('STALWART_POP_HOST', 'mail.localhost'),
+                'port' => (int) env('STALWART_POP_PORT', 995),
+                'encryption' => env('STALWART_POP_ENCRYPTION', 'ssl'),
+            ],
+        ],
+    ],
+
 ];

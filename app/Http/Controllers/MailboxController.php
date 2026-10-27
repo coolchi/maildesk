@@ -4,19 +4,25 @@ namespace App\Http\Controllers;
 
 use App\Models\Mailbox;
 use App\Models\User;
+use App\Services\Imap\MailboxProvisioner;
 use App\Services\WorkspaceAccess;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class MailboxController extends Controller
 {
-    public function __construct(public WorkspaceAccess $access) {}
+    public function __construct(
+        public WorkspaceAccess $access,
+        public MailboxProvisioner $provisioner,
+    ) {}
 
     public function index(Request $request): Response
     {
@@ -87,7 +93,7 @@ class MailboxController extends Controller
             return back()->withErrors(['inbox' => 'Assign at least inbox, transactional, or marketing.']);
         }
 
-        DB::transaction(function () use ($organization, $domain, $email, $validated, $inbox, $transactional, $marketing) {
+        $mailbox = DB::transaction(function () use ($organization, $domain, $email, $validated, $inbox, $transactional, $marketing) {
             $user = User::query()->create([
                 'name' => $validated['name'],
                 'email' => $email,
@@ -96,7 +102,7 @@ class MailboxController extends Controller
 
             $organization->users()->attach($user->id, ['role' => 'member']);
 
-            Mailbox::query()->create([
+            return Mailbox::query()->create([
                 'organization_id' => $organization->id,
                 'user_id' => $user->id,
                 'domain_id' => $domain->id,
@@ -111,6 +117,8 @@ class MailboxController extends Controller
                 'send_limit' => $validated['limit'] ?? 1000,
             ]);
         });
+
+        $this->tryProvision($mailbox);
 
         return back()->with('success', 'User created.');
     }
@@ -187,6 +195,8 @@ class MailboxController extends Controller
         abort_unless($this->access->isTeam($request->user(), $organization), 403);
 
         DB::transaction(function () use ($mailbox, $organization) {
+            $this->provisioner->destroyRemote($mailbox);
+
             $userId = $mailbox->user_id;
             $mailbox->delete();
 
@@ -213,8 +223,25 @@ class MailboxController extends Controller
         abort_unless($mailbox->status === 'pending', 422, 'Only pending users can be approved.');
 
         $mailbox->forceFill(['status' => 'active'])->save();
+        $this->tryProvision($mailbox);
 
         return back()->with('success', $mailbox->email.' approved.');
+    }
+
+    protected function tryProvision(Mailbox $mailbox): void
+    {
+        if (! $this->provisioner->enabled()) {
+            return;
+        }
+
+        try {
+            $this->provisioner->provision($mailbox);
+        } catch (Throwable $e) {
+            Log::warning('Mailbox IMAP provision skipped after save', [
+                'mailbox' => $mailbox->email,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function reject(Request $request, Mailbox $mailbox): RedirectResponse

@@ -235,10 +235,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/help', [HelpController::class, 'index'])->name('help');
     Route::redirect('/settings', '/settings/usage');
     Route::get('/settings/{tab}', [SettingsController::class, 'show'])
-        ->whereIn('tab', ['usage', 'billing', 'team', 'users', 'smtp', 'unsubscribe', 'documents', 'signature'])
+        ->whereIn('tab', ['usage', 'billing', 'team', 'users', 'smtp', 'mail-clients', 'unsubscribe', 'documents', 'signature'])
         ->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     Route::put('/settings/smtp', [SettingsController::class, 'updateSmtp'])->name('settings.smtp.update');
+    Route::post('/settings/mail-clients/{mailbox}/enable', [SettingsController::class, 'enableMailClient'])
+        ->name('settings.mail-clients.enable');
+    Route::post('/settings/mail-clients/{mailbox}/rotate', [SettingsController::class, 'rotateMailClientPassword'])
+        ->name('settings.mail-clients.rotate');
+    Route::post('/settings/mail-clients/{mailbox}/disable', [SettingsController::class, 'disableMailClient'])
+        ->name('settings.mail-clients.disable');
     Route::post('/settings/invitations', [WorkspaceInvitationController::class, 'store'])
         ->middleware('throttle:30,1')->name('invitations.store');
     Route::delete('/settings/invitations/{invitation}', [WorkspaceInvitationController::class, 'destroy'])

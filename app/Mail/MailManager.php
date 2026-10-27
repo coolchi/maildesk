@@ -7,9 +7,11 @@ use App\Mail\Providers\ArrayProvider;
 use App\Mail\Providers\ResendProvider;
 use App\Mail\Providers\SmtpProvider;
 use App\Mail\Providers\UnsupportedProvider;
+use App\Models\Mailbox;
 use App\Models\MailProvider as PlatformMailProvider;
 use App\Models\Organization;
 use App\Models\ProviderConfig;
+use Illuminate\Support\Str;
 
 class MailManager
 {
@@ -31,6 +33,44 @@ class MailManager
         $organization->loadMissing('mailProvider');
 
         return $this->driver($this->driverNameFor($organization), $organization, $this->platformProviderFor($organization));
+    }
+
+    /**
+     * Prefer Stalwart SMTP when the From mailbox has IMAP client access enabled,
+     * so web sends land in the same Sent store as Gmail / Apple Mail.
+     */
+    public function forMailbox(Organization $organization, ?Mailbox $mailbox): MailProvider
+    {
+        if ($mailbox && $mailbox->imap_enabled && filled($mailbox->imap_password) && config('maildesk.stalwart.enabled')) {
+            if (config('maildesk.fake_send')) {
+                return new ArrayProvider('smtp');
+            }
+
+            $smtp = config('maildesk.stalwart.clients.smtp', []);
+
+            return new SmtpProvider([
+                'host' => $smtp['host'] ?? '127.0.0.1',
+                'port' => (int) ($smtp['port'] ?? 587),
+                'encryption' => $smtp['encryption'] ?? 'tls',
+                'username' => $mailbox->email,
+                'password' => $mailbox->imap_password,
+                'driver' => 'smtp',
+            ]);
+        }
+
+        return $this->forOrganization($organization);
+    }
+
+    public function mailboxForAddress(Organization $organization, ?string $email): ?Mailbox
+    {
+        if (! filled($email)) {
+            return null;
+        }
+
+        return Mailbox::query()
+            ->where('organization_id', $organization->id)
+            ->whereRaw('lower(email) = ?', [Str::lower($email)])
+            ->first();
     }
 
     /**

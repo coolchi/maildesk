@@ -182,7 +182,7 @@ class EmailService
         }
 
         $organization->loadMissing('mailProvider');
-        $message->loadMissing('attachments');
+        $message->loadMissing(['attachments', 'mailbox']);
 
         $attachmentPayload = $message->attachments->map(fn (Attachment $attachment) => [
             'filename' => $attachment->filename,
@@ -191,7 +191,10 @@ class EmailService
             'disk' => $attachment->disk,
         ])->values()->all();
 
-        $sender = $this->mailManager->forOrganization($organization);
+        $mailbox = $message->mailbox
+            ?? $this->mailManager->mailboxForAddress($organization, $message->from_email);
+
+        $sender = $this->mailManager->forMailbox($organization, $mailbox);
 
         $result = $sender->send(new OutboundEmail(
             fromEmail: $message->from_email,

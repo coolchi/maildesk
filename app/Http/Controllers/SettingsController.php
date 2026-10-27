@@ -3,10 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Mail\MailManager;
+use App\Models\Mailbox;
 use App\Models\Organization;
 use App\Models\ProviderConfig;
 use App\Models\WorkspaceInvitation;
 use App\Services\Billing\BillingService;
+use App\Services\Imap\MailClientSettings;
+use App\Services\Imap\MailboxProvisioner;
 use App\Services\Impersonation\ImpersonationService;
 use App\Services\SignatureService;
 use App\Services\TenantResolver;
@@ -19,6 +22,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class SettingsController extends Controller
 {
@@ -120,6 +124,7 @@ class SettingsController extends Controller
                 'user_registration' => UserRegistrationSettings::for($organization),
             ],
             'smtp' => $this->smtpSettings($request, $organization),
+            'mailClients' => app(MailClientSettings::class)->for($request, $organization),
             'mailboxes' => $organization->mailboxes()
                 ->orderBy('email')
                 ->get(['id', 'email', 'display_name', 'signature'])
@@ -342,5 +347,59 @@ class SettingsController extends Controller
         $role = $organization->users()->whereKey($user->id)->first()?->pivot?->role;
 
         return in_array($role, ['owner', 'admin'], true);
+    }
+
+    /**
+     * Enable IMAP/POP/SMTP client access for a mailbox (provisions Stalwart + app password).
+     */
+    public function enableMailClient(Request $request, Mailbox $mailbox, MailboxProvisioner $provisioner): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+        abort_unless($mailbox->organization_id === $organization->id, 404);
+        abort_unless($this->canManageSmtp($request, $organization), 403);
+        abort_unless($provisioner->enabled(), 422, 'Mail client hosting is not configured on this platform.');
+
+        try {
+            $password = $provisioner->provision($mailbox, forceEnable: true);
+        } catch (Throwable $e) {
+            return back()->with('error', 'Could not enable mail clients: '.$e->getMessage());
+        }
+
+        return back()->with([
+            'success' => 'Mail clients enabled for '.$mailbox->email.'.',
+            'mail_client_app_password' => $password,
+            'mail_client_mailbox_id' => $mailbox->id,
+        ]);
+    }
+
+    public function rotateMailClientPassword(Request $request, Mailbox $mailbox, MailboxProvisioner $provisioner): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+        abort_unless($mailbox->organization_id === $organization->id, 404);
+        abort_unless($this->canManageSmtp($request, $organization), 403);
+        abort_unless($mailbox->imap_enabled, 422, 'Enable mail clients first.');
+
+        try {
+            $password = $provisioner->rotateAppPassword($mailbox);
+        } catch (Throwable $e) {
+            return back()->with('error', 'Could not rotate app password: '.$e->getMessage());
+        }
+
+        return back()->with([
+            'success' => 'App password rotated for '.$mailbox->email.'.',
+            'mail_client_app_password' => $password,
+            'mail_client_mailbox_id' => $mailbox->id,
+        ]);
+    }
+
+    public function disableMailClient(Request $request, Mailbox $mailbox, MailboxProvisioner $provisioner): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+        abort_unless($mailbox->organization_id === $organization->id, 404);
+        abort_unless($this->canManageSmtp($request, $organization), 403);
+
+        $provisioner->disable($mailbox, deleteRemote: true);
+
+        return back()->with('success', 'Mail clients disabled for '.$mailbox->email.'.');
     }
 }

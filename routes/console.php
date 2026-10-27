@@ -29,3 +29,6 @@ Schedule::command('billing:expire-trials')->hourly()->withoutOverlapping();
 
 // Scan active workspaces for bounce/volume/webhook abuse signals.
 Schedule::job(new DetectWorkspaceAbuse)->hourly()->withoutOverlapping();
+
+// Pull IMAP (Stalwart) into the shared inbox for mail-client–enabled mailboxes.
+Schedule::command('mail:sync-imap')->everyMinute()->withoutOverlapping();

@@ -47,6 +47,10 @@ const props = defineProps({
         type: Object,
         default: null,
     },
+    mailClients: {
+        type: Object,
+        default: null,
+    },
     team: {
         type: Array,
         default: () => [],
@@ -134,6 +138,7 @@ const tabs = [
     'team',
     'users',
     'smtp',
+    'mail-clients',
     'signature',
     'unsubscribe',
     'documents',
@@ -142,6 +147,7 @@ const tabs = [
 const tabLabel = (t) => {
     if (t === 'unsubscribe') return 'Unsubscribe page';
     if (t === 'smtp') return 'SMTP';
+    if (t === 'mail-clients') return 'Mail clients';
     if (t === 'signature') return 'Signature';
     if (t === 'users') return 'Users';
     return t.charAt(0).toUpperCase() + t.slice(1);
@@ -216,6 +222,88 @@ const encryptionOptions = [
     { value: 'ssl', label: 'SSL (implicit TLS, usually port 465)' },
     { value: 'none', label: 'None (unencrypted, not recommended)' },
 ];
+
+const mailClients = computed(() => props.mailClients || {});
+const mailClientsCanManage = computed(() => Boolean(mailClients.value.can_manage));
+const revealedAppPassword = ref(page.props.flash?.mail_client_app_password || '');
+const revealedMailboxId = ref(page.props.flash?.mail_client_mailbox_id || null);
+const mailClientBusy = ref(null);
+
+const copyText = async (value, label) => {
+    try {
+        await navigator.clipboard.writeText(String(value || ''));
+        toast.success(`${label} copied.`);
+    } catch {
+        toast.error('Could not copy.');
+    }
+};
+
+const enableMailClient = (mailbox) => {
+    mailClientBusy.value = mailbox.id;
+    router.post(
+        route('settings.mail-clients.enable', mailbox.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: (pageResult) => {
+                revealedAppPassword.value =
+                    pageResult.props.flash?.mail_client_app_password || '';
+                revealedMailboxId.value =
+                    pageResult.props.flash?.mail_client_mailbox_id || mailbox.id;
+                toast.success('Mail clients enabled.');
+            },
+            onError: () => toast.error('Could not enable mail clients.'),
+            onFinish: () => {
+                mailClientBusy.value = null;
+            },
+        },
+    );
+};
+
+const rotateMailClient = (mailbox) => {
+    mailClientBusy.value = mailbox.id;
+    router.post(
+        route('settings.mail-clients.rotate', mailbox.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: (pageResult) => {
+                revealedAppPassword.value =
+                    pageResult.props.flash?.mail_client_app_password || '';
+                revealedMailboxId.value =
+                    pageResult.props.flash?.mail_client_mailbox_id || mailbox.id;
+                toast.success('App password rotated.');
+            },
+            onError: () => toast.error('Could not rotate password.'),
+            onFinish: () => {
+                mailClientBusy.value = null;
+            },
+        },
+    );
+};
+
+const disableMailClient = (mailbox) => {
+    if (!confirm(`Disable IMAP/POP for ${mailbox.email}?`)) return;
+    mailClientBusy.value = mailbox.id;
+    router.post(
+        route('settings.mail-clients.disable', mailbox.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                if (revealedMailboxId.value === mailbox.id) {
+                    revealedAppPassword.value = '';
+                    revealedMailboxId.value = null;
+                }
+                toast.success('Mail clients disabled.');
+            },
+            onError: () => toast.error('Could not disable mail clients.'),
+            onFinish: () => {
+                mailClientBusy.value = null;
+            },
+        },
+    );
+};
 
 const saveSmtp = () => {
     smtpSaving.value = true;
@@ -1194,6 +1282,145 @@ const downloadInvoice = () => {
                 >
                     Save
                 </button>
+            </section>
+        </div>
+
+        <!-- Mail clients (IMAP / POP / SMTP) -->
+        <div
+            v-else-if="tab === 'mail-clients'"
+            class="mx-auto max-w-2xl space-y-5"
+            data-testid="mail-clients-settings"
+        >
+            <section class="md-card space-y-4 p-5 sm:p-6">
+                <div>
+                    <h3 class="text-sm font-medium text-white">Mail clients</h3>
+                    <p class="mt-1 text-sm text-zinc-500">
+                        Add a MailDesk address to Gmail, Apple Mail, or Outlook
+                        over IMAP (and optional POP3), like cPanel webmail.
+                        Sending from those apps uses authenticated SMTP on the
+                        same host.
+                    </p>
+                </div>
+
+                <div
+                    v-if="!mailClients.enabled"
+                    class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
+                >
+                    Mail client hosting is not enabled on this platform
+                    (<code class="text-amber-50">STALWART_ENABLED</code>). Ask a
+                    platform admin to connect Stalwart.
+                </div>
+
+                <div
+                    v-else
+                    class="grid gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 text-xs text-zinc-300 sm:grid-cols-3"
+                >
+                    <div>
+                        <p class="mb-1 font-medium text-zinc-200">IMAP</p>
+                        <p>{{ mailClients.server?.imap?.host }}:{{ mailClients.server?.imap?.port }}</p>
+                        <p class="text-zinc-500">{{ mailClients.server?.imap?.encryption }}</p>
+                        <button
+                            type="button"
+                            class="mt-1 text-cyan-300 hover:underline"
+                            @click="copyText(`${mailClients.server?.imap?.host}:${mailClients.server?.imap?.port}`, 'IMAP host')"
+                        >
+                            Copy host
+                        </button>
+                    </div>
+                    <div>
+                        <p class="mb-1 font-medium text-zinc-200">SMTP</p>
+                        <p>{{ mailClients.server?.smtp?.host }}:{{ mailClients.server?.smtp?.port }}</p>
+                        <p class="text-zinc-500">{{ mailClients.server?.smtp?.encryption }}</p>
+                        <button
+                            type="button"
+                            class="mt-1 text-cyan-300 hover:underline"
+                            @click="copyText(`${mailClients.server?.smtp?.host}:${mailClients.server?.smtp?.port}`, 'SMTP host')"
+                        >
+                            Copy host
+                        </button>
+                    </div>
+                    <div>
+                        <p class="mb-1 font-medium text-zinc-200">POP3</p>
+                        <p>{{ mailClients.server?.pop?.host }}:{{ mailClients.server?.pop?.port }}</p>
+                        <p class="text-zinc-500">{{ mailClients.server?.pop?.encryption }}</p>
+                    </div>
+                </div>
+
+                <p class="text-xs text-zinc-500">
+                    {{ mailClients.docs?.gmail }}
+                </p>
+            </section>
+
+            <section class="md-card space-y-3 p-5 sm:p-6">
+                <h3 class="text-sm font-medium text-white">Mailboxes</h3>
+                <p
+                    v-if="!(mailClients.mailboxes || []).length"
+                    class="text-sm text-zinc-500"
+                >
+                    No mailboxes yet. Create users first, then enable mail
+                    clients here.
+                </p>
+                <ul class="divide-y divide-zinc-800">
+                    <li
+                        v-for="mailbox in mailClients.mailboxes || []"
+                        :key="mailbox.id"
+                        class="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                        <div class="min-w-0">
+                            <p class="truncate text-sm text-zinc-100">
+                                {{ mailbox.email }}
+                            </p>
+                            <p class="text-xs text-zinc-500">
+                                <span v-if="mailbox.imap_enabled" class="text-emerald-300">IMAP on</span>
+                                <span v-else>IMAP off</span>
+                                <span v-if="mailbox.has_app_password"> · app password set</span>
+                            </p>
+                            <div
+                                v-if="revealedMailboxId === mailbox.id && revealedAppPassword"
+                                class="mt-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100"
+                            >
+                                <p class="mb-1 font-medium">App password (shown once)</p>
+                                <code class="break-all">{{ revealedAppPassword }}</code>
+                                <button
+                                    type="button"
+                                    class="ml-2 text-cyan-200 hover:underline"
+                                    @click="copyText(revealedAppPassword, 'App password')"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button
+                                v-if="!mailbox.imap_enabled"
+                                type="button"
+                                class="md-btn-solid text-xs"
+                                :disabled="!mailClientsCanManage || !mailClients.enabled || mailClientBusy === mailbox.id"
+                                @click="enableMailClient(mailbox)"
+                            >
+                                Enable
+                            </button>
+                            <template v-else>
+                                <button
+                                    type="button"
+                                    class="md-btn text-xs"
+                                    :disabled="!mailClientsCanManage || mailClientBusy === mailbox.id"
+                                    @click="rotateMailClient(mailbox)"
+                                >
+                                    Rotate password
+                                </button>
+                                <button
+                                    type="button"
+                                    class="md-btn text-xs text-rose-300"
+                                    :disabled="!mailClientsCanManage || mailClientBusy === mailbox.id"
+                                    @click="disableMailClient(mailbox)"
+                                >
+                                    Disable
+                                </button>
+                            </template>
+                        </div>
+                    </li>
+                </ul>
             </section>
         </div>
 

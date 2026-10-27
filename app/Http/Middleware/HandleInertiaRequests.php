@@ -14,6 +14,8 @@ use App\Support\DesignTemplates;
 use App\Support\InboxSyncState;
 use App\Support\PlansCatalog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Inertia\Inertia;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -132,9 +134,12 @@ class HandleInertiaRequests extends Middleware
                 'plain_api_key' => fn () => $request->session()->get('plain_api_key'),
                 'plain_webhook_secret' => fn () => $request->session()->get('plain_webhook_secret'),
                 'receiving_confirmation' => fn () => $request->session()->get('receiving_confirmation'),
+                'mail_client_app_password' => fn () => $request->session()->get('mail_client_app_password'),
+                'mail_client_mailbox_id' => fn () => $request->session()->get('mail_client_mailbox_id'),
             ],
+            // Checkout flags stay per-request; the catalog itself is shareOnce().
             'plans' => function () use ($user, $organization) {
-                $catalog = PlansCatalog::forModal();
+                $catalog = $this->plansCatalog();
                 $billing = app(BillingService::class);
 
                 $catalog['checkout'] = [
@@ -146,11 +151,27 @@ class HandleInertiaRequests extends Middleware
 
                 return $catalog;
             },
-            'onboarding' => fn () => $organization ? $this->onboarding($organization) : null,
+            // Secondary shell data can arrive after first paint.
+            'onboarding' => Inertia::defer(fn () => $organization ? $this->onboarding($organization) : null),
             'impersonation' => fn () => app(ImpersonationService::class)->sharedState($request),
             'inbox_unread' => fn () => $organization
                 ? InboxSyncState::for($organization, $mailboxId)['unread']
                 : 0,
+            'designs' => Inertia::defer(fn () => [
+                'catalog' => $organization ? DesignTemplates::forClient($organization) : [],
+                'default' => $organization ? DesignTemplates::defaultKey($organization) : null,
+            ]),
+        ];
+    }
+
+    /**
+     * Stable shell config remembered across Inertia visits in this session.
+     *
+     * @return array<string, callable>
+     */
+    public function shareOnce(Request $request): array
+    {
+        return [
             'broadcasting' => fn () => [
                 'enabled' => config('broadcasting.default') === 'reverb'
                     && filled(config('broadcasting.connections.reverb.key')),
@@ -160,11 +181,15 @@ class HandleInertiaRequests extends Middleware
                 'enabled' => app(PlatformSettings::class)->aiEnabled(),
                 'features' => app(PlatformSettings::class)->aiFeatureFlags(),
             ],
-            'designs' => fn () => [
-                'catalog' => $organization ? DesignTemplates::forClient($organization) : [],
-                'default' => $organization ? DesignTemplates::defaultKey($organization) : null,
-            ],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function plansCatalog(): array
+    {
+        return Cache::remember('maildesk.plans_catalog', 60, fn () => PlansCatalog::forModal());
     }
 
     /**
