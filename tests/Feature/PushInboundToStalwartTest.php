@@ -167,6 +167,20 @@ class PushInboundToStalwartTest extends TestCase
         $this->fakeImap->assertNothingAppended();
     }
 
+    public function test_job_skips_messages_from_stalwart_imap(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $message = $this->createInboundMessage($mailbox, [
+            'provider' => 'stalwart-imap',
+        ]);
+
+        $job = new PushInboundToStalwart($message->id);
+        $job->handle($this->fakeImap);
+
+        $this->fakeImap->assertNothingAppended();
+        $this->assertNull($message->fresh()->stalwart_pushed_at);
+    }
+
     public function test_job_throws_on_imap_failure(): void
     {
         $mailbox = $this->createMailboxWithImap();

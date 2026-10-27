@@ -59,6 +59,10 @@ class PushInboundToStalwart implements ShouldQueue
             return;
         }
 
+        if ($message->provider === 'stalwart-imap') {
+            return;
+        }
+
         $mailbox = $message->mailbox;
         if (! $this->canPush($mailbox)) {
             return;
