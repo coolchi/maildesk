@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\PushInboundToStalwart;
+use App\Jobs\PushOutboundToStalwart;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Thread;
@@ -17,7 +18,7 @@ class PushToStalwartCommandTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Queue::fake([PushInboundToStalwart::class]);
+        Queue::fake([PushInboundToStalwart::class, PushOutboundToStalwart::class]);
         config(['maildesk.stalwart.enabled' => true]);
     }
 
@@ -45,6 +46,25 @@ class PushToStalwartCommandTest extends TestCase
             'status' => 'received',
             'text_body' => 'Test body',
             'received_at' => now(),
+            'stalwart_pushed_at' => null,
+        ], $overrides));
+    }
+
+    protected function createOutboundMessage(Mailbox $mailbox, array $overrides = []): Message
+    {
+        $thread = Thread::factory()->create([
+            'organization_id' => $mailbox->organization_id,
+            'mailbox_id' => $mailbox->id,
+        ]);
+
+        return Message::factory()->create(array_merge([
+            'organization_id' => $mailbox->organization_id,
+            'mailbox_id' => $mailbox->id,
+            'thread_id' => $thread->id,
+            'direction' => 'outbound',
+            'status' => 'sent',
+            'text_body' => 'Test body',
+            'sent_at' => now(),
             'stalwart_pushed_at' => null,
         ], $overrides));
     }
@@ -179,5 +199,72 @@ class PushToStalwartCommandTest extends TestCase
         $this->artisan('mail:push-to-stalwart')->assertSuccessful();
 
         Queue::assertPushed(PushInboundToStalwart::class, 1);
+    }
+
+    public function test_command_skips_messages_from_stalwart_imap(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $external = $this->createInboundMessage($mailbox, ['provider' => 'resend']);
+        $fromStalwart = $this->createInboundMessage($mailbox, ['provider' => 'stalwart-imap']);
+
+        $this->artisan('mail:push-to-stalwart', ['--direction' => 'inbound'])
+            ->assertSuccessful();
+
+        Queue::assertPushed(PushInboundToStalwart::class, 1);
+        Queue::assertPushed(PushInboundToStalwart::class, fn ($job) => $job->messageId === $external->id);
+    }
+
+    public function test_command_dispatches_outbound_jobs(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $outbound = $this->createOutboundMessage($mailbox);
+
+        $this->artisan('mail:push-to-stalwart', ['--direction' => 'outbound'])
+            ->assertSuccessful();
+
+        Queue::assertPushed(PushOutboundToStalwart::class, 1);
+        Queue::assertPushed(PushOutboundToStalwart::class, fn ($job) => $job->messageId === $outbound->id);
+        Queue::assertNotPushed(PushInboundToStalwart::class);
+    }
+
+    public function test_command_dispatches_both_directions_by_default(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $inbound = $this->createInboundMessage($mailbox);
+        $outbound = $this->createOutboundMessage($mailbox);
+
+        $this->artisan('mail:push-to-stalwart')
+            ->assertSuccessful();
+
+        Queue::assertPushed(PushInboundToStalwart::class, 1);
+        Queue::assertPushed(PushOutboundToStalwart::class, 1);
+    }
+
+    public function test_command_skips_failed_outbound_messages(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $sent = $this->createOutboundMessage($mailbox, ['status' => 'sent']);
+        $delivered = $this->createOutboundMessage($mailbox, ['status' => 'delivered']);
+        $failed = $this->createOutboundMessage($mailbox, ['status' => 'failed']);
+
+        $this->artisan('mail:push-to-stalwart', ['--direction' => 'outbound'])
+            ->assertSuccessful();
+
+        Queue::assertPushed(PushOutboundToStalwart::class, 2);
+        Queue::assertPushed(PushOutboundToStalwart::class, fn ($job) => $job->messageId === $sent->id);
+        Queue::assertPushed(PushOutboundToStalwart::class, fn ($job) => $job->messageId === $delivered->id);
+    }
+
+    public function test_command_direction_inbound_only(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $this->createInboundMessage($mailbox);
+        $this->createOutboundMessage($mailbox);
+
+        $this->artisan('mail:push-to-stalwart', ['--direction' => 'inbound'])
+            ->assertSuccessful();
+
+        Queue::assertPushed(PushInboundToStalwart::class, 1);
+        Queue::assertNotPushed(PushOutboundToStalwart::class);
     }
 }
