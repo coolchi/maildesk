@@ -95,6 +95,28 @@ TEXT;
         $this->assertSame('Hi, my order has not arrived.', EmailSnippet::display($stored));
     }
 
+    public function test_image_urls_are_hidden_from_list_previews(): void
+    {
+        $stored = 'MonipayNG [https://monipay.ng/mplogo.png] monipay [https://monipay.ng] New device verification Dear Valued Customer, We detected a login from a different device.';
+
+        $this->assertSame(
+            'MonipayNG monipay New device verification Dear Valued Customer, We detected a login from a different device.',
+            EmailSnippet::display($stored),
+        );
+    }
+
+    public function test_html_image_src_is_not_left_in_the_preview(): void
+    {
+        $html = '<a href="https://monipay.ng"><img src="https://monipay.ng/mplogo.png" alt="MonipayNG"></a>'
+            .'<p>New device verification</p>'
+            .'<p>Dear Valued Customer, We detected a login from a different device.</p>';
+
+        $this->assertSame(
+            'New device verification Dear Valued Customer, We detected a login from a different device.',
+            EmailSnippet::from(null, $html),
+        );
+    }
+
     #[DataProvider('emptyBodies')]
     public function test_empty_bodies_return_an_empty_snippet(?string $text, ?string $html): void
     {

@@ -22,6 +22,7 @@ import { useNotifications } from '@/composables/useNotifications';
 import { useInboxLive } from '@/composables/useInboxLive';
 import { setInboxSoundPreference, unlockInboxAudio } from '@/composables/useInboxSound';
 import { useTheme } from '@/composables/useTheme';
+import { useContentWidth } from '@/composables/useContentWidth';
 import { useOnboarding } from '@/composables/useOnboarding';
 import { useToast } from '@/composables/useToast';
 import { useMobileChrome } from '@/composables/useMobileChrome';
@@ -61,6 +62,8 @@ import {
     Archive,
     FilePenLine,
     Trash2,
+    Maximize2,
+    Minimize2,
 } from '@lucide/vue';
 
 const page = usePage();
@@ -82,6 +85,7 @@ const { open: openCommandPalette } = useCommandPalette();
 const { inboxUnread } = useNotifications();
 const { liveConnected } = useInboxLive();
 const { theme, setTheme } = useTheme();
+const { isWide, toggle: toggleContentWidth } = useContentWidth();
 const { open: openOnboarding } = useOnboarding();
 const toast = useToast();
 const { hideMobileHeader } = useMobileChrome();
@@ -729,6 +733,31 @@ const createTeam = () => {
                         <span class="font-medium text-zinc-200">{{ pageTitle }}</span>
                     </div>
                     <div class="flex items-center gap-2">
+                        <button
+                            type="button"
+                            class="group inline-flex items-center gap-1.5 rounded-full border border-zinc-800 px-3 py-1.5 text-sm text-zinc-400 transition hover:border-cyan-400/40 hover:text-cyan-300"
+                            :title="
+                                isWide
+                                    ? 'Switch to comfortable width'
+                                    : 'Expand content to full width'
+                            "
+                            :aria-pressed="isWide"
+                            @click="toggleContentWidth()"
+                        >
+                            <Minimize2
+                                v-if="isWide"
+                                :size="14"
+                                class="transition group-hover:scale-110"
+                            />
+                            <Maximize2
+                                v-else
+                                :size="14"
+                                class="transition group-hover:scale-110"
+                            />
+                            <span class="hidden xl:inline">{{
+                                isWide ? 'Comfortable' : 'Full width'
+                            }}</span>
+                        </button>
                         <span
                             v-if="liveConnected"
                             class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
@@ -787,7 +816,12 @@ const createTeam = () => {
 
                 <main class="flex-1">
                     <div
-                        class="mx-auto max-w-7xl animate-fade-in px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-4 sm:px-6 lg:px-8 lg:pb-24 lg:pt-6"
+                        class="animate-fade-in px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-4 sm:px-6 lg:pb-24 lg:pt-6"
+                        :class="
+                            isWide
+                                ? 'mx-auto w-full max-w-none lg:px-4'
+                                : 'mx-auto max-w-7xl lg:px-8'
+                        "
                     >
                         <slot />
                     </div>

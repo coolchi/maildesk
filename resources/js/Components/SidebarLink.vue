@@ -7,6 +7,8 @@ const props = defineProps({
     // undefined = derive from URL; boolean = parent-controlled (incl. false)
     active: { type: Boolean, default: undefined },
     badge: { type: [Number, String], default: null },
+    // Prefetch on hover so sidebar clicks feel like an SPA.
+    prefetch: { type: [Boolean, String, Array], default: true },
 });
 
 const page = usePage();
@@ -39,6 +41,7 @@ const showBadge = computed(() => {
 <template>
     <Link
         :href="href"
+        :prefetch="prefetch"
         class="group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-all duration-200"
         :class="
             isActive

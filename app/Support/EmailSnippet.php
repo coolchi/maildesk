@@ -149,6 +149,29 @@ class EmailSnippet
 
     private static function collapse(string $text, int $limit): string
     {
-        return Str::limit(trim(preg_replace('/\s+/u', ' ', $text) ?? ''), $limit);
+        return Str::limit(trim(preg_replace('/\s+/u', ' ', self::stripMediaNoise($text)) ?? ''), $limit);
+    }
+
+    /**
+     * Drop image URLs and HTML-to-text leftovers like "Logo [https://…/logo.png]"
+     * so the inbox list shows readable copy, not media addresses.
+     */
+    private static function stripMediaNoise(string $text): string
+    {
+        $image = 'https?:\/\/[^\s\]<>"\']+\.(?:png|jpe?g|gif|webp|svg|ico|bmp|avif)(?:\?[^\s\]<>"\']*)?';
+
+        // Markdown images: ![alt](https://…/file.png)
+        $text = preg_replace('/!\[[^\]]*\]\([^)]+\)/u', ' ', $text) ?? $text;
+
+        // Bracketed image URLs: [https://…/mplogo.png]
+        $text = preg_replace('/\[\s*'.$image.'\s*\]/iu', ' ', $text) ?? $text;
+
+        // Bare image URLs
+        $text = preg_replace('/(?<![\w@])'.$image.'/iu', ' ', $text) ?? $text;
+
+        // "Label [https://…]" link debris from HTML→text converters
+        $text = preg_replace('/\s*\[\s*https?:\/\/[^\]\s]+\]/iu', '', $text) ?? $text;
+
+        return $text;
     }
 }

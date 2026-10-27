@@ -249,9 +249,15 @@ html.light .bg-black\/70,
 html.light .bg-black\/80 {
     background-color: rgb(255 255 255 / 0.88) !important;
 }
-html.light .bg-zinc-950,
-html.light .bg-zinc-950\/80 {
+/* Exclude :checked so Tailwind Forms can paint the check/radio fill. */
+html.light .bg-zinc-950:not(:checked),
+html.light .bg-zinc-950\/80:not(:checked) {
     background-color: #fff !important;
+}
+html.light input[type='checkbox']:checked,
+html.light input[type='radio']:checked {
+    background-color: currentColor !important;
+    border-color: transparent !important;
 }
 html.light .bg-zinc-950\/60,
 html.light .bg-zinc-950\/50 {
