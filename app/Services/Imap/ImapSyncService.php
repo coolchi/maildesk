@@ -112,18 +112,27 @@ class ImapSyncService
                 }
 
                 $raw = imap_fetchheader($stream, $uid, FT_UID).imap_body($stream, $uid, FT_UID);
+
+                if ($this->isMailDeskMessage($raw)) {
+                    $maxUid = max($maxUid, $uid);
+
+                    continue;
+                }
+
                 $overview = imap_fetch_overview($stream, (string) $uid, FT_UID);
                 $ov = $overview[0] ?? null;
 
                 $parsed = $this->parseRaw($raw, $mailbox->email, $ov, $uid);
                 if ($parsed === null) {
                     $maxUid = max($maxUid, $uid);
+
                     continue;
                 }
 
                 $inbound = GenericInboundDriver::fromArray('stalwart-imap', $parsed, 'imap-'.$mailbox->id.'-'.$uid);
                 if ($inbound === null) {
                     $maxUid = max($maxUid, $uid);
+
                     continue;
                 }
 
@@ -213,6 +222,14 @@ class ImapSyncService
         }
 
         return $out !== '' ? $out : $value;
+    }
+
+    /**
+     * Check if the raw message was pushed by MailDesk (contains our marker header).
+     */
+    protected function isMailDeskMessage(string $raw): bool
+    {
+        return (bool) preg_match('/^X-MailDesk-Message-Id:\s*.+$/mi', $raw);
     }
 
     /**

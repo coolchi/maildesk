@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\DispatchWebhook;
+use App\Jobs\PushOutboundToStalwart;
 use App\Mail\DTO\OutboundEmail;
 use App\Mail\MailManager;
 use App\Models\Attachment;
@@ -246,6 +247,8 @@ class EmailService
                 'from' => $message->from_email,
                 'status' => $message->status,
             ]);
+
+            $this->pushToStalwartSentFolder($message);
         }
 
         return $message;
@@ -427,5 +430,19 @@ class EmailService
 
             return trim($item);
         }, $items));
+    }
+
+    protected function pushToStalwartSentFolder(Message $message): void
+    {
+        if (! config('maildesk.stalwart.enabled')) {
+            return;
+        }
+
+        $mailbox = $message->mailbox;
+        if ($mailbox === null || ! $mailbox->imap_enabled || blank($mailbox->imap_password)) {
+            return;
+        }
+
+        PushOutboundToStalwart::dispatch($message->id)->afterCommit();
     }
 }
