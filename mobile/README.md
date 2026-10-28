@@ -21,7 +21,7 @@ This starts the Laravel backend at `http://127.0.0.1:8000`.
 
 ### 2. Configure the API URL
 
-Set the `EXPO_PUBLIC_API_URL` environment variable:
+The app defaults to the production API at `https://maildesk.ng`. Override with `EXPO_PUBLIC_API_URL` for local development:
 
 **For iOS Simulator or Android Emulator:**
 ```bash

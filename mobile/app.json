@@ -38,7 +38,8 @@
     "extra": {
       "router": {
         "origin": false
-      }
+      },
+      "apiUrl": "https://maildesk.ng"
     }
   }
 }
