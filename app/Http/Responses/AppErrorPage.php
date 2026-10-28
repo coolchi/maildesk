@@ -14,6 +14,12 @@ use Throwable;
  */
 class AppErrorPage
 {
+    /** @var list<int> */
+    private const ALWAYS = [403, 404, 405, 419, 429];
+
+    /** @var list<int> */
+    private const WHEN_NOT_DEBUG = [500, 503];
+
     private static bool $sharing = false;
 
     private static bool $rendering = false;
@@ -23,6 +29,10 @@ class AppErrorPage
     public function replace(Response $response, ?Throwable $exception, Request $request): Response
     {
         $status = $response->getStatusCode();
+
+        if ($status === 419) {
+            return $this->expired($request);
+        }
 
         if (self::$rendering || ! $this->shouldReplace($response, $request, $status)) {
             return $response;
@@ -38,23 +48,29 @@ class AppErrorPage
     public function render(Request $request, int $status, string $message, ?string $title = null): Response
     {
         if (self::$rendering) {
-            return response($message, $status);
+            return $this->blade($request, $status, $title ?? $this->titleFor($status), $message);
         }
 
         self::$rendering = true;
 
         try {
-            $this->ensureShared($request);
+            $title ??= $this->titleFor($status);
 
-            return Inertia::render('Error', [
-                'status' => $status,
-                'title' => $title ?? $this->titleFor($status),
-                'message' => $message,
-            ])->toResponse($request)->setStatusCode($status);
+            if ($this->wantsInertia($request)) {
+                $this->ensureShared($request);
+
+                return Inertia::render('Error', [
+                    'status' => $status,
+                    'title' => $title,
+                    'message' => $message,
+                ])->toResponse($request)->setStatusCode($status);
+            }
+
+            return $this->blade($request, $status, $title, $message);
         } catch (Throwable $e) {
             Log::warning('Could not render in-app error page', ['error' => $e->getMessage()]);
 
-            return response($message, $status);
+            return $this->blade($request, $status, $title ?? $this->titleFor($status), $message);
         } finally {
             self::$rendering = false;
         }
@@ -65,16 +81,35 @@ class AppErrorPage
         return match ($status) {
             403 => 'You do not have access',
             404 => 'Page not found',
+            405 => 'Method not allowed',
             419 => 'Page expired',
+            429 => 'Too many requests',
             503 => 'Temporarily unavailable',
             default => 'Something went wrong',
         };
     }
 
+    private function expired(Request $request): Response
+    {
+        $message = $this->generic(419);
+
+        if ($request->expectsJson() && ! $request->header('X-Inertia')) {
+            return response()->json(['message' => $message], 419);
+        }
+
+        $fallback = $request->user()
+            ? route('dashboard')
+            : route('login');
+
+        return redirect()
+            ->back(fallback: $fallback)
+            ->with('error', $message);
+    }
+
     private function shouldReplace(Response $response, Request $request, int $status): bool
     {
-        $tracked = in_array($status, [403, 404, 419], true)
-            || (in_array($status, [500, 503], true) && ! config('app.debug'));
+        $tracked = in_array($status, self::ALWAYS, true)
+            || (in_array($status, self::WHEN_NOT_DEBUG, true) && ! config('app.debug'));
 
         if (! $tracked || $response->isRedirection()) {
             return false;
@@ -97,9 +132,35 @@ class AppErrorPage
         return true;
     }
 
+    private function wantsInertia(Request $request): bool
+    {
+        if ($request->header('X-Inertia')) {
+            return true;
+        }
+
+        return $request->accepts(['text/html']) && ! $request->expectsJson();
+    }
+
+    private function blade(Request $request, int $status, string $title, string $message): Response
+    {
+        $signedIn = (bool) $request->user();
+
+        return response()->view('errors.show', [
+            'status' => $status,
+            'title' => $title,
+            'message' => $message,
+            'homeUrl' => $signedIn ? url('/dashboard') : url('/login'),
+            'homeLabel' => $signedIn ? 'Go to dashboard' : 'Log in',
+            'signedIn' => $signedIn,
+            'showLogout' => $signedIn && $status === 403,
+            'profileUrl' => $signedIn ? route('profile.edit') : null,
+            'logoutUrl' => route('logout'),
+        ], $status);
+    }
+
     private function messageFor(int $status, ?Throwable $exception, Response $response): string
     {
-        if (in_array($status, [500, 503], true)) {
+        if (in_array($status, [405, 429, 500, 503], true)) {
             return $this->generic($status);
         }
 
@@ -116,7 +177,9 @@ class AppErrorPage
             '',
             'Forbidden',
             'Not Found',
+            'Method Not Allowed',
             'Page Expired',
+            'Too Many Requests',
             'Server Error',
             'Service Unavailable',
             'This action is unauthorized.',
@@ -139,7 +202,9 @@ class AppErrorPage
         return match ($status) {
             403 => 'You do not have access to this area.',
             404 => 'That page could not be found.',
+            405 => 'That action is not available for this page. Go back and try again.',
             419 => 'This page expired. Refresh and try again.',
+            429 => 'You have made too many requests. Wait a moment and try again.',
             503 => 'MailDesk is temporarily unavailable. Try again shortly.',
             default => 'Something went wrong. Try again in a moment.',
         };

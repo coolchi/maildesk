@@ -8,8 +8,8 @@ use App\Models\Organization;
 use App\Models\ProviderConfig;
 use App\Models\WorkspaceInvitation;
 use App\Services\Billing\BillingService;
-use App\Services\Imap\MailClientSettings;
 use App\Services\Imap\MailboxProvisioner;
+use App\Services\Imap\MailClientSettings;
 use App\Services\Impersonation\ImpersonationService;
 use App\Services\SignatureService;
 use App\Services\TenantResolver;
@@ -372,6 +372,17 @@ class SettingsController extends Controller
         ]);
     }
 
+    /**
+     * GET on the rotate URL must not mint a password. Send the user back to settings.
+     */
+    public function redirectMailClientRotate(Request $request, Mailbox $mailbox): RedirectResponse
+    {
+        $organization = CurrentOrganization::from($request);
+        abort_unless($mailbox->organization_id === $organization->id, 404);
+
+        return redirect()->route('settings', 'mail-clients');
+    }
+
     public function rotateMailClientPassword(Request $request, Mailbox $mailbox, MailboxProvisioner $provisioner): RedirectResponse
     {
         $organization = CurrentOrganization::from($request);
@@ -382,14 +393,18 @@ class SettingsController extends Controller
         try {
             $password = $provisioner->rotateAppPassword($mailbox);
         } catch (Throwable $e) {
-            return back()->with('error', 'Could not rotate app password: '.$e->getMessage());
+            return redirect()
+                ->route('settings', 'mail-clients', status: 303)
+                ->with('error', 'Could not rotate app password: '.$e->getMessage());
         }
 
-        return back()->with([
-            'success' => 'App password rotated for '.$mailbox->email.'.',
-            'mail_client_app_password' => $password,
-            'mail_client_mailbox_id' => $mailbox->id,
-        ]);
+        return redirect()
+            ->route('settings', 'mail-clients', status: 303)
+            ->with([
+                'success' => 'App password rotated for '.$mailbox->email.'.',
+                'mail_client_app_password' => $password,
+                'mail_client_mailbox_id' => $mailbox->id,
+            ]);
     }
 
     public function disableMailClient(Request $request, Mailbox $mailbox, MailboxProvisioner $provisioner): RedirectResponse
