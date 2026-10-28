@@ -17,6 +17,7 @@ class ImapSyncService
     public function __construct(
         protected InboundEmailService $inbound,
         protected StalwartClient $client,
+        protected ImapConnection $imap,
     ) {}
 
     /**
@@ -53,35 +54,10 @@ class ImapSyncService
 
     public function syncMailbox(Mailbox $mailbox): int
     {
-        if (! function_exists('imap_open')) {
-            throw new \RuntimeException('PHP IMAP extension is required for mail:sync-imap.');
-        }
-
-        $cfg = config('maildesk.stalwart.clients.imap', []);
-        $host = (string) ($cfg['host'] ?? '127.0.0.1');
-        $port = (int) ($cfg['port'] ?? 993);
-        $enc = strtolower((string) ($cfg['encryption'] ?? 'ssl'));
-
-        $flags = '/imap';
-        if ($enc === 'ssl') {
-            $flags .= '/ssl';
-        } elseif ($enc === 'tls') {
-            $flags .= '/tls';
-        } else {
-            $flags .= '/notls';
-        }
-        // Self-signed / local spike hosts.
-        $flags .= '/novalidate-cert';
-
-        $mailboxPath = '{'.$host.':'.$port.$flags.'}INBOX';
-        $stream = @imap_open($mailboxPath, $mailbox->email, (string) $mailbox->imap_password);
-        if ($stream === false) {
-            throw new \RuntimeException(imap_last_error() ?: 'imap_open failed');
-        }
+        $this->imap->open($mailbox->email, (string) $mailbox->imap_password, 'INBOX');
 
         try {
-            $status = @imap_status($stream, $mailboxPath, SA_UIDVALIDITY);
-            $uidValidity = $status && isset($status->uidvalidity) ? (string) $status->uidvalidity : '';
+            $uidValidity = (string) ($this->imap->uidValidity() ?? '');
             $lastUid = (int) ($mailbox->imap_last_uid ?? 0);
 
             if ($uidValidity !== '' && $mailbox->imap_uidvalidity && $uidValidity !== (string) $mailbox->imap_uidvalidity) {
@@ -94,9 +70,9 @@ class ImapSyncService
             }
 
             $uids = [];
-            $n = imap_num_msg($stream);
+            $n = $this->imap->messageCount();
             for ($i = 1; $i <= $n; $i++) {
-                $uid = (int) imap_uid($stream, $i);
+                $uid = $this->imap->messageUid($i);
                 if ($uid > $lastUid) {
                     $uids[] = $uid;
                 }
@@ -111,7 +87,7 @@ class ImapSyncService
                     continue;
                 }
 
-                $raw = imap_fetchheader($stream, $uid, FT_UID).imap_body($stream, $uid, FT_UID);
+                $raw = $this->imap->fetchRaw($uid);
 
                 if ($this->isMailDeskMessage($raw)) {
                     $maxUid = max($maxUid, $uid);
@@ -119,8 +95,7 @@ class ImapSyncService
                     continue;
                 }
 
-                $overview = imap_fetch_overview($stream, (string) $uid, FT_UID);
-                $ov = $overview[0] ?? null;
+                $ov = $this->imap->fetchOverview($uid);
 
                 $parsed = $this->parseRaw($raw, $mailbox->email, $ov, $uid);
                 if ($parsed === null) {
@@ -138,7 +113,7 @@ class ImapSyncService
 
                 $message = $this->inbound->receive($inbound);
                 if ($message && $message->thread_id) {
-                    $this->applyFolderFlags($stream, $uid, $message->thread);
+                    $this->applyFolderFlags($ov, $message->thread);
                     $count++;
                 }
 
@@ -152,7 +127,7 @@ class ImapSyncService
 
             return $count;
         } finally {
-            imap_close($stream);
+            $this->imap->close();
         }
     }
 
@@ -233,23 +208,18 @@ class ImapSyncService
     }
 
     /**
-     * @param  resource  $stream
+     * Mirror IMAP \Seen onto the MailDesk thread from FETCH FLAGS, never by reading the body.
+     *
+     * @param  object|null  $overview
      */
-    protected function applyFolderFlags($stream, int $uid, ?Thread $thread): void
+    protected function applyFolderFlags($overview, ?Thread $thread): void
     {
-        if (! $thread) {
+        if (! $thread || ! is_object($overview)) {
             return;
         }
 
-        $msgno = imap_msgno($stream, $uid);
-        if ($msgno < 1) {
-            return;
-        }
-
-        $headers = imap_headerinfo($stream, $msgno);
-        $unseen = isset($headers->Unseen) && $headers->Unseen === 'U';
-        // Keep MailDesk unread aligned with IMAP \Seen.
-        if (! $unseen && ! $thread->is_read) {
+        $seen = ! empty($overview->seen);
+        if ($seen && ! $thread->is_read) {
             $thread->forceFill(['is_read' => true])->save();
         }
     }

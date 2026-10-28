@@ -120,7 +120,24 @@ class ImapConnection
     }
 
     /**
-     * Fetch header and body for a message by UID.
+     * Fetch flags for BODY.PEEK so IMAP never sets \Seen.
+     *
+     * imap_fetchheader() does not accept FT_PEEK and marks the message read.
+     */
+    public static function peekFlags(): int
+    {
+        if (! defined('FT_UID') || ! defined('FT_PEEK')) {
+            throw new RuntimeException('PHP IMAP extension is required.');
+        }
+
+        return FT_UID | FT_PEEK;
+    }
+
+    /**
+     * Fetch header and body for a message by UID without setting \Seen.
+     *
+     * Headers are BODY.PEEK[HEADER] (section "0"); the body uses imap_body()
+     * with FT_PEEK. Do not use imap_fetchheader() here.
      */
     public function fetchRaw(int $uid): string
     {
@@ -128,7 +145,11 @@ class ImapConnection
             return '';
         }
 
-        return imap_fetchheader($this->stream, $uid, FT_UID).imap_body($this->stream, $uid, FT_UID);
+        $flags = self::peekFlags();
+        $headers = imap_fetchbody($this->stream, $uid, '0', $flags);
+        $body = imap_body($this->stream, $uid, $flags);
+
+        return ($headers === false ? '' : $headers).($body === false ? '' : $body);
     }
 
     /**
