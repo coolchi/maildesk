@@ -29,6 +29,22 @@ class FakeImapConnection extends ImapConnection
 
     public bool $shouldFailAppend = false;
 
+    /** @var array<string, array{name: string, attributes: string[]}> */
+    public array $folders = [
+        'INBOX' => ['name' => 'INBOX', 'attributes' => []],
+        'Sent' => ['name' => 'Sent', 'attributes' => ['\\Sent']],
+        'Drafts' => ['name' => 'Drafts', 'attributes' => ['\\Drafts']],
+        'Trash' => ['name' => 'Trash', 'attributes' => ['\\Trash']],
+    ];
+
+    /** @var string[] */
+    public array $createdFolders = [];
+
+    /** @var string[] */
+    public array $subscribedFolders = [];
+
+    public bool $shouldFailCreateFolder = false;
+
     public function __construct()
     {
         parent::__construct('fake.test', 993, 'ssl');
@@ -127,6 +143,61 @@ class FakeImapConnection extends ImapConnection
     }
 
     /**
+     * @return array<string, array{name: string, attributes: string[]}>
+     */
+    public function listFolders(string $pattern = '*'): array
+    {
+        return $this->folders;
+    }
+
+    public function findSentFolder(): ?string
+    {
+        foreach ($this->folders as $name => $info) {
+            if (in_array('\\Sent', $info['attributes'], true)) {
+                return $name;
+            }
+        }
+
+        $candidates = ['Sent', 'Sent Items', 'Sent Mail'];
+        foreach ($candidates as $name) {
+            if (isset($this->folders[$name])) {
+                return $name;
+            }
+        }
+
+        return null;
+    }
+
+    public function createFolder(string $folder): bool
+    {
+        if ($this->shouldFailCreateFolder) {
+            return false;
+        }
+
+        $this->createdFolders[] = $folder;
+        $this->folders[$folder] = ['name' => $folder, 'attributes' => []];
+
+        return true;
+    }
+
+    public function subscribeFolder(string $folder): bool
+    {
+        $this->subscribedFolders[] = $folder;
+
+        return true;
+    }
+
+    /**
+     * Clear all folders except INBOX for testing folder creation scenarios.
+     */
+    public function clearFolders(): void
+    {
+        $this->folders = [
+            'INBOX' => ['name' => 'INBOX', 'attributes' => []],
+        ];
+    }
+
+    /**
      * Reset the fake state for a new test.
      */
     public function reset(): void
@@ -139,5 +210,14 @@ class FakeImapConnection extends ImapConnection
         $this->lastFolder = null;
         $this->shouldFailOpen = false;
         $this->shouldFailAppend = false;
+        $this->folders = [
+            'INBOX' => ['name' => 'INBOX', 'attributes' => []],
+            'Sent' => ['name' => 'Sent', 'attributes' => ['\\Sent']],
+            'Drafts' => ['name' => 'Drafts', 'attributes' => ['\\Drafts']],
+            'Trash' => ['name' => 'Trash', 'attributes' => ['\\Trash']],
+        ];
+        $this->createdFolders = [];
+        $this->subscribedFolders = [];
+        $this->shouldFailCreateFolder = false;
     }
 }
