@@ -3,9 +3,12 @@
 namespace App\Services\Imap;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\IpUtils;
+use Throwable;
 
 /**
  * Thin JMAP management client for Stalwart (urn:stalwart:jmap).
@@ -210,6 +213,417 @@ class StalwartClient
     }
 
     /**
+     * Blocked IPs from Stalwart auto-ban / the manual block list.
+     *
+     * Tries the JMAP BlockedIp object API first (current Stalwart), then the
+     * v0.x settings keys under `server.blocked-ip.*`.
+     *
+     * @return list<array{id: string, ip: string, reason: string, created: ?string}>
+     */
+    public function listBlockedIps(): array
+    {
+        if (! $this->enabled()) {
+            return [];
+        }
+
+        try {
+            $entries = $this->listBlockedIpsViaJmap();
+            if ($entries !== null) {
+                return $entries;
+            }
+        } catch (Throwable) {
+            // Fall through to the settings API used by Stalwart v0.x.
+        }
+
+        return $this->listBlockedIpsViaSettings();
+    }
+
+    /**
+     * @return array{id: string, ip: string, reason: string, created: ?string}|null
+     */
+    public function findBlockedIp(string $ip): ?array
+    {
+        foreach ($this->listBlockedIps() as $entry) {
+            if ($this->matchesBlockedAddress($entry['ip'], $ip)) {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
+
+    public function matchesBlockedAddress(string $blocked, string $ip): bool
+    {
+        $blocked = trim($blocked);
+        $ip = trim($ip);
+
+        if ($blocked === '' || $ip === '') {
+            return false;
+        }
+
+        if (strcasecmp($blocked, $ip) === 0) {
+            return true;
+        }
+
+        try {
+            return IpUtils::checkIp($ip, $blocked);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    public function unblockIp(string $ip): void
+    {
+        $ip = trim($ip);
+
+        if ($ip === '') {
+            throw new RuntimeException('Missing IP address.');
+        }
+
+        $jmapOk = false;
+
+        try {
+            $ids = $this->jmapIdsForBlockedIp($ip);
+            if ($ids !== []) {
+                $this->jmapDestroyBlockedIps($ids);
+                $jmapOk = true;
+            }
+        } catch (Throwable) {
+            $jmapOk = false;
+        }
+
+        $settingsOk = false;
+
+        try {
+            $this->settingsDeleteBlockedIp($ip);
+            $settingsOk = true;
+        } catch (Throwable) {
+            if (! $jmapOk) {
+                throw new RuntimeException('Could not unblock IP on the mail server.');
+            }
+        }
+
+        if (! $jmapOk && ! $settingsOk) {
+            throw new RuntimeException('Could not unblock IP on the mail server.');
+        }
+
+        $this->reloadBlockedIps();
+    }
+
+    /**
+     * @return list<array{id: string, ip: string, reason: string, created: ?string}>|null
+     */
+    protected function listBlockedIpsViaJmap(): ?array
+    {
+        $result = $this->call([['x:BlockedIp/get', ['ids' => null], 'b0']]);
+        $row = $result['methodResponses'][0] ?? null;
+
+        if (! is_array($row)) {
+            return null;
+        }
+
+        if (($row[0] ?? '') === 'error') {
+            $type = (string) ($row[1]['type'] ?? '');
+            if ($type === 'unknownMethod') {
+                return null;
+            }
+
+            throw new RuntimeException('Stalwart blocked-IP list failed.');
+        }
+
+        if (($row[0] ?? '') !== 'x:BlockedIp/get') {
+            return null;
+        }
+
+        $list = $row[1]['list'] ?? [];
+        if (! is_array($list)) {
+            return [];
+        }
+
+        $entries = [];
+        foreach ($list as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $entry = $this->normalizeBlockedEntry(
+                (string) ($item['id'] ?? ''),
+                (string) ($item['address'] ?? $item['ip'] ?? ''),
+                (string) ($item['reason'] ?? ''),
+                $item['createdAt'] ?? $item['created'] ?? null,
+            );
+            if ($entry !== null) {
+                $entries[] = $entry;
+            }
+        }
+
+        return $entries;
+    }
+
+    /**
+     * @return list<array{id: string, ip: string, reason: string, created: ?string}>
+     */
+    protected function listBlockedIpsViaSettings(): array
+    {
+        $response = $this->managementGet(
+            ['/api/settings/list', '/settings/list'],
+            ['prefix' => 'server.blocked-ip'],
+        );
+
+        $map = $this->settingsMap($response->json());
+        $entries = [];
+
+        foreach ($map as $key => $value) {
+            $ip = $this->ipFromSettingsKey((string) $key);
+            if ($ip === null) {
+                continue;
+            }
+
+            [$reason, $created] = $this->parseSettingsValue($value);
+            $entry = $this->normalizeBlockedEntry($ip, $ip, $reason, $created);
+            if ($entry !== null) {
+                $entries[] = $entry;
+            }
+        }
+
+        return array_values($entries);
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function jmapIdsForBlockedIp(string $ip): array
+    {
+        $entries = $this->listBlockedIpsViaJmap();
+        if ($entries === null) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($entries as $entry) {
+            if ($this->matchesBlockedAddress($entry['ip'], $ip)) {
+                $ids[] = $entry['id'];
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @param  list<string>  $ids
+     */
+    protected function jmapDestroyBlockedIps(array $ids): void
+    {
+        $result = $this->call([['x:BlockedIp/set', ['destroy' => array_values($ids)], 'b1']]);
+        $row = $result['methodResponses'][0] ?? null;
+        if (is_array($row) && ($row[0] ?? '') === 'error') {
+            throw new RuntimeException('Stalwart blocked-IP delete failed.');
+        }
+    }
+
+    protected function settingsDeleteBlockedIp(string $ip): void
+    {
+        $keys = [
+            'server.blocked-ip.'.$ip,
+            'server.blocked-ip.'.strtolower($ip),
+        ];
+
+        $payloads = [
+            [['type' => 'delete', 'keys' => $keys]],
+            [['type' => 'Delete', 'keys' => $keys]],
+        ];
+
+        $last = null;
+        foreach (['/api/settings', '/settings'] as $path) {
+            foreach ($payloads as $payload) {
+                $response = $this->http()->connectTimeout(3)->post($path, $payload);
+                $last = $response;
+                if ($response->successful()) {
+                    return;
+                }
+            }
+        }
+
+        if ($last && in_array($last->status(), [404, 405], true)) {
+            return;
+        }
+
+        throw new RuntimeException('Stalwart blocked-IP settings delete failed.');
+    }
+
+    protected function reloadBlockedIps(): void
+    {
+        try {
+            $this->call([['x:Action/set', [
+                'create' => [
+                    'reload' => ['@type' => 'ReloadBlockedIps'],
+                ],
+            ], 'r0']]);
+        } catch (Throwable) {
+            // Optional on older servers.
+        }
+
+        foreach (['/api/reload', '/reload'] as $path) {
+            try {
+                $response = $this->http()->connectTimeout(3)->get($path);
+                if ($response->successful()) {
+                    return;
+                }
+            } catch (Throwable) {
+                // Best-effort; the delete already persisted.
+            }
+        }
+    }
+
+    /**
+     * @param  array<int, string>  $paths
+     * @param  array<string, mixed>  $query
+     */
+    protected function managementGet(array $paths, array $query = []): Response
+    {
+        $last = null;
+
+        foreach ($paths as $path) {
+            $response = $this->http()->connectTimeout(3)->get($path, $query);
+            $last = $response;
+            if ($response->successful()) {
+                return $response;
+            }
+            if (! in_array($response->status(), [404, 405], true)) {
+                break;
+            }
+        }
+
+        throw new RuntimeException('Stalwart settings HTTP '.($last?->status() ?? 0));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function settingsMap(mixed $json): array
+    {
+        if (! is_array($json)) {
+            return [];
+        }
+
+        $data = $json['data'] ?? $json;
+        if (! is_array($data)) {
+            return [];
+        }
+
+        if (isset($data['items']) && is_array($data['items'])) {
+            $data = $data['items'];
+        }
+
+        $out = [];
+        foreach ($data as $key => $value) {
+            if (! is_string($key) || in_array($key, ['total', 'items'], true)) {
+                continue;
+            }
+            $out[$key] = $value;
+        }
+
+        return $out;
+    }
+
+    protected function ipFromSettingsKey(string $key): ?string
+    {
+        $key = trim($key);
+        if (str_starts_with($key, 'server.blocked-ip.')) {
+            $key = substr($key, strlen('server.blocked-ip.'));
+        }
+
+        $key = trim($key, '.');
+        if ($key === '' || in_array($key, ['enable', 'enabled'], true)) {
+            return null;
+        }
+
+        $address = $key;
+        if (str_contains($key, '/')) {
+            $address = Str::before($key, '/');
+        }
+
+        if (filter_var($address, FILTER_VALIDATE_IP) === false) {
+            return null;
+        }
+
+        return $key;
+    }
+
+    /**
+     * @return array{0: string, 1: ?string}
+     */
+    protected function parseSettingsValue(mixed $value): array
+    {
+        if ($value === null || $value === '') {
+            return ['', null];
+        }
+
+        if (is_array($value)) {
+            return [
+                (string) ($value['reason'] ?? ''),
+                $this->normalizeCreated($value['created'] ?? $value['createdAt'] ?? null),
+            ];
+        }
+
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return ['', null];
+        }
+
+        if (str_starts_with($raw, '{')) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $this->parseSettingsValue($decoded);
+            }
+        }
+
+        return [$raw, null];
+    }
+
+    /**
+     * @return array{id: string, ip: string, reason: string, created: ?string}|null
+     */
+    protected function normalizeBlockedEntry(string $id, string $ip, string $reason, mixed $created): ?array
+    {
+        $ip = trim($ip);
+        if ($ip === '') {
+            return null;
+        }
+
+        $address = str_contains($ip, '/') ? Str::before($ip, '/') : $ip;
+        if (filter_var($address, FILTER_VALIDATE_IP) === false) {
+            return null;
+        }
+
+        return [
+            'id' => $id !== '' ? $id : $ip,
+            'ip' => $ip,
+            'reason' => trim($reason),
+            'created' => $this->normalizeCreated($created),
+        ];
+    }
+
+    protected function normalizeCreated(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            $ts = (int) $value;
+            if ($ts > 10_000_000_000) {
+                $ts = (int) floor($ts / 1000);
+            }
+
+            return gmdate('c', $ts);
+        }
+
+        $str = trim((string) $value);
+
+        return $str !== '' ? $str : null;
+    }
+
+    /**
      * @return array{0: string, 1: string}
      */
     protected function splitEmail(string $email): array
@@ -231,6 +645,7 @@ class StalwartClient
             )
             ->acceptJson()
             ->asJson()
+            ->connectTimeout(3)
             ->timeout((int) config('maildesk.stalwart.timeout', 15));
     }
 }

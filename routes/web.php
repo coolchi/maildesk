@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin;
 use App\Http\Controllers\Admin\AccountLifecycleController;
 use App\Http\Controllers\Admin\AccountUserController;
+use App\Http\Controllers\Admin\BlockedIpController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\PlatformSettingsController;
 use App\Http\Controllers\Admin\RevenueController;
@@ -306,6 +307,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->middleware('throttle:10,1')->name('providers.test');
         Route::get('/settings', [PlatformSettingsController::class, 'index'])->name('settings');
         Route::put('/settings', [PlatformSettingsController::class, 'update'])->name('settings.update');
+        Route::get('/blocked-ips', [BlockedIpController::class, 'index'])->name('blocked-ips');
+        Route::post('/blocked-ips/unblock', [BlockedIpController::class, 'unblock'])
+            ->middleware('throttle:20,1')->name('blocked-ips.unblock');
         Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])
             ->middleware([RequireFreshPassword::class, 'throttle:10,1'])->name('impersonate');
 
