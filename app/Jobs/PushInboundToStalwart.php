@@ -166,17 +166,14 @@ class PushInboundToStalwart implements ShouldQueue
             $headers->addIdHeader('Message-ID', $msgId);
         }
 
-        if (filled($message->in_reply_to)) {
-            $inReplyTo = trim($message->in_reply_to, '<>');
-            $headers->addIdHeader('In-Reply-To', $inReplyTo);
+        $inReplyToIds = $this->parseMessageIds($message->in_reply_to);
+        if ($inReplyToIds !== []) {
+            $headers->addIdHeader('In-Reply-To', count($inReplyToIds) === 1 ? $inReplyToIds[0] : $inReplyToIds);
         }
 
-        if (! empty($message->references)) {
-            $refs = is_array($message->references) ? $message->references : [$message->references];
-            $refIds = array_map(fn ($r) => trim((string) $r, '<>'), $refs);
-            if ($refIds !== []) {
-                $headers->addIdHeader('References', $refIds);
-            }
+        $referenceIds = $this->parseMessageIds($message->references);
+        if ($referenceIds !== []) {
+            $headers->addIdHeader('References', $referenceIds);
         }
 
         if ($message->received_at) {
@@ -226,6 +223,55 @@ class PushInboundToStalwart implements ShouldQueue
 
             $email->attach($contents, $attachment->filename, $attachment->content_type);
         }
+    }
+
+    /**
+     * Parse message IDs from various stored formats.
+     *
+     * Handles: JSON strings, arrays, space-separated strings, single values.
+     * Returns bare IDs without angle brackets, skipping invalid ones.
+     *
+     * @param  mixed  $value
+     * @return string[]
+     */
+    protected function parseMessageIds($value): array
+    {
+        if ($value === null || $value === '' || $value === []) {
+            return [];
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                $value = $decoded;
+            } elseif (preg_match_all('/<([^<>\s]+)>/', $value, $matches)) {
+                $value = $matches[1];
+            } elseif (str_contains($value, ' ')) {
+                $value = preg_split('/\s+/', $value, -1, PREG_SPLIT_NO_EMPTY);
+            } else {
+                $value = [$value];
+            }
+        }
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($value as $id) {
+            if (! is_string($id) || $id === '') {
+                continue;
+            }
+
+            $bare = trim($id, '<> ');
+            if ($bare === '' || ! str_contains($bare, '@')) {
+                continue;
+            }
+
+            $result[] = $bare;
+        }
+
+        return $result;
     }
 
     /**

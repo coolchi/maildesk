@@ -109,9 +109,7 @@ class InboundEmailService
         SendMailPush::dispatch($message->id)->afterCommit();
 
         if ($this->shouldPushToStalwart($mailbox)) {
-            if ($email->deferredFetchEmailId === null) {
-                PushInboundToStalwart::dispatch($message->id)->afterCommit();
-            }
+            PushInboundToStalwart::dispatch($message->id)->afterCommit();
         }
 
         // Mail to a group address (staff@...) is copied to each member via the queue.

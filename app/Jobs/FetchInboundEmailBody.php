@@ -43,6 +43,8 @@ class FetchInboundEmailBody implements ShouldQueue
         }
 
         if ($this->hasContent($message)) {
+            $this->dispatchStalwartPush($message);
+
             return;
         }
 
