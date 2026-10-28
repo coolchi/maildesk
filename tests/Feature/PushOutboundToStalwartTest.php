@@ -250,4 +250,37 @@ class PushOutboundToStalwartTest extends TestCase
 
         $this->fakeImap->assertNothingAppended();
     }
+
+    public function test_increments_push_attempts_on_append_failure(): void
+    {
+        $this->fakeImap->shouldFailAppend = true;
+
+        $mailbox = $this->createMailboxWithImap();
+        $message = $this->createOutboundMessage($mailbox, ['stalwart_push_attempts' => 0]);
+
+        $this->assertSame(0, $message->stalwart_push_attempts);
+
+        $job = new PushOutboundToStalwart($message->id);
+        $job->handle($this->fakeImap);
+
+        $message->refresh();
+        $this->assertSame(1, $message->stalwart_push_attempts);
+        $this->assertNull($message->stalwart_pushed_at);
+    }
+
+    public function test_finds_sent_items_folder_case_insensitively(): void
+    {
+        $this->fakeImap->folders = [
+            'INBOX' => ['name' => 'INBOX', 'attributes' => []],
+            'SENT ITEMS' => ['name' => 'SENT ITEMS', 'attributes' => []],
+        ];
+
+        $mailbox = $this->createMailboxWithImap();
+        $message = $this->createOutboundMessage($mailbox);
+
+        $job = new PushOutboundToStalwart($message->id);
+        $job->handle($this->fakeImap);
+
+        $this->fakeImap->assertAppended('SENT ITEMS');
+    }
 }

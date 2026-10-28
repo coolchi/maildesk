@@ -45,6 +45,7 @@ class Message extends Model
         'scheduled_at',
         'received_at',
         'stalwart_pushed_at',
+        'stalwart_push_attempts',
     ];
 
     protected function casts(): array

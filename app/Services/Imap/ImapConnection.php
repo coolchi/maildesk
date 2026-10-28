@@ -275,22 +275,30 @@ class ImapConnection
      * Find a folder by its special-use attribute (e.g., \Sent).
      *
      * Note: The PHP IMAP extension doesn't expose LIST-EXTENDED special-use
-     * attributes directly. This method falls back to common folder names.
+     * attributes directly. This method falls back to common folder names,
+     * using case-insensitive matching to handle different server behaviors.
      */
     public function findSentFolder(): ?string
     {
         $folders = $this->listFolders();
+        $folderNames = array_keys($folders);
 
         $candidates = ['Sent', 'Sent Items', 'Sent Mail', 'INBOX.Sent', 'INBOX.Sent Items'];
 
-        foreach ($candidates as $name) {
-            if (isset($folders[$name])) {
-                return $name;
+        foreach ($candidates as $candidate) {
+            if (isset($folders[$candidate])) {
+                return $candidate;
+            }
+
+            foreach ($folderNames as $name) {
+                if (strcasecmp($name, $candidate) === 0) {
+                    return $name;
+                }
             }
         }
 
-        foreach (array_keys($folders) as $name) {
-            if (stripos($name, 'sent') !== false) {
+        foreach ($folderNames as $name) {
+            if (stripos($name, 'sent') !== false && stripos($name, 'unsent') === false) {
                 return $name;
             }
         }

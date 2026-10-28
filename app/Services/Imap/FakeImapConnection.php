@@ -152,6 +152,8 @@ class FakeImapConnection extends ImapConnection
 
     public function findSentFolder(): ?string
     {
+        $folderNames = array_keys($this->folders);
+
         foreach ($this->folders as $name => $info) {
             if (in_array('\\Sent', $info['attributes'], true)) {
                 return $name;
@@ -159,8 +161,20 @@ class FakeImapConnection extends ImapConnection
         }
 
         $candidates = ['Sent', 'Sent Items', 'Sent Mail'];
-        foreach ($candidates as $name) {
-            if (isset($this->folders[$name])) {
+        foreach ($candidates as $candidate) {
+            if (isset($this->folders[$candidate])) {
+                return $candidate;
+            }
+
+            foreach ($folderNames as $name) {
+                if (strcasecmp($name, $candidate) === 0) {
+                    return $name;
+                }
+            }
+        }
+
+        foreach ($folderNames as $name) {
+            if (stripos($name, 'sent') !== false && stripos($name, 'unsent') === false) {
                 return $name;
             }
         }
