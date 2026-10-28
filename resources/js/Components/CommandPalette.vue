@@ -77,6 +77,12 @@ const commands = computed(() => {
             icon: Shield,
             group: 'Admin',
         });
+        list.push({
+            name: 'Blocked IPs',
+            route: 'admin.blocked-ips',
+            icon: Shield,
+            group: 'Admin',
+        });
     }
     return list;
 });
