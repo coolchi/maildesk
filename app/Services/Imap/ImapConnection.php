@@ -194,6 +194,139 @@ class ImapConnection
     }
 
     /**
+     * List all mailbox folders.
+     *
+     * @return array<string, array{name: string, attributes: string[]}>
+     */
+    public function listFolders(string $pattern = '*'): array
+    {
+        if ($this->stream === false) {
+            return [];
+        }
+
+        $basePath = $this->mailboxPath('');
+        $list = @imap_list($this->stream, $basePath, $pattern);
+
+        if ($list === false) {
+            return [];
+        }
+
+        $folders = [];
+        foreach ($list as $path) {
+            $name = str_replace($basePath, '', $path);
+            $attributes = $this->getFolderAttributes($name);
+            $folders[$name] = [
+                'name' => $name,
+                'attributes' => $attributes,
+            ];
+        }
+
+        return $folders;
+    }
+
+    /**
+     * Get the attributes of a folder (e.g., \Sent, \Drafts, \Trash).
+     *
+     * @return string[]
+     */
+    protected function getFolderAttributes(string $folder): array
+    {
+        if ($this->stream === false) {
+            return [];
+        }
+
+        $basePath = $this->mailboxPath('');
+        $info = @imap_getmailboxes($this->stream, $basePath, $folder);
+
+        if ($info === false || $info === []) {
+            return [];
+        }
+
+        $attrs = [];
+        $mailbox = $info[0];
+        $attr = $mailbox->attributes ?? 0;
+
+        if ($attr & LATT_NOINFERIORS) {
+            $attrs[] = '\\Noinferiors';
+        }
+        if ($attr & LATT_NOSELECT) {
+            $attrs[] = '\\Noselect';
+        }
+        if ($attr & LATT_MARKED) {
+            $attrs[] = '\\Marked';
+        }
+        if ($attr & LATT_UNMARKED) {
+            $attrs[] = '\\Unmarked';
+        }
+        if (defined('LATT_REFERRAL') && ($attr & LATT_REFERRAL)) {
+            $attrs[] = '\\Referral';
+        }
+        if (defined('LATT_HASCHILDREN') && ($attr & LATT_HASCHILDREN)) {
+            $attrs[] = '\\HasChildren';
+        }
+        if (defined('LATT_HASNOCHILDREN') && ($attr & LATT_HASNOCHILDREN)) {
+            $attrs[] = '\\HasNoChildren';
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * Find a folder by its special-use attribute (e.g., \Sent).
+     *
+     * Note: The PHP IMAP extension doesn't expose LIST-EXTENDED special-use
+     * attributes directly. This method falls back to common folder names.
+     */
+    public function findSentFolder(): ?string
+    {
+        $folders = $this->listFolders();
+
+        $candidates = ['Sent', 'Sent Items', 'Sent Mail', 'INBOX.Sent', 'INBOX.Sent Items'];
+
+        foreach ($candidates as $name) {
+            if (isset($folders[$name])) {
+                return $name;
+            }
+        }
+
+        foreach (array_keys($folders) as $name) {
+            if (stripos($name, 'sent') !== false) {
+                return $name;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Create a new mailbox folder.
+     */
+    public function createFolder(string $folder): bool
+    {
+        if ($this->stream === false) {
+            return false;
+        }
+
+        $mailbox = $this->mailboxPath($folder);
+
+        return @imap_createmailbox($this->stream, $mailbox);
+    }
+
+    /**
+     * Subscribe to a mailbox folder.
+     */
+    public function subscribeFolder(string $folder): bool
+    {
+        if ($this->stream === false) {
+            return false;
+        }
+
+        $mailbox = $this->mailboxPath($folder);
+
+        return @imap_subscribe($this->stream, $mailbox);
+    }
+
+    /**
      * Create a new ImapConnection from the Stalwart config.
      */
     public static function fromConfig(): self

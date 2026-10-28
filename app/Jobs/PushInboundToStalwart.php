@@ -228,7 +228,8 @@ class PushInboundToStalwart implements ShouldQueue
     /**
      * Parse message IDs from various stored formats.
      *
-     * Handles: JSON strings, arrays, space-separated strings, single values.
+     * Handles: JSON strings, arrays, space-separated strings, single values,
+     * and corrupted data where JSON was wrapped in angle brackets.
      * Returns bare IDs without angle brackets, skipping invalid ones.
      *
      * @param  mixed  $value
@@ -243,10 +244,25 @@ class PushInboundToStalwart implements ShouldQueue
         if (is_string($value)) {
             $decoded = json_decode($value, true);
             if (is_array($decoded)) {
-                $value = $decoded;
-            } elseif (preg_match_all('/<([^<>\s]+)>/', $value, $matches)) {
-                $value = $matches[1];
-            } elseif (str_contains($value, ' ')) {
+                return $this->parseMessageIds($decoded);
+            }
+
+            if (preg_match_all('/<([^<>]+)>/', $value, $matches)) {
+                $extracted = [];
+                foreach ($matches[1] as $inner) {
+                    $innerDecoded = json_decode($inner, true);
+                    if (is_array($innerDecoded)) {
+                        $extracted = array_merge($extracted, $this->parseMessageIds($innerDecoded));
+                    } elseif (str_contains($inner, '@')) {
+                        $extracted[] = trim($inner);
+                    }
+                }
+                if ($extracted !== []) {
+                    return array_values(array_unique($extracted));
+                }
+            }
+
+            if (str_contains($value, ' ')) {
                 $value = preg_split('/\s+/', $value, -1, PREG_SPLIT_NO_EMPTY);
             } else {
                 $value = [$value];
@@ -259,8 +275,30 @@ class PushInboundToStalwart implements ShouldQueue
 
         $result = [];
         foreach ($value as $id) {
+            if (is_array($id)) {
+                $result = array_merge($result, $this->parseMessageIds($id));
+
+                continue;
+            }
+
             if (! is_string($id) || $id === '') {
                 continue;
+            }
+
+            $decoded = json_decode($id, true);
+            if (is_array($decoded)) {
+                $result = array_merge($result, $this->parseMessageIds($decoded));
+
+                continue;
+            }
+
+            if (preg_match('/^<(\[.+\])>$/', $id, $outerMatch)) {
+                $innerDecoded = json_decode($outerMatch[1], true);
+                if (is_array($innerDecoded)) {
+                    $result = array_merge($result, $this->parseMessageIds($innerDecoded));
+
+                    continue;
+                }
             }
 
             $bare = trim($id, '<> ');
@@ -271,7 +309,7 @@ class PushInboundToStalwart implements ShouldQueue
             $result[] = $bare;
         }
 
-        return $result;
+        return array_values(array_unique($result));
     }
 
     /**

@@ -61,6 +61,11 @@ class PushOutboundToStalwart implements ShouldQueue
 
         $mailbox = $message->mailbox;
         if (! $this->canPush($mailbox)) {
+            Log::info('PushOutboundToStalwart: skipping - mailbox has no IMAP credentials', [
+                'message_id' => $this->messageId,
+                'mailbox' => $mailbox?->email,
+            ]);
+
             return;
         }
 
@@ -77,11 +82,29 @@ class PushOutboundToStalwart implements ShouldQueue
 
         try {
             $imap->open($mailbox->email, $mailbox->imap_password, 'INBOX');
-            $appended = $imap->append('Sent', $rfc822, '\\Seen', $internalDate);
+
+            $sentFolder = $this->findOrCreateSentFolder($imap);
+            if ($sentFolder === null) {
+                Log::info('PushOutboundToStalwart: no Sent folder available', [
+                    'message_id' => $this->messageId,
+                    'mailbox' => $mailbox->email,
+                ]);
+                $imap->close();
+
+                return;
+            }
+
+            $appended = $imap->append($sentFolder, $rfc822, '\\Seen', $internalDate);
             $imap->close();
 
             if (! $appended) {
-                throw new \RuntimeException('IMAP APPEND to Sent folder returned false');
+                Log::warning('PushOutboundToStalwart: IMAP APPEND to Sent folder returned false', [
+                    'message_id' => $this->messageId,
+                    'mailbox' => $mailbox->email,
+                    'folder' => $sentFolder,
+                ]);
+
+                return;
             }
 
             $message->forceFill(['stalwart_pushed_at' => now()])->save();
@@ -89,18 +112,36 @@ class PushOutboundToStalwart implements ShouldQueue
             Log::info('PushOutboundToStalwart: message appended to Stalwart Sent folder', [
                 'message_id' => $this->messageId,
                 'mailbox' => $mailbox->email,
+                'folder' => $sentFolder,
             ]);
         } catch (Throwable $e) {
             $imap->close();
 
-            Log::warning('PushOutboundToStalwart: IMAP APPEND to Sent failed', [
+            Log::warning('PushOutboundToStalwart: IMAP operation failed', [
                 'message_id' => $this->messageId,
                 'mailbox' => $mailbox->email,
                 'error' => $e->getMessage(),
             ]);
-
-            throw $e;
         }
+    }
+
+    /**
+     * Find the Sent folder by common names or create one if it doesn't exist.
+     */
+    protected function findOrCreateSentFolder(ImapConnection $imap): ?string
+    {
+        $sentFolder = $imap->findSentFolder();
+        if ($sentFolder !== null) {
+            return $sentFolder;
+        }
+
+        if ($imap->createFolder('Sent')) {
+            $imap->subscribeFolder('Sent');
+
+            return 'Sent';
+        }
+
+        return null;
     }
 
     protected function canPush(?Mailbox $mailbox): bool
@@ -164,17 +205,14 @@ class PushOutboundToStalwart implements ShouldQueue
             $headers->addIdHeader('Message-ID', $msgId);
         }
 
-        if (filled($message->in_reply_to)) {
-            $inReplyTo = trim($message->in_reply_to, '<>');
-            $headers->addIdHeader('In-Reply-To', $inReplyTo);
+        $inReplyToIds = $this->parseMessageIds($message->in_reply_to);
+        if ($inReplyToIds !== []) {
+            $headers->addIdHeader('In-Reply-To', count($inReplyToIds) === 1 ? $inReplyToIds[0] : $inReplyToIds);
         }
 
-        if (! empty($message->references)) {
-            $refs = is_array($message->references) ? $message->references : [$message->references];
-            $refIds = array_map(fn ($r) => trim((string) $r, '<>'), $refs);
-            if ($refIds !== []) {
-                $headers->addIdHeader('References', $refIds);
-            }
+        $referenceIds = $this->parseMessageIds($message->references);
+        if ($referenceIds !== []) {
+            $headers->addIdHeader('References', $referenceIds);
         }
 
         if ($message->sent_at) {
@@ -233,6 +271,93 @@ class PushOutboundToStalwart implements ShouldQueue
         }
 
         return $date->format('d-M-Y H:i:s O');
+    }
+
+    /**
+     * Parse message IDs from various stored formats.
+     *
+     * Handles: JSON strings, arrays, space-separated strings, single values,
+     * and corrupted data where JSON was wrapped in angle brackets.
+     * Returns bare IDs without angle brackets, skipping invalid ones.
+     *
+     * @param  mixed  $value
+     * @return string[]
+     */
+    protected function parseMessageIds($value): array
+    {
+        if ($value === null || $value === '' || $value === []) {
+            return [];
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return $this->parseMessageIds($decoded);
+            }
+
+            if (preg_match_all('/<([^<>]+)>/', $value, $matches)) {
+                $extracted = [];
+                foreach ($matches[1] as $inner) {
+                    $innerDecoded = json_decode($inner, true);
+                    if (is_array($innerDecoded)) {
+                        $extracted = array_merge($extracted, $this->parseMessageIds($innerDecoded));
+                    } elseif (str_contains($inner, '@')) {
+                        $extracted[] = trim($inner);
+                    }
+                }
+                if ($extracted !== []) {
+                    return array_values(array_unique($extracted));
+                }
+            }
+
+            if (str_contains($value, ' ')) {
+                $value = preg_split('/\s+/', $value, -1, PREG_SPLIT_NO_EMPTY);
+            } else {
+                $value = [$value];
+            }
+        }
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($value as $id) {
+            if (is_array($id)) {
+                $result = array_merge($result, $this->parseMessageIds($id));
+
+                continue;
+            }
+
+            if (! is_string($id) || $id === '') {
+                continue;
+            }
+
+            $decoded = json_decode($id, true);
+            if (is_array($decoded)) {
+                $result = array_merge($result, $this->parseMessageIds($decoded));
+
+                continue;
+            }
+
+            if (preg_match('/^<(\[.+\])>$/', $id, $outerMatch)) {
+                $innerDecoded = json_decode($outerMatch[1], true);
+                if (is_array($innerDecoded)) {
+                    $result = array_merge($result, $this->parseMessageIds($innerDecoded));
+
+                    continue;
+                }
+            }
+
+            $bare = trim($id, '<> ');
+            if ($bare === '' || ! str_contains($bare, '@')) {
+                continue;
+            }
+
+            $result[] = $bare;
+        }
+
+        return array_values(array_unique($result));
     }
 
     public function failed(?Throwable $exception): void

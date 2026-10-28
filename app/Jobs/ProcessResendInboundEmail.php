@@ -162,6 +162,10 @@ class ProcessResendInboundEmail implements ShouldQueue
         InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
         SendMailPush::dispatch($message->id)->afterCommit();
 
+        if ($this->shouldPushToStalwart($mailbox)) {
+            PushInboundToStalwart::dispatch($message->id)->afterCommit();
+        }
+
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());
 
         if (app(SmartTriageService::class)->shouldTriage()) {
@@ -412,5 +416,26 @@ class ProcessResendInboundEmail implements ShouldQueue
             'email_id' => $this->emailId,
             'error' => $exception?->getMessage(),
         ]);
+    }
+
+    protected function shouldPushToStalwart(?Mailbox $mailbox): bool
+    {
+        if (! config('maildesk.stalwart.enabled')) {
+            return false;
+        }
+
+        if ($mailbox === null) {
+            return false;
+        }
+
+        if (! $mailbox->imap_enabled) {
+            return false;
+        }
+
+        if (blank($mailbox->imap_password)) {
+            return false;
+        }
+
+        return true;
     }
 }

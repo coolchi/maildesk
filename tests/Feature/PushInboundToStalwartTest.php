@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessResendInboundEmail;
 use App\Jobs\PushInboundToStalwart;
 use App\Mail\DTO\InboundEmail;
 use App\Models\Mailbox;
@@ -11,6 +12,7 @@ use App\Services\Imap\FakeImapConnection;
 use App\Services\Imap\ImapConnection;
 use App\Services\InboundEmailService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -370,5 +372,95 @@ class PushInboundToStalwartTest extends TestCase
 
         $this->assertNotNull($message);
         Queue::assertPushed(PushInboundToStalwart::class, fn ($job) => $job->messageId === $message->id);
+    }
+
+    public function test_process_resend_inbound_email_dispatches_stalwart_push(): void
+    {
+        Queue::fake([PushInboundToStalwart::class]);
+
+        $mailbox = $this->createMailboxWithImap();
+        $emailId = 're_test_'.uniqid();
+
+        Http::fake([
+            '*/emails/receiving/*' => Http::response([
+                'data' => [
+                    'from' => 'sender@external.com',
+                    'to' => [$mailbox->email],
+                    'subject' => 'Test via Resend',
+                    'text' => 'Test body',
+                    'html' => '<p>Test body</p>',
+                    'message_id' => '<resend-'.$emailId.'@example.com>',
+                ],
+            ], 200),
+            '*/emails/receiving/*/attachments' => Http::response(['data' => []], 200),
+        ]);
+
+        config(['services.resend.key' => 'test-key']);
+
+        $job = new ProcessResendInboundEmail($emailId);
+        $job->handle();
+
+        Queue::assertPushed(PushInboundToStalwart::class);
+    }
+
+    public function test_process_resend_inbound_email_does_not_dispatch_when_mailbox_not_imap_enabled(): void
+    {
+        Queue::fake([PushInboundToStalwart::class]);
+
+        $mailbox = $this->createMailboxWithImap(['imap_enabled' => false]);
+        $emailId = 're_test_'.uniqid();
+
+        Http::fake([
+            '*/emails/receiving/*' => Http::response([
+                'data' => [
+                    'from' => 'sender@external.com',
+                    'to' => [$mailbox->email],
+                    'subject' => 'Test via Resend',
+                    'text' => 'Test body',
+                    'html' => '<p>Test body</p>',
+                    'message_id' => '<resend-'.$emailId.'@example.com>',
+                ],
+            ], 200),
+            '*/emails/receiving/*/attachments' => Http::response(['data' => []], 200),
+        ]);
+
+        config(['services.resend.key' => 'test-key']);
+
+        $job = new ProcessResendInboundEmail($emailId);
+        $job->handle();
+
+        Queue::assertNotPushed(PushInboundToStalwart::class);
+    }
+
+    public function test_handles_corrupted_references_with_json_in_angle_brackets(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $message = $this->createInboundMessage($mailbox, [
+            'references' => ['<["<msg1@example.com>","<msg2@example.com>"]>'],
+        ]);
+
+        $job = new PushInboundToStalwart($message->id);
+        $job->handle($this->fakeImap);
+
+        $this->fakeImap->assertAppended('INBOX');
+        $appended = $this->fakeImap->lastAppendedMessage();
+        $this->assertStringContainsString('msg1@example.com', $appended);
+        $this->assertStringContainsString('msg2@example.com', $appended);
+    }
+
+    public function test_handles_nested_json_array_in_references(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $message = $this->createInboundMessage($mailbox, [
+            'references' => ['["<ref1@example.com>","<ref2@example.com>"]'],
+        ]);
+
+        $job = new PushInboundToStalwart($message->id);
+        $job->handle($this->fakeImap);
+
+        $this->fakeImap->assertAppended('INBOX');
+        $appended = $this->fakeImap->lastAppendedMessage();
+        $this->assertStringContainsString('ref1@example.com', $appended);
+        $this->assertStringContainsString('ref2@example.com', $appended);
     }
 }
