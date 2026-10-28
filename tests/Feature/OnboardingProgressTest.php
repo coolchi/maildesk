@@ -35,7 +35,8 @@ class OnboardingProgressTest extends TestCase
         [$user, $org] = $this->member();
 
         $this->visit($user, $org)->assertInertia(fn (Assert $page) => $page
-            ->where('onboarding', ['domain' => false, 'apiKey' => false, 'send' => false, 'webhook' => false]));
+            ->loadDeferredProps(fn (Assert $reload) => $reload
+                ->where('onboarding', ['domain' => false, 'apiKey' => false, 'send' => false, 'webhook' => false])));
     }
 
     public function test_steps_complete_from_real_workspace_data(): void
@@ -45,8 +46,9 @@ class OnboardingProgressTest extends TestCase
         Message::factory()->create(['organization_id' => $org->id, 'direction' => 'outbound', 'status' => 'failed']);
 
         $this->visit($user, $org)->assertInertia(fn (Assert $page) => $page
-            ->where('onboarding.domain', false)
-            ->where('onboarding.send', false));
+            ->loadDeferredProps(fn (Assert $reload) => $reload
+                ->where('onboarding.domain', false)
+                ->where('onboarding.send', false)));
 
         Domain::factory()->verified()->create(['organization_id' => $org->id, 'name' => 'ok.test']);
         ApiKey::factory()->create(['organization_id' => $org->id]);
@@ -54,6 +56,7 @@ class OnboardingProgressTest extends TestCase
         Webhook::factory()->create(['organization_id' => $org->id]);
 
         $this->visit($user, $org)->assertInertia(fn (Assert $page) => $page
-            ->where('onboarding', ['domain' => true, 'apiKey' => true, 'send' => true, 'webhook' => true]));
+            ->loadDeferredProps(fn (Assert $reload) => $reload
+                ->where('onboarding', ['domain' => true, 'apiKey' => true, 'send' => true, 'webhook' => true])));
     }
 }
