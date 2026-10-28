@@ -6,6 +6,7 @@ import 'package:maildesk/screens/chat_list_page.dart';
 import 'package:maildesk/screens/compose_page.dart';
 import 'package:maildesk/screens/inbox_page.dart';
 import 'package:maildesk/screens/notifications_page.dart';
+import 'package:maildesk/screens/search_page.dart';
 import 'package:maildesk/session.dart';
 import 'package:maildesk/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -53,6 +54,16 @@ class _HomeShellState extends State<HomeShell> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Search',
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SearchPage()));
+              if (mounted) {
+                setState(() => reload++);
+              }
+            },
+            icon: const Icon(LucideIcons.search, size: 20),
+          ),
+          IconButton(
             tooltip: 'Notifications',
             onPressed: () async {
               await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsPage()));
@@ -72,7 +83,7 @@ class _HomeShellState extends State<HomeShell> {
           _SectionButton(
             tooltip: 'Inbox',
             selected: index == 1,
-            icon: index == 1 ? LucideIcons.mailbox : LucideIcons.inbox,
+            icon: LucideIcons.mailbox,
             count: unreadMail,
             onPressed: () => _open(1),
           ),
@@ -80,7 +91,7 @@ class _HomeShellState extends State<HomeShell> {
             IconButton(
               tooltip: 'New chat',
               onPressed: () => ChatListPage.openNew(context),
-              icon: const Icon(LucideIcons.pencil, size: 20),
+              icon: const Icon(LucideIcons.messageSquarePlus, size: 20),
             ),
           IconButton(
             tooltip: 'More',

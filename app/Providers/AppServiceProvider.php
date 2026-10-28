@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Mail\MailManager;
+use App\Services\Imap\ImapConnection;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Vite;
@@ -16,6 +17,16 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(MailManager::class);
+
+        $this->app->bind(ImapConnection::class, function () {
+            $cfg = config('maildesk.stalwart.clients.imap', []);
+
+            return new ImapConnection(
+                host: (string) ($cfg['host'] ?? '127.0.0.1'),
+                port: (int) ($cfg['port'] ?? 993),
+                encryption: strtolower((string) ($cfg['encryption'] ?? 'ssl')),
+            );
+        });
     }
 
     /**

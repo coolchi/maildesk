@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:maildesk/desk_cache.dart';
 import 'package:maildesk/models.dart';
 
 class ApiException implements Exception {
@@ -20,6 +21,9 @@ class MailDeskApi {
     this.token,
     this.organizationId,
   });
+
+  /// Called when a signed-in request comes back as 401.
+  static void Function()? onUnauthorized;
 
   final String baseUrl;
   final String? token;
@@ -48,13 +52,31 @@ class MailDeskApi {
 
   Future<void> logout() => _send('POST', '/api/app/logout');
 
+  Future<void> registerDevice({required String token, required String platform}) {
+    return _send('POST', '/api/app/devices', {
+      'token': token,
+      'platform': platform,
+    });
+  }
+
+  Future<void> unregisterDevice(String token) {
+    return _send('DELETE', '/api/app/devices', {'token': token});
+  }
+
   Future<List<Person>> members() async {
     final json = await _send('GET', '/api/app/members');
     return _list(json).map(Person.fromJson).toList();
   }
 
-  Future<List<ConversationSummary>> conversations() async {
-    final json = await _send('GET', '/api/app/conversations');
+  Future<SearchResults> search([String query = '']) async {
+    final params = query.trim().isEmpty ? '' : '?q=${Uri.encodeQueryComponent(query.trim())}';
+    final json = await _send('GET', '/api/app/search$params');
+    return SearchResults.fromJson(json);
+  }
+
+  Future<List<ConversationSummary>> conversations({bool archived = false}) async {
+    final params = archived ? '?archived=1' : '';
+    final json = await _send('GET', '/api/app/conversations$params');
     return _list(json).map(ConversationSummary.fromJson).toList();
   }
 
@@ -110,7 +132,23 @@ class MailDeskApi {
     return ConversationSummary.fromJson(json['data'] as Map<String, dynamic>);
   }
 
+  Future<ConversationSummary> muteConversation(int id, bool muted) async {
+    final json = await _send('POST', '/api/app/conversations/$id/mute', {'muted': muted});
+    return ConversationSummary.fromJson(json['data'] as Map<String, dynamic>);
+  }
+
+  Future<ConversationSummary> archiveConversation(int id, bool archived) async {
+    final json = await _send('POST', '/api/app/conversations/$id/archive', {'archived': archived});
+    return ConversationSummary.fromJson(json['data'] as Map<String, dynamic>);
+  }
+
+  Future<void> deleteConversation(int id) => _send('DELETE', '/api/app/conversations/$id');
+
   Future<void> typing(int conversationId) => _send('POST', '/api/app/conversations/$conversationId/typing');
+
+  Future<void> deleteMessage(int conversationId, int messageId) {
+    return _send('DELETE', '/api/app/conversations/$conversationId/messages/$messageId');
+  }
 
   Future<List<MailThread>> inbox({String folder = 'inbox', String query = ''}) async {
     final params = <String, String>{'folder': folder};
@@ -226,6 +264,10 @@ class MailDeskApi {
   }
 
   Future<Uint8List> fetchBytes(String url) async {
+    final cached = DeskCache.current?.readBytes(url);
+    if (cached != null) {
+      return cached;
+    }
     late http.Response response;
     try {
       response = await http.get(Uri.parse(url), headers: {
@@ -237,8 +279,11 @@ class MailDeskApi {
       throw ApiException('Could not reach MailDesk. Check the server address.');
     }
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      return response.bodyBytes;
+      final bytes = response.bodyBytes;
+      await DeskCache.current?.writeBytes(url, bytes);
+      return bytes;
     }
+    _rejectIfUnauthenticated(response.statusCode);
     throw ApiException('Could not open this file.', status: response.statusCode);
   }
 
@@ -248,7 +293,7 @@ class MailDeskApi {
     try {
       response = await switch (method) {
         'POST' => http.post(uri, headers: _headers, body: body == null ? null : jsonEncode(body)),
-        'DELETE' => http.delete(uri, headers: _headers),
+        'DELETE' => http.delete(uri, headers: _headers, body: body == null ? null : jsonEncode(body)),
         _ => http.get(uri, headers: _headers),
       }.timeout(const Duration(seconds: 20));
     } catch (_) {
@@ -260,6 +305,7 @@ class MailDeskApi {
       return decoded;
     }
 
+    _rejectIfUnauthenticated(response.statusCode);
     throw ApiException(_message(decoded), status: response.statusCode);
   }
 
@@ -290,15 +336,26 @@ class MailDeskApi {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return decoded;
     }
+    _rejectIfUnauthenticated(response.statusCode);
     throw ApiException(_message(decoded), status: response.statusCode);
   }
 
-  Map<String, dynamic> _object(String body) {
-    final decoded = jsonDecode(body);
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
+  void _rejectIfUnauthenticated(int status) {
+    if (status == 401 && token != null) {
+      onUnauthorized?.call();
     }
-    return {};
+  }
+
+  Map<String, dynamic> _object(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return {};
+    } on FormatException {
+      throw ApiException('MailDesk sent a page instead of data. Check the server address.');
+    }
   }
 
   List<Map<String, dynamic>> _list(Map<String, dynamic> json) {

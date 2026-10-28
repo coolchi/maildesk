@@ -50,6 +50,12 @@ class GenericInboundDriver implements InboundDriver
 
         $headers = self::normalizeHeaders($data['headers'] ?? []);
         $from = AddressParser::one($data['from']);
+        if (! filled($from['name'])) {
+            $headerName = AddressParser::one($headers['from'] ?? null)['name'];
+            if (filled($headerName)) {
+                $from['name'] = $headerName;
+            }
+        }
 
         return new InboundEmail(
             provider: $provider,

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\DispatchWebhook;
+use App\Jobs\PushOutboundToStalwart;
 use App\Mail\DTO\OutboundEmail;
 use App\Mail\MailManager;
 use App\Models\Attachment;
@@ -13,6 +14,7 @@ use App\Models\Suppression;
 use App\Models\Thread;
 use App\Support\AddressList;
 use App\Support\DesignTemplates;
+use App\Support\EmailSnippet;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -105,7 +107,7 @@ class EmailService
         $messageIdHeader = '<'.Str::uuid().'@'.(Str::after($from['email'], '@') ?: 'maildesk.local').'>';
         $headers = array_merge(['Message-ID' => $messageIdHeader], $payload['headers'] ?? []);
 
-        $snippet = Str::limit(trim(preg_replace('/\s+/', ' ', strip_tags($payload['text'] ?? $payload['html'] ?? ''))), 180);
+        $snippet = EmailSnippet::from($payload['text'] ?? null, $payload['html'] ?? null);
 
         $threadless = ($payload['thread'] ?? true) === false;
 
@@ -181,7 +183,7 @@ class EmailService
         }
 
         $organization->loadMissing('mailProvider');
-        $message->loadMissing('attachments');
+        $message->loadMissing(['attachments', 'mailbox']);
 
         $attachmentPayload = $message->attachments->map(fn (Attachment $attachment) => [
             'filename' => $attachment->filename,
@@ -190,7 +192,10 @@ class EmailService
             'disk' => $attachment->disk,
         ])->values()->all();
 
-        $sender = $this->mailManager->forOrganization($organization);
+        $mailbox = $message->mailbox
+            ?? $this->mailManager->mailboxForAddress($organization, $message->from_email);
+
+        $sender = $this->mailManager->forMailbox($organization, $mailbox);
 
         $result = $sender->send(new OutboundEmail(
             fromEmail: $message->from_email,
@@ -242,6 +247,8 @@ class EmailService
                 'from' => $message->from_email,
                 'status' => $message->status,
             ]);
+
+            $this->pushToStalwartSentFolder($message);
         }
 
         return $message;
@@ -328,7 +335,7 @@ class EmailService
         $thread = ($payload['thread'] ?? true) === false ? null : Thread::query()->create([
             'organization_id' => $organization->id,
             'subject' => $payload['subject'],
-            'snippet' => Str::limit(strip_tags($payload['text'] ?? $payload['html'] ?? ''), 180),
+            'snippet' => EmailSnippet::from($payload['text'] ?? null, $payload['html'] ?? null),
             'last_message_at' => now(),
             'message_count' => 1,
             'is_read' => true,
@@ -423,5 +430,19 @@ class EmailService
 
             return trim($item);
         }, $items));
+    }
+
+    protected function pushToStalwartSentFolder(Message $message): void
+    {
+        if (! config('maildesk.stalwart.enabled')) {
+            return;
+        }
+
+        $mailbox = $message->mailbox;
+        if ($mailbox === null || ! $mailbox->imap_enabled || blank($mailbox->imap_password)) {
+            return;
+        }
+
+        PushOutboundToStalwart::dispatch($message->id)->afterCommit();
     }
 }

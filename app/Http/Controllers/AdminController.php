@@ -16,6 +16,7 @@ use App\Support\PlanNairaPrice;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -325,6 +326,7 @@ class AdminController extends Controller
 
         // Price / interval changes: refresh organizations.mrr for affected accounts.
         app(RevenueService::class)->syncPlan($plan);
+        Cache::forget('maildesk.plans_catalog');
 
         return back()->with('success', "{$plan->name} plan saved.");
     }
@@ -359,6 +361,8 @@ class AdminController extends Controller
             'featured' => (bool) ($validated['featured'] ?? false),
             'features' => [],
         ]);
+
+        Cache::forget('maildesk.plans_catalog');
 
         return back()->with('success', "Plan {$validated['name']} created.");
     }

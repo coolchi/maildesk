@@ -6,7 +6,9 @@ use App\Events\InboxUpdated;
 use App\Jobs\ClassifyInboundMessage;
 use App\Jobs\DispatchWebhook;
 use App\Jobs\FetchInboundEmailBody;
+use App\Jobs\PushInboundToStalwart;
 use App\Jobs\SendAutoReply;
+use App\Jobs\SendMailPush;
 use App\Mail\DTO\InboundEmail;
 use App\Models\Attachment;
 use App\Models\Domain;
@@ -14,6 +16,7 @@ use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Organization;
 use App\Models\Thread;
+use App\Support\EmailSnippet;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -103,6 +106,11 @@ class InboundEmailService
         ]);
 
         InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
+        SendMailPush::dispatch($message->id)->afterCommit();
+
+        if ($this->shouldPushToStalwart($mailbox)) {
+            PushInboundToStalwart::dispatch($message->id)->afterCommit();
+        }
 
         // Mail to a group address (staff@...) is copied to each member via the queue.
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());
@@ -238,9 +246,7 @@ class InboundEmailService
 
     protected function snippet(InboundEmail $email): string
     {
-        $text = $email->text ?? strip_tags((string) $email->html);
-
-        return Str::limit(trim(preg_replace('/\s+/', ' ', $text)), 180);
+        return EmailSnippet::from($email->text, $email->html);
     }
 
     protected function storeAttachments(Message $message, InboundEmail $email): void
@@ -262,5 +268,26 @@ class InboundEmailService
                 'path' => $path,
             ]);
         }
+    }
+
+    protected function shouldPushToStalwart(?Mailbox $mailbox): bool
+    {
+        if (! config('maildesk.stalwart.enabled')) {
+            return false;
+        }
+
+        if ($mailbox === null) {
+            return false;
+        }
+
+        if (! $mailbox->imap_enabled) {
+            return false;
+        }
+
+        if (blank($mailbox->imap_password)) {
+            return false;
+        }
+
+        return true;
     }
 }

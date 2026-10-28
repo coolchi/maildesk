@@ -2,8 +2,10 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Responses\AppErrorPage;
 use App\Models\Organization;
 use App\Services\AccountAccess;
+use App\Services\WorkspaceAccess;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -14,7 +16,11 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class EnsureWorkspaceEntitled
 {
-    public function __construct(public AccountAccess $access) {}
+    public function __construct(
+        public AccountAccess $access,
+        private WorkspaceAccess $workspace,
+        private AppErrorPage $errors,
+    ) {}
 
     /**
      * @param  Closure(Request): (Response)  $next
@@ -41,6 +47,16 @@ class EnsureWorkspaceEntitled
             return response()->json([
                 'message' => $this->access->paymentRequiredMessage($organization),
             ], 402);
+        }
+
+        // Members cannot open Settings. Sending them there only produces a raw 403.
+        if (! $this->workspace->can($user, $organization, 'manage')) {
+            return $this->errors->render(
+                $request,
+                403,
+                AccountAccess::TRIAL_EXPIRED_MEMBER_MESSAGE,
+                'Workspace paused',
+            );
         }
 
         return redirect()

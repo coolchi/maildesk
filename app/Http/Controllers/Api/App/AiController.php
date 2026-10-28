@@ -122,7 +122,13 @@ class AiController extends Controller
         /** @var Organization $organization */
         $organization = $request->attributes->get('organization');
 
-        return $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
-            ->findOrFail($thread);
+        $model = $this->access->scopeMailData($organization->threads(), $request->user(), $organization)
+            ->find($thread);
+
+        if (! $model instanceof Thread) {
+            abort(404, 'This conversation is no longer available.');
+        }
+
+        return $model;
     }
 }

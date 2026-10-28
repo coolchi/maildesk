@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\App\ConversationController;
 use App\Http\Controllers\Api\App\DeviceController;
 use App\Http\Controllers\Api\App\InboxController;
 use App\Http\Controllers\Api\App\MemberController;
+use App\Http\Controllers\Api\App\SearchController;
 use App\Http\Controllers\Api\App\SessionController;
 use App\Http\Middleware\EnsureMobileWorkspace;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +27,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/inbox/threads/{thread}/summarize', [AiController::class, 'summarize'])->whereNumber('thread');
 
         Route::get('/members', [MemberController::class, 'index']);
+        Route::get('/search', SearchController::class);
 
         Route::get('/inbox/threads', [InboxController::class, 'index']);
         Route::post('/inbox/read', [InboxController::class, 'readAll']);
@@ -49,13 +51,18 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/conversations', [ConversationController::class, 'index']);
         Route::post('/conversations', [ConversationController::class, 'store']);
         Route::get('/conversations/{conversation}', [ConversationController::class, 'show'])->whereNumber('conversation');
+        Route::delete('/conversations/{conversation}', [ConversationController::class, 'destroy'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/members', [ConversationController::class, 'addMembers'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/pin', [ConversationController::class, 'pin'])->whereNumber('conversation');
+        Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'mute'])->whereNumber('conversation');
+        Route::post('/conversations/{conversation}/archive', [ConversationController::class, 'archive'])->whereNumber('conversation');
 
         Route::get('/conversations/{conversation}/messages', [ChatMessageController::class, 'index'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/messages', [ChatMessageController::class, 'store'])
             ->middleware('throttle:60,1')
             ->whereNumber('conversation');
+        Route::delete('/conversations/{conversation}/messages/{message}', [ChatMessageController::class, 'destroy'])
+            ->whereNumber(['conversation', 'message']);
         Route::post('/conversations/{conversation}/read', [ChatMessageController::class, 'read'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/delivered', [ChatMessageController::class, 'delivered'])->whereNumber('conversation');
         Route::post('/conversations/{conversation}/typing', [ChatMessageController::class, 'typing'])

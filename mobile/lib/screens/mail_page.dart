@@ -6,6 +6,7 @@ import 'package:maildesk/attachments.dart';
 import 'package:maildesk/main.dart';
 import 'package:maildesk/media.dart';
 import 'package:maildesk/models.dart';
+import 'package:maildesk/outbox.dart';
 import 'package:maildesk/quotes.dart';
 import 'package:maildesk/theme.dart';
 
@@ -31,6 +32,12 @@ class _MailPageState extends State<MailPage> {
   ThreadSummary? summary;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    detail ??= Desk.read(context).storedMail(widget.thread.id);
+  }
+
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -47,8 +54,16 @@ class _MailPageState extends State<MailPage> {
   }
 
   Future<void> _load() async {
+    final session = Desk.read(context);
+    if (detail == null) {
+      final stored = session.storedMail(widget.thread.id);
+      if (stored != null && mounted) {
+        setState(() => detail = stored);
+      }
+    }
     try {
-      final mail = await Desk.read(context).api.mail(widget.thread.id);
+      final mail = await session.api.mail(widget.thread.id);
+      await session.rememberMail(widget.thread.id, mail);
       if (mounted) {
         setState(() {
           detail = mail;
@@ -114,10 +129,19 @@ class _MailPageState extends State<MailPage> {
     }
     setState(() => sending = true);
     try {
-      await Desk.of(context).api.reply(widget.thread.id, body, files: [for (final file in files) file.path]);
+      final result = await Desk.of(context).replyMail(widget.thread.id, body, files: [for (final file in files) file.path]);
       reply.clear();
       files.clear();
-      await _load();
+      if (!mounted) {
+        return;
+      }
+      if (result == OutboxResult.queued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Reply queued. We’ll send it when you’re back online.')),
+        );
+      } else {
+        await _load();
+      }
     } on ApiException catch (exception) {
       if (mounted) {
         setState(() => error = exception.message);
@@ -137,11 +161,20 @@ class _MailPageState extends State<MailPage> {
     }
     setState(() => sending = true);
     try {
-      await Desk.of(context).api.forward(widget.thread.id, to: to, body: reply.text.trim());
+      final result = await Desk.of(context).forwardMail(widget.thread.id, to: to, body: reply.text.trim());
       forwardTo.clear();
       reply.clear();
       files.clear();
-      await _load();
+      if (!mounted) {
+        return;
+      }
+      if (result == OutboxResult.queued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Forward queued. We’ll send it when you’re back online.')),
+        );
+      } else {
+        await _load();
+      }
     } on ApiException catch (exception) {
       if (mounted) {
         setState(() => error = exception.message);
@@ -244,7 +277,30 @@ class _MailPageState extends State<MailPage> {
           ),
           Expanded(
             child: mail == null
-                ? Center(child: error == null ? const CircularProgressIndicator() : Text(error!))
+                ? Center(
+                    child: error == null
+                        ? const CircularProgressIndicator()
+                        : Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(LucideIcons.mailX, color: colors.muted, size: 28),
+                                const SizedBox(height: 12),
+                                Text(
+                                  error!,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: colors.text, height: 1.4),
+                                ),
+                                const SizedBox(height: 8),
+                                TextButton(
+                                  onPressed: () => Navigator.of(context).pop(),
+                                  child: const Text('Back'),
+                                ),
+                              ],
+                            ),
+                          ),
+                  )
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
@@ -616,7 +672,7 @@ class _MessageBodyState extends State<_MessageBody> {
             child: Text(expanded ? 'Hide quoted text' : 'Show quoted text'),
           ),
           if (expanded)
-            Text(split.quoted, style: TextStyle(color: colors.muted, height: 1.4, fontSize: 13)),
+            Text(split.quoted, style: TextStyle(color: colors.text, height: 1.45, fontSize: 16)),
         ],
       ],
     );

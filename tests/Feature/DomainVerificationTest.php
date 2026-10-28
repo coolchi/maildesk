@@ -189,9 +189,9 @@ class DomainVerificationTest extends TestCase
             && $r->body() === '{}');
         Http::assertSent(fn (HttpRequest $r) => $r->method() === 'PATCH'
             && $r->url() === 'https://api.resend.com/domains/dom_123'
-            && $r['open_tracking'] === true
-            && $r['click_tracking'] === true
-            && $r['tracking_subdomain'] === 'links');
+            && ($r['open_tracking'] ?? null) === true
+            && ($r['click_tracking'] ?? null) === true
+            && ($r['tracking_subdomain'] ?? null) === 'links');
 
         $domain->refresh();
         $this->assertSame('dom_123', $domain->provider_domain_id);

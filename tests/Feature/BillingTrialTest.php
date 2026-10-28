@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Domain;
+use App\Models\Mailbox;
 use App\Models\MailProvider;
 use App\Models\Message;
 use App\Models\Organization;
@@ -84,6 +85,69 @@ class BillingTrialTest extends TestCase
             ->withSession(['current_organization_id' => $org->id])
             ->get(route('settings', 'billing'))
             ->assertOk();
+    }
+
+    public function test_past_due_member_sees_the_pause_inside_the_app(): void
+    {
+        $user = User::factory()->create();
+        $org = Organization::factory()->create([
+            'status' => 'past_due',
+            'plan' => 'Trial',
+        ]);
+        $org->users()->attach($user->id, ['role' => 'member']);
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'user_id' => $user->id,
+            'email' => 'support@acme.test',
+            'status' => 'active',
+            'inbox' => true,
+        ]);
+        Subscription::factory()->create([
+            'organization_id' => $org->id,
+            'status' => 'past_due',
+            'plan_name' => 'Trial',
+            'current_period_ends_at' => now()->subDay(),
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('inbox'))
+            ->assertForbidden()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Error')
+                ->where('status', 403)
+                ->where('title', 'Workspace paused')
+                ->where('message', AccountAccess::TRIAL_EXPIRED_MEMBER_MESSAGE)
+                ->where('auth.user.email', $user->email));
+    }
+
+    public function test_forbidden_page_renders_in_the_app_shell(): void
+    {
+        $user = User::factory()->create();
+        $org = Organization::factory()->create(['status' => 'active']);
+        $org->users()->attach($user->id, ['role' => 'member']);
+        Mailbox::factory()->create([
+            'organization_id' => $org->id,
+            'user_id' => $user->id,
+            'email' => 'staff@acme.test',
+            'status' => 'active',
+            'inbox' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['current_organization_id' => $org->id])
+            ->get(route('settings', 'usage'))
+            ->assertForbidden()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Error')
+                ->where('title', 'You do not have access')
+                ->where('message', 'You do not have access to this area.'));
+
+        $this->actingAs($user)
+            ->withSession(['current_organization_id' => $org->id])
+            ->getJson(route('settings', 'usage'))
+            ->assertForbidden()
+            ->assertJson(['message' => 'You do not have access to this area.']);
     }
 
     public function test_expire_trials_command_marks_past_due(): void

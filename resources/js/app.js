@@ -27,5 +27,7 @@ createInertiaApp({
     },
     progress: {
         color: 'rgb(34 211 238)',
+        // Show the bar immediately so waits feel intentional, not stuck.
+        delay: 80,
     },
 });

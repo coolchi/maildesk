@@ -14,6 +14,7 @@ use App\Services\SignatureService;
 use App\Services\WorkspaceAccess;
 use App\Support\AddressList;
 use App\Support\DesignTemplates;
+use App\Support\EmailSnippet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -50,7 +51,7 @@ class InboxController extends Controller
                         ->orWhereRaw('lower(snippet) like ?', [$like]);
                 });
             })
-            ->with(['messages' => fn ($query) => $query->select('id', 'thread_id', 'from_email', 'from_name', 'created_at')->latest()])
+            ->with(['messages' => fn ($query) => $query->select('id', 'thread_id', 'from_email', 'from_name', 'headers', 'created_at')->latest()])
             ->latest('last_message_at')
             ->limit(50)
             ->get();
@@ -402,7 +403,7 @@ class InboxController extends Controller
                 'id' => $message->thread_id ?: $message->id,
                 'thread_id' => $message->thread_id,
                 'subject' => $message->subject,
-                'snippet' => $message->text_body ? mb_substr((string) $message->text_body, 0, 140) : '',
+                'snippet' => EmailSnippet::from($message->text_body, $message->html_body, 140),
                 'from_name' => $message->toSentArray()['to'] ?? '',
                 'from_email' => $message->toSentArray()['to'] ?? '',
                 'unread' => false,
@@ -424,8 +425,8 @@ class InboxController extends Controller
         return [
             'id' => $thread->id,
             'subject' => $thread->subject,
-            'snippet' => $thread->snippet ?? '',
-            'from_name' => $latest?->from_name,
+            'snippet' => EmailSnippet::display($thread->snippet),
+            'from_name' => $latest?->senderName(),
             'from_email' => $latest?->from_email,
             'unread' => ! $thread->is_read,
             'updated' => $thread->last_message_at?->diffForHumans() ?? '',
@@ -473,8 +474,11 @@ class InboxController extends Controller
             $query->with(['mailbox', 'messages' => fn ($inner) => $inner->orderBy('created_at'), 'messages.attachments']);
         }
 
-        /** @var Thread $model */
-        $model = $query->findOrFail($thread);
+        $model = $query->find($thread);
+
+        if (! $model instanceof Thread) {
+            abort(404, 'This conversation is no longer available.');
+        }
 
         return $model;
     }

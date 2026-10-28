@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
 import { usePlansModal } from '@/composables/usePlansModal';
 import { useToast } from '@/composables/useToast';
+import { volumeIndexFor } from '@/utils/planPricing';
 import { Check, X } from '@lucide/vue';
 
 const { state, close } = usePlansModal();
@@ -10,29 +11,10 @@ const page = usePage();
 const toast = useToast();
 
 const mode = ref('marketing');
-const volumeIndex = ref(1);
+const volumeIndex = ref(0);
 const currency = ref('NGN');
+const billingInterval = ref('month');
 const paying = ref(null);
-
-watch(
-    () => state.open,
-    (open) => {
-        if (open) {
-            mode.value = state.mode || 'marketing';
-            volumeIndex.value = 1;
-            currency.value =
-                page.props.plans?.default_currency === 'USD' ? 'USD' : 'NGN';
-            paying.value = null;
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
-    },
-);
-
-watch(mode, () => {
-    volumeIndex.value = 1;
-});
 
 const onKey = (e) => {
     if (e.key === 'Escape' && state.open) close();
@@ -57,10 +39,70 @@ const currencies = computed(
     () => sharedPlans.value?.currencies || ['USD', 'NGN'],
 );
 const checkout = computed(() => sharedPlans.value?.checkout || null);
-const volumeLabel = computed(() => config.value.labels[volumeIndex.value]);
+
+const placeVolume = (preferred = 1) => {
+    volumeIndex.value = volumeIndexFor(
+        config.value.labels?.length ?? 0,
+        preferred,
+    );
+};
+
+watch(
+    () => state.open,
+    (open) => {
+        if (open) {
+            mode.value = state.mode || 'marketing';
+            billingInterval.value = 'month';
+            placeVolume(1);
+            currency.value =
+                page.props.plans?.default_currency === 'USD' ? 'USD' : 'NGN';
+            paying.value = null;
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+    },
+);
+
+watch(mode, () => {
+    placeVolume(1);
+});
+
+watch(
+    () => config.value.labels?.length ?? 0,
+    (count) => {
+        volumeIndex.value = volumeIndexFor(count, volumeIndex.value);
+    },
+);
+
+const volumeLabel = computed(
+    () => config.value.labels[volumeIndex.value] || '',
+);
+
+const annualAvailable = computed(() => {
+    const keys = config.value.year?.keys;
+
+    return Boolean(keys?.free || keys?.pro || keys?.enterprise);
+});
+
+const cycle = computed(() => {
+    const selected = config.value?.[billingInterval.value];
+    if (selected?.prices && selected?.keys) {
+        return selected;
+    }
+
+    return {
+        prices: config.value.prices || {},
+        keys: config.value.keys || {
+            free: null,
+            pro: null,
+            enterprise: null,
+        },
+    };
+});
 
 const priceBucket = computed(() => {
-    const prices = config.value.prices || {};
+    const prices = cycle.value.prices || {};
     const key = currency.value.toLowerCase();
     if (prices[key]?.free && prices[key]?.pro) {
         return prices[key];
@@ -78,11 +120,15 @@ const proPrice = computed(
 
 const planKeys = computed(
     () =>
-        config.value.keys || {
+        cycle.value.keys || {
             free: null,
             pro: null,
             enterprise: null,
         },
+);
+
+const periodSuffix = computed(() =>
+    billingInterval.value === 'year' ? '/ yr' : '/ mo',
 );
 
 const formatPrice = (n) => {
@@ -202,11 +248,15 @@ const features = computed(() =>
     mode.value === 'marketing' ? marketingFeatures : transactionalFeatures,
 );
 
-const metricLabel = computed(() =>
-    mode.value === 'marketing'
+const metricLabel = computed(() => {
+    if (!volumeLabel.value) {
+        return mode.value === 'marketing' ? 'Contacts' : 'Emails / mo';
+    }
+
+    return mode.value === 'marketing'
         ? `${volumeLabel.value} contacts`
-        : `${volumeLabel.value} emails / mo`,
-);
+        : `${volumeLabel.value} emails / mo`;
+});
 </script>
 
 <template>
@@ -278,6 +328,36 @@ const metricLabel = computed(() =>
                                         {{ code === 'NGN' ? '₦ NGN' : '$ USD' }}
                                     </button>
                                 </div>
+                                <div
+                                    v-if="annualAvailable"
+                                    class="mt-3 inline-flex rounded-full border border-zinc-800 bg-black p-1"
+                                >
+                                    <button
+                                        type="button"
+                                        class="rounded-full px-3.5 py-1.5 text-xs font-medium transition"
+                                        :class="
+                                            billingInterval === 'month'
+                                                ? 'bg-zinc-800 text-white'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        "
+                                        @click="billingInterval = 'month'"
+                                    >
+                                        Monthly
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="rounded-full px-3.5 py-1.5 text-xs font-medium transition"
+                                        :class="
+                                            billingInterval === 'year'
+                                                ? 'bg-zinc-800 text-white'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        "
+                                        @click="billingInterval = 'year'"
+                                    >
+                                        Annual
+                                        <span class="text-cyan-300">· 2 months free</span>
+                                    </button>
+                                </div>
                             </div>
 
                             <div class="mb-8 flex justify-center">
@@ -324,7 +404,7 @@ const metricLabel = computed(() =>
                                     v-model.number="volumeIndex"
                                     type="range"
                                     min="0"
-                                    :max="config.labels.length - 1"
+                                    :max="Math.max((config.labels.length || 1) - 1, 0)"
                                     step="1"
                                     class="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-zinc-800 accent-cyan-400"
                                 />
@@ -356,7 +436,7 @@ const metricLabel = computed(() =>
                                         {{ formatPrice(freePrice) }}
                                         <span
                                             class="text-base font-normal text-zinc-500"
-                                            >/ mo</span
+                                            >{{ periodSuffix }}</span
                                         >
                                     </div>
                                     <div
@@ -434,7 +514,7 @@ const metricLabel = computed(() =>
                                             {{ formatPrice(proPrice) }}
                                             <span
                                                 class="text-base font-normal text-zinc-500"
-                                                >/ mo</span
+                                                >{{ periodSuffix }}</span
                                             >
                                         </template>
                                         <template v-else>Custom</template>

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Cache;
 
 class PlanController extends Controller
 {
@@ -24,6 +25,7 @@ class PlanController extends Controller
 
         $name = $plan->name;
         $plan->delete();
+        Cache::forget('maildesk.plans_catalog');
 
         return back()->with('success', "Plan {$name} deleted.");
     }

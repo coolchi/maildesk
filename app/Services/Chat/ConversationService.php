@@ -3,6 +3,7 @@
 namespace App\Services\Chat;
 
 use App\Enums\ConversationType;
+use App\Events\ChatMessageDeleted;
 use App\Events\ChatMessageSent;
 use App\Jobs\SendChatPush;
 use App\Models\ChatMessage;
@@ -15,6 +16,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -23,12 +25,19 @@ class ConversationService
     /**
      * @return Collection<int, Conversation>
      */
-    public function listFor(Organization $organization, User $user): Collection
+    public function listFor(Organization $organization, User $user, bool $archived = false): Collection
     {
         return Conversation::query()
             ->where('organization_id', $organization->id)
-            ->whereHas('participants', fn ($query) => $query->where('user_id', $user->id))
-            ->with(['participants.user:id,name'])
+            ->whereHas('participants', function ($query) use ($user, $archived) {
+                $query->where('user_id', $user->id);
+                if ($archived) {
+                    $query->whereNotNull('archived_at');
+                } else {
+                    $query->whereNull('archived_at');
+                }
+            })
+            ->with(['participants.user:id,name,last_seen_at'])
             ->withCount(['messages as unread_count' => function ($query) use ($user) {
                 $userId = (int) $user->id;
                 $query->where(function ($query) use ($userId) {
@@ -58,7 +67,7 @@ class ConversationService
     {
         return Conversation::query()
             ->where('organization_id', $organization->id)
-            ->with(['participants.user:id,name'])
+            ->with(['participants.user:id,name,last_seen_at'])
             ->findOrFail($conversationId);
     }
 
@@ -90,12 +99,7 @@ class ConversationService
             };
         }
 
-        $preview = trim($body) !== '' ? $body : match ($kind) {
-            'image' => 'Photo',
-            'voice' => 'Voice note',
-            'file' => $file?->getClientOriginalName() ?: 'Attachment',
-            default => '',
-        };
+        $preview = $this->previewText($body, $kind, $file?->getClientOriginalName());
 
         $message = DB::transaction(function () use ($conversation, $user, $body, $file, $kind, $storedPath, $preview, $durationMs) {
             $message = $conversation->messages()->create([
@@ -116,7 +120,7 @@ class ConversationService
             }
 
             $conversation->forceFill([
-                'last_message_preview' => Str::limit(preg_replace('/\s+/', ' ', $preview) ?? $preview, 140),
+                'last_message_preview' => $preview,
                 'last_message_at' => $message->created_at,
             ])->save();
 
@@ -137,11 +141,56 @@ class ConversationService
         return $message;
     }
 
+    public function deleteMessage(Conversation $conversation, User $user, ChatMessage $message): void
+    {
+        abort_unless($message->conversation_id === $conversation->id && $message->user_id === $user->id, 403);
+
+        DB::transaction(function () use ($conversation, $message) {
+            $message->loadMissing('attachments');
+            foreach ($message->attachments as $attachment) {
+                Storage::disk($attachment->disk ?: 'local')->delete($attachment->path);
+            }
+            $message->attachments()->delete();
+            $message->delete();
+
+            $latest = $conversation->messages()->latest('id')->first();
+            $preview = $latest === null ? null : $this->preview($latest);
+            $conversation->forceFill([
+                'last_message_preview' => $preview,
+                'last_message_at' => $latest?->created_at,
+            ])->save();
+        });
+
+        $participantIds = $conversation->participants()->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+        ChatMessageDeleted::dispatch($conversation->id, $message->id, $participantIds);
+    }
+
     public function pin(Conversation $conversation, User $user, bool $pinned): void
     {
         $conversation->participants()
             ->where('user_id', $user->id)
             ->update(['pinned_at' => $pinned ? now() : null]);
+    }
+
+    public function mute(Conversation $conversation, User $user, bool $muted): void
+    {
+        $conversation->participants()
+            ->where('user_id', $user->id)
+            ->update(['muted_at' => $muted ? now() : null]);
+    }
+
+    public function archive(Conversation $conversation, User $user, bool $archived): void
+    {
+        $conversation->participants()
+            ->where('user_id', $user->id)
+            ->update(['archived_at' => $archived ? now() : null]);
+    }
+
+    public function leave(Conversation $conversation, User $user): void
+    {
+        $conversation->participants()
+            ->where('user_id', $user->id)
+            ->delete();
     }
 
     public function markRead(Conversation $conversation, User $user): ?string
@@ -200,7 +249,7 @@ class ConversationService
             );
         }
 
-        return $conversation->load(['participants.user:id,name']);
+        return $conversation->load(['participants.user:id,name,last_seen_at']);
     }
 
     /**
@@ -231,7 +280,19 @@ class ConversationService
                     ->first();
 
                 if ($existing) {
-                    return $existing->load(['participants.user:id,name']);
+                    $existing->participants()->firstOrCreate(
+                        ['user_id' => $user->id],
+                        [
+                            'role' => ConversationParticipant::RoleMember,
+                            'last_read_at' => now(),
+                        ],
+                    );
+                    $existing->participants()->firstOrCreate(
+                        ['user_id' => $otherUserId],
+                        ['role' => ConversationParticipant::RoleMember],
+                    );
+
+                    return $existing->load(['participants.user:id,name,last_seen_at']);
                 }
 
                 $conversation = Conversation::query()->create([
@@ -244,13 +305,13 @@ class ConversationService
 
                 $this->attachParticipants($conversation, $user, [$otherUserId]);
 
-                return $conversation->load(['participants.user:id,name']);
+                return $conversation->load(['participants.user:id,name,last_seen_at']);
             });
         } catch (UniqueConstraintViolationException) {
             return Conversation::query()
                 ->where('organization_id', $organization->id)
                 ->where('direct_key', $key)
-                ->with(['participants.user:id,name'])
+                ->with(['participants.user:id,name,last_seen_at'])
                 ->firstOrFail();
         }
     }
@@ -270,7 +331,7 @@ class ConversationService
 
         $this->attachParticipants($conversation, $user, $memberIds);
 
-        return $conversation->load(['participants.user:id,name']);
+        return $conversation->load(['participants.user:id,name,last_seen_at']);
     }
 
     /**
@@ -319,5 +380,24 @@ class ConversationService
         }
 
         return $ids->all();
+    }
+
+    private function preview(ChatMessage $message): string
+    {
+        $filename = $message->relationLoaded('attachments') ? $message->attachments->first()?->filename : null;
+
+        return $this->previewText((string) $message->body, (string) ($message->kind ?: 'text'), $filename);
+    }
+
+    private function previewText(string $body, string $kind, ?string $filename): string
+    {
+        $text = trim($body) !== '' ? $body : match ($kind) {
+            'image' => 'Photo',
+            'voice' => 'Voice note',
+            'file' => $filename ?: 'Attachment',
+            default => '',
+        };
+
+        return Str::limit(preg_replace('/\s+/', ' ', $text) ?? $text, 140);
     }
 }

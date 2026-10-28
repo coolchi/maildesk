@@ -32,6 +32,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_platform_admin' => 'boolean',
             'preferences' => 'array',
+            'last_seen_at' => 'datetime',
         ];
     }
 

@@ -7,6 +7,7 @@ use App\Events\ChatRead;
 use App\Events\ChatTyping;
 use App\Http\Controllers\Controller;
 use App\Models\ChatAttachment;
+use App\Models\ChatMessage;
 use App\Models\Conversation;
 use App\Models\Organization;
 use App\Models\User;
@@ -68,6 +69,23 @@ class ChatMessageController extends Controller
         return response()->json([
             'data' => $message->toAppArray(),
         ], 201);
+    }
+
+    public function destroy(Request $request, int $conversation, int $message): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $model = $this->visible($request, $conversation);
+        $chatMessage = ChatMessage::query()
+            ->where('conversation_id', $model->id)
+            ->whereKey($message)
+            ->firstOrFail();
+
+        $this->chat->deleteMessage($model, $user, $chatMessage);
+
+        return response()->json([
+            'message' => 'Message deleted.',
+        ]);
     }
 
     public function read(Request $request, int $conversation): JsonResponse

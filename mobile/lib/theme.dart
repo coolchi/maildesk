@@ -27,13 +27,13 @@ class MailDeskColors extends ThemeExtension<MailDeskColors> {
   static const light = MailDeskColors(
     bg: Color(0xFFF4F4F5),
     panel: Color(0xFFFFFFFF),
-    border: Color(0xFFE4E4E7),
-    muted: Color(0xFF71717A),
-    text: Color(0xFF18181B),
-    secondary: Color(0xFF52525B),
-    accent: Color(0xFF0891B2),
+    border: Color(0xFFD4D4D8),
+    muted: Color(0xFF3F3F46),
+    text: Color(0xFF09090B),
+    secondary: Color(0xFF27272A),
+    accent: Color(0xFF0E7490),
     onAccent: Color(0xFFFFFFFF),
-    bubble: Color(0xFFF4F4F5),
+    bubble: Color(0xFFE4E4E7),
   );
 
   static const dark = MailDeskColors(

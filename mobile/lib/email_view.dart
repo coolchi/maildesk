@@ -68,6 +68,15 @@ class _EmailViewState extends State<EmailView> {
 (function () {
   var target = document.getElementById('md-fit');
   if (!target) return 160;
+  var nodes = target.querySelectorAll('*');
+  for (var i = 0; i < nodes.length; i++) {
+    var el = nodes[i];
+    var size = parseFloat(window.getComputedStyle(el).fontSize);
+    if (size && size < 16) {
+      el.style.setProperty('font-size', '16px', 'important');
+      el.style.setProperty('line-height', '1.45', 'important');
+    }
+  }
   target.style.zoom = '1';
   var available = Math.max(40, document.documentElement.clientWidth);
   var contentWidth = target.scrollWidth || 0;
@@ -113,7 +122,8 @@ class _EmailViewState extends State<EmailView> {
 <style>
 :root { color-scheme: light only; }
 html, body { background:#ffffff !important; color:#111827; margin:0; height:auto; }
-body { padding:12px 14px 16px; font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow-wrap:anywhere; }
+body { padding:12px 14px 16px; font:17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow-wrap:anywhere; }
+blockquote, .gmail_quote, .gmail_attr, .yahoo_quoted, #divRplyFwdMsg { font-size:17px !important; line-height:1.5 !important; }
 img, video, svg { max-width:100% !important; height:auto !important; }
 table { max-width:100% !important; }
 pre, code { white-space:pre-wrap; word-break:break-word; }

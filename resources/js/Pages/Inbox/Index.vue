@@ -14,6 +14,7 @@ import { useNotifications } from '@/composables/useNotifications';
 import { useInboxPageLive } from '@/composables/useInboxLive';
 import { useToast } from '@/composables/useToast';
 import { useMobileChrome } from '@/composables/useMobileChrome';
+import { useContentWidth } from '@/composables/useContentWidth';
 import { useAiFeatures } from '@/composables/useAiFeatures';
 import {
     Archive,
@@ -47,6 +48,7 @@ const props = defineProps({
 
 const { threadSummary } = useAiFeatures();
 const { defaultKey } = useDesigns();
+const { isWide } = useContentWidth();
 
 const page = usePage();
 const { markThreadRead, setInboxUnread, inboxUnread } = useNotifications();
@@ -839,12 +841,15 @@ const avatarTone = (thread) => {
         </div>
 
         <div
-            class="md-card grid min-w-0 overflow-hidden lg:h-[calc(100vh-15rem)] lg:min-h-[540px] lg:grid-cols-[340px_1fr]"
-            :class="
+            class="md-card grid min-w-0 overflow-hidden lg:min-h-[540px]"
+            :class="[
+                isWide
+                    ? 'lg:h-[calc(100vh-9rem)] lg:grid-cols-[420px_1fr]'
+                    : 'lg:h-[calc(100vh-15rem)] lg:grid-cols-[340px_1fr]',
                 mobileDetail && active
                     ? 'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] max-lg:top-[var(--impersonation-offset)] max-lg:z-30 max-lg:w-full max-lg:max-w-none max-lg:rounded-none max-lg:border-0'
-                    : 'max-lg:-mx-4 max-lg:-mt-4 max-lg:min-h-[calc(100dvh-8.5rem-env(safe-area-inset-bottom,0px))] max-lg:w-[calc(100%+2rem)] max-lg:max-w-[100vw] max-lg:rounded-none max-lg:border-x-0 sm:max-lg:-mx-6 sm:max-lg:w-[calc(100%+3rem)]'
-            "
+                    : 'max-lg:-mx-4 max-lg:-mt-4 max-lg:min-h-[calc(100dvh-8.5rem-env(safe-area-inset-bottom,0px))] max-lg:w-[calc(100%+2rem)] max-lg:max-w-[100vw] max-lg:rounded-none max-lg:border-x-0 sm:max-lg:-mx-6 sm:max-lg:w-[calc(100%+3rem)]',
+            ]"
             data-testid="inbox-card"
         >
             <div
@@ -1016,25 +1021,6 @@ const avatarTone = (thread) => {
                             <span class="mx-1 text-zinc-600">·</span>
                             {{ active.updated }}
                         </p>
-                        <div
-                            v-if="active.ai?.priority || active.ai?.intent || active.ai?.language"
-                            class="mt-2 flex flex-wrap gap-1"
-                        >
-                            <StatusBadge
-                                v-if="active.ai?.priority"
-                                :status="active.ai.priority"
-                            />
-                            <StatusBadge
-                                v-if="active.ai?.intent"
-                                :status="active.ai.intent"
-                            />
-                            <span
-                                v-if="active.ai?.language"
-                                class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium uppercase text-zinc-400 ring-1 ring-inset ring-zinc-500/20"
-                            >
-                                {{ active.ai.language }}
-                            </span>
-                        </div>
                         <div
                             v-if="active.ai?.summary"
                             class="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-sm text-zinc-300"

@@ -43,6 +43,8 @@ class FetchInboundEmailBody implements ShouldQueue
         }
 
         if ($this->hasContent($message)) {
+            $this->dispatchStalwartPush($message);
+
             return;
         }
 
@@ -75,6 +77,26 @@ class FetchInboundEmailBody implements ShouldQueue
         $this->fetchAndStoreAttachments($message, $key, $apiUrl);
 
         InboxUpdated::dispatch($message->organization, $message->mailbox_id);
+
+        $this->dispatchStalwartPush($message);
+    }
+
+    protected function dispatchStalwartPush(Message $message): void
+    {
+        if (! config('maildesk.stalwart.enabled')) {
+            return;
+        }
+
+        if ($message->stalwart_pushed_at !== null) {
+            return;
+        }
+
+        $mailbox = $message->mailbox;
+        if ($mailbox === null || ! $mailbox->imap_enabled || blank($mailbox->imap_password)) {
+            return;
+        }
+
+        PushInboundToStalwart::dispatch($message->id);
     }
 
     protected function hasContent(Message $message): bool

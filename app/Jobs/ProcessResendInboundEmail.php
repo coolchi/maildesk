@@ -13,6 +13,7 @@ use App\Models\Organization;
 use App\Models\Thread;
 use App\Services\GroupAddressService;
 use App\Services\SmartTriageService;
+use App\Support\EmailSnippet;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Http\Client\ConnectionException;
@@ -159,6 +160,11 @@ class ProcessResendInboundEmail implements ShouldQueue
         ]);
 
         InboxUpdated::dispatch($organization, $mailbox?->id ?? $message->mailbox_id);
+        SendMailPush::dispatch($message->id)->afterCommit();
+
+        if ($this->shouldPushToStalwart($mailbox)) {
+            PushInboundToStalwart::dispatch($message->id)->afterCommit();
+        }
 
         app(GroupAddressService::class)->routeInbound($message, $email->recipients());
 
@@ -325,9 +331,7 @@ class ProcessResendInboundEmail implements ShouldQueue
 
     protected function snippet(InboundEmail $email): string
     {
-        $text = $email->text ?? strip_tags((string) $email->html);
-
-        return Str::limit(trim(preg_replace('/\s+/', ' ', $text)), 180);
+        return EmailSnippet::from($email->text, $email->html);
     }
 
     protected function storeAttachments(Message $message, InboundEmail $email): void
@@ -412,5 +416,26 @@ class ProcessResendInboundEmail implements ShouldQueue
             'email_id' => $this->emailId,
             'error' => $exception?->getMessage(),
         ]);
+    }
+
+    protected function shouldPushToStalwart(?Mailbox $mailbox): bool
+    {
+        if (! config('maildesk.stalwart.enabled')) {
+            return false;
+        }
+
+        if ($mailbox === null) {
+            return false;
+        }
+
+        if (! $mailbox->imap_enabled) {
+            return false;
+        }
+
+        if (blank($mailbox->imap_password)) {
+            return false;
+        }
+
+        return true;
     }
 }

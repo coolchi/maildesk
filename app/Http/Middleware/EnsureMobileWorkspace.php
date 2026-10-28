@@ -4,13 +4,14 @@ namespace App\Http\Middleware;
 
 use App\Models\Organization;
 use App\Services\AccountAccess;
+use App\Services\Chat\PresenceService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureMobileWorkspace
 {
-    public function __construct(public AccountAccess $access) {}
+    public function __construct(public AccountAccess $access, public PresenceService $presence) {}
 
     /**
      * @param  Closure(Request): (Response)  $next
@@ -48,6 +49,9 @@ class EnsureMobileWorkspace
         }
 
         $request->attributes->set('organization', $organization);
+        if ($user !== null) {
+            $this->presence->touch($user);
+        }
 
         return $next($request);
     }

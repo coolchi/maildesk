@@ -72,22 +72,71 @@ class AddressParser
     /**
      * Parse a References header (space separated ids) or array into ids.
      *
+     * Handles: space-separated strings, JSON-encoded arrays, arrays of message IDs.
+     * Recursively unpacks nested structures to handle corrupted data (e.g., JSON wrapped in angle brackets).
+     *
      * @return array<int, string>
      */
     public static function messageIds(mixed $value): array
     {
+        if ($value === null || $value === '' || $value === []) {
+            return [];
+        }
+
         if (is_string($value)) {
-            preg_match_all('/<[^>]+>|\S+/', $value, $m);
-            $value = $m[0];
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return self::messageIds($decoded);
+            }
+
+            if (preg_match('/^<(\[.+\])>$/', $value, $outerMatch)) {
+                $innerDecoded = json_decode($outerMatch[1], true);
+                if (is_array($innerDecoded)) {
+                    return self::messageIds($innerDecoded);
+                }
+            }
+
+            preg_match_all('/<[^<>]+>/', $value, $matches);
+            if ($matches[0] !== []) {
+                return self::messageIds($matches[0]);
+            }
+
+            $parts = preg_split('/\s+/', $value, -1, PREG_SPLIT_NO_EMPTY);
+            $value = $parts ?: [];
         }
 
         if (! is_array($value)) {
             return [];
         }
 
-        return array_values(array_filter(array_map(
-            fn ($id) => self::messageId(is_string($id) ? $id : null),
-            $value,
-        )));
+        $result = [];
+        foreach ($value as $item) {
+            if (is_string($item)) {
+                $decoded = json_decode($item, true);
+                if (is_array($decoded)) {
+                    $result = array_merge($result, self::messageIds($decoded));
+
+                    continue;
+                }
+
+                if (preg_match('/^<(\[.+\])>$/', $item, $outerMatch)) {
+                    $innerDecoded = json_decode($outerMatch[1], true);
+                    if (is_array($innerDecoded)) {
+                        $result = array_merge($result, self::messageIds($innerDecoded));
+
+                        continue;
+                    }
+                }
+
+                $stripped = trim($item, '<> ');
+                if ($stripped !== '' && str_contains($stripped, '@')) {
+                    $result[] = '<'.$stripped.'>';
+                }
+            } elseif (is_array($item)) {
+                $result = array_merge($result, self::messageIds($item));
+            }
+        }
+
+        return array_values(array_unique($result));
     }
 }

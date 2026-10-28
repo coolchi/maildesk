@@ -26,6 +26,7 @@ use App\Http\Controllers\InboxController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\MailboxController;
 use App\Http\Controllers\MailboxSignatureController;
+use App\Http\Controllers\MailClientConfigController;
 use App\Http\Controllers\MailDraftController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\ProfileController;
@@ -62,6 +63,18 @@ Route::get('/', function (Request $request, TenantResolver $tenants) {
 
 // Public send-API guide. The rest of the API reference stays in the app.
 Route::get('/docs/send', [DashboardController::class, 'sendDocs'])->name('docs.send');
+
+// Standard Thunderbird autoconfig endpoint (works for logged-out requests).
+Route::get('/mail/config-v1.1.xml', [MailClientConfigController::class, 'autoconfigPublic'])
+    ->name('mail.autoconfig');
+
+// Thunderbird .well-known autoconfig path (same as /mail/config-v1.1.xml).
+Route::get('/.well-known/autoconfig/mail/config-v1.1.xml', [MailClientConfigController::class, 'autoconfigPublic'])
+    ->name('mail.autoconfig.wellknown');
+
+// Public Outlook autodiscover (supports GET and POST with XML body).
+Route::match(['get', 'post'], '/autodiscover/autodiscover.xml', [MailClientConfigController::class, 'autodiscoverPublic'])
+    ->name('mail.autodiscover');
 
 // Public, signed unsubscribe links embedded in broadcast emails.
 Route::get('/unsubscribe/{recipient}', [UnsubscribeController::class, 'show'])
@@ -205,6 +218,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/domains/{domain}/dns/connect', [DomainDnsController::class, 'connect'])->name('domains.dns.connect');
     Route::delete('/domains/{domain}/dns/connect', [DomainDnsController::class, 'disconnect'])->name('domains.dns.disconnect');
     Route::post('/domains/{domain}/dns/apply', [DomainDnsController::class, 'apply'])->name('domains.dns.apply');
+    Route::post('/domains/{domain}/dns/enable-receiving', [DomainDnsController::class, 'enableReceiving'])->name('domains.dns.enable-receiving');
     Route::put('/domains/{domain}/dns/records/{record}', [DomainDnsController::class, 'update'])->name('domains.dns.records.update');
     Route::delete('/domains/{domain}/dns/records/{record}', [DomainDnsController::class, 'destroy'])->name('domains.dns.records.destroy');
     Route::get('/logs', [LogController::class, 'index'])->name('logs');
@@ -234,10 +248,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/help', [HelpController::class, 'index'])->name('help');
     Route::redirect('/settings', '/settings/usage');
     Route::get('/settings/{tab}', [SettingsController::class, 'show'])
-        ->whereIn('tab', ['usage', 'billing', 'team', 'users', 'smtp', 'unsubscribe', 'documents', 'signature'])
+        ->whereIn('tab', ['usage', 'billing', 'team', 'users', 'smtp', 'mail-clients', 'unsubscribe', 'documents', 'signature'])
         ->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     Route::put('/settings/smtp', [SettingsController::class, 'updateSmtp'])->name('settings.smtp.update');
+    Route::post('/settings/mail-clients/{mailbox}/enable', [SettingsController::class, 'enableMailClient'])
+        ->name('settings.mail-clients.enable');
+    Route::post('/settings/mail-clients/{mailbox}/rotate', [SettingsController::class, 'rotateMailClientPassword'])
+        ->name('settings.mail-clients.rotate');
+    Route::post('/settings/mail-clients/{mailbox}/disable', [SettingsController::class, 'disableMailClient'])
+        ->name('settings.mail-clients.disable');
+    Route::get('/settings/mail-clients/{mailbox}/mobileconfig', [MailClientConfigController::class, 'mobileconfig'])
+        ->whereNumber('mailbox')->name('settings.mail-clients.mobileconfig');
+    Route::get('/settings/mail-clients/{mailbox}/autoconfig', [MailClientConfigController::class, 'autoconfig'])
+        ->whereNumber('mailbox')->name('settings.mail-clients.autoconfig');
+    Route::get('/settings/mail-clients/{mailbox}/autodiscover', [MailClientConfigController::class, 'autodiscover'])
+        ->whereNumber('mailbox')->name('settings.mail-clients.autodiscover');
     Route::post('/settings/invitations', [WorkspaceInvitationController::class, 'store'])
         ->middleware('throttle:30,1')->name('invitations.store');
     Route::delete('/settings/invitations/{invitation}', [WorkspaceInvitationController::class, 'destroy'])

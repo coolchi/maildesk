@@ -27,6 +27,12 @@ class Mailbox extends Model
         'marketing',
         'send_limit',
         'signature',
+        'imap_enabled',
+        'stalwart_account_id',
+        'stalwart_domain_id',
+        'imap_password',
+        'imap_last_uid',
+        'imap_uidvalidity',
     ];
 
     protected function casts(): array
@@ -36,6 +42,9 @@ class Mailbox extends Model
             'transactional' => 'boolean',
             'marketing' => 'boolean',
             'send_limit' => 'integer',
+            'imap_enabled' => 'boolean',
+            'imap_password' => 'encrypted',
+            'imap_last_uid' => 'integer',
         ];
     }
 
@@ -93,6 +102,7 @@ class Mailbox extends Model
             'transactional' => (bool) $this->transactional,
             'marketing' => (bool) $this->marketing,
             'has_login' => $this->user_id !== null,
+            'imap_enabled' => (bool) $this->imap_enabled,
             'can_impersonate' => $canImpersonate,
             'usage' => [
                 'sent' => $sent,

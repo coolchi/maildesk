@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Responses\AppErrorPage;
 use App\Http\Middleware\ClearStaleSessionCookies;
 use App\Http\Middleware\EnsureAccountActive;
 use App\Http\Middleware\EnsurePlatformAdmin;
@@ -16,6 +17,7 @@ use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -48,16 +50,21 @@ return Application::configure(basePath: dirname(__DIR__))
             EnsureUserHasWorkspace::class,
             // Suspended / closed accounts: log out, block, refuse impersonation.
             EnsureAccountActive::class,
+            // Share the app shell before access checks so a denial can render in it.
+            HandleInertiaRequests::class,
             // Expired trial / past_due: Settings + Billing only until payment.
             EnsureWorkspaceEntitled::class,
             EnsureWorkspaceAbility::class,
-            HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
 
         // One-click unsubscribe (RFC 8058) is POSTed by mail providers
         // without a CSRF token; the signed URL protects it instead.
-        $middleware->validateCsrfTokens(except: ['unsubscribe/*']);
+        // Outlook autodiscover POSTs XML from mail clients without CSRF.
+        $middleware->validateCsrfTokens(except: [
+            'unsubscribe/*',
+            'autodiscover/autodiscover.xml',
+        ]);
 
         $middleware->alias([
             'platform.admin' => EnsurePlatformAdmin::class,
@@ -65,6 +72,10 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
+            fn (Request $request) => $request->is('api/*') || ($request->expectsJson() && ! $request->header('X-Inertia')),
         );
+
+        $exceptions->respond(function (Response $response, \Throwable $exception, Request $request) {
+            return app(AppErrorPage::class)->replace($response, $exception, $request);
+        });
     })->create();
