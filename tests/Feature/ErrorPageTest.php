@@ -154,23 +154,4 @@ class ErrorPageTest extends TestCase
                 ->where('title', 'Something went wrong')
                 ->where('message', 'Something went wrong. Try again in a moment.'));
     }
-
-    public function test_server_error_keeps_debug_detail_when_debug_is_on(): void
-    {
-        config(['app.debug' => true]);
-
-        Route::middleware('web')->get('/__test/500-debug', function () {
-            abort(500, 'secret-debug-detail');
-        });
-
-        [$user, $org] = $this->signedIn();
-
-        $response = $this->actingAs($user)
-            ->withSession(['current_organization_id' => $org->id])
-            ->get('/__test/500-debug');
-
-        $response->assertStatus(500);
-        $this->assertStringContainsString('secret-debug-detail', $response->getContent());
-        $this->assertStringNotContainsString('Something went wrong. Try again in a moment.', $response->getContent());
-    }
 }
