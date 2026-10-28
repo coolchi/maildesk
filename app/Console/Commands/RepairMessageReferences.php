@@ -35,7 +35,7 @@ class RepairMessageReferences extends Command
                         if (! is_string($ref)) {
                             continue;
                         }
-                        if (str_starts_with($ref, '<[') || str_starts_with($ref, '["')) {
+                        if (str_starts_with($ref, '<[') || str_starts_with($ref, '["') || preg_match('/^<\[.*\]>$/', $ref)) {
                             $needsRepair = true;
                             break;
                         }
@@ -132,6 +132,15 @@ class RepairMessageReferences extends Command
                 $result = array_merge($result, $this->parseMessageIds($decoded));
 
                 continue;
+            }
+
+            if (preg_match('/^<(\[.+\])>$/', $id, $outerMatch)) {
+                $innerDecoded = json_decode($outerMatch[1], true);
+                if (is_array($innerDecoded)) {
+                    $result = array_merge($result, $this->parseMessageIds($innerDecoded));
+
+                    continue;
+                }
             }
 
             $bare = trim($id, '<> ');

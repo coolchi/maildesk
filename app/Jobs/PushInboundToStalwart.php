@@ -97,10 +97,12 @@ class PushInboundToStalwart implements ShouldQueue
         } catch (Throwable $e) {
             $imap->close();
 
+            $message->increment('stalwart_push_attempts');
             Log::warning('PushInboundToStalwart: IMAP APPEND failed', [
                 'message_id' => $this->messageId,
                 'mailbox' => $mailbox->email,
                 'error' => $e->getMessage(),
+                'attempts' => $message->stalwart_push_attempts,
             ]);
 
             throw $e;

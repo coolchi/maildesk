@@ -267,4 +267,30 @@ class PushToStalwartCommandTest extends TestCase
         Queue::assertPushed(PushInboundToStalwart::class, 1);
         Queue::assertNotPushed(PushOutboundToStalwart::class);
     }
+
+    public function test_command_skips_messages_with_too_many_attempts(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $lowAttempts = $this->createInboundMessage($mailbox, ['stalwart_push_attempts' => 2]);
+        $highAttempts = $this->createInboundMessage($mailbox, ['stalwart_push_attempts' => 5]);
+
+        $this->artisan('mail:push-to-stalwart', ['--max-attempts' => 3])
+            ->assertSuccessful();
+
+        Queue::assertPushed(PushInboundToStalwart::class, 1);
+        Queue::assertPushed(PushInboundToStalwart::class, fn ($job) => $job->messageId === $lowAttempts->id);
+    }
+
+    public function test_command_skips_outbound_with_too_many_attempts(): void
+    {
+        $mailbox = $this->createMailboxWithImap();
+        $lowAttempts = $this->createOutboundMessage($mailbox, ['stalwart_push_attempts' => 1]);
+        $highAttempts = $this->createOutboundMessage($mailbox, ['stalwart_push_attempts' => 10]);
+
+        $this->artisan('mail:push-to-stalwart', ['--direction' => 'outbound', '--max-attempts' => 3])
+            ->assertSuccessful();
+
+        Queue::assertPushed(PushOutboundToStalwart::class, 1);
+        Queue::assertPushed(PushOutboundToStalwart::class, fn ($job) => $job->messageId === $lowAttempts->id);
+    }
 }

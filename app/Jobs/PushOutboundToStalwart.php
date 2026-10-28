@@ -98,10 +98,12 @@ class PushOutboundToStalwart implements ShouldQueue
             $imap->close();
 
             if (! $appended) {
+                $message->increment('stalwart_push_attempts');
                 Log::warning('PushOutboundToStalwart: IMAP APPEND to Sent folder returned false', [
                     'message_id' => $this->messageId,
                     'mailbox' => $mailbox->email,
                     'folder' => $sentFolder,
+                    'attempts' => $message->stalwart_push_attempts,
                 ]);
 
                 return;
@@ -117,10 +119,12 @@ class PushOutboundToStalwart implements ShouldQueue
         } catch (Throwable $e) {
             $imap->close();
 
+            $message->increment('stalwart_push_attempts');
             Log::warning('PushOutboundToStalwart: IMAP operation failed', [
                 'message_id' => $this->messageId,
                 'mailbox' => $mailbox->email,
                 'error' => $e->getMessage(),
+                'attempts' => $message->stalwart_push_attempts,
             ]);
         }
     }
@@ -132,8 +136,18 @@ class PushOutboundToStalwart implements ShouldQueue
     {
         $sentFolder = $imap->findSentFolder();
         if ($sentFolder !== null) {
+            Log::debug('PushOutboundToStalwart: found Sent folder', [
+                'message_id' => $this->messageId,
+                'folder' => $sentFolder,
+            ]);
+
             return $sentFolder;
         }
+
+        Log::debug('PushOutboundToStalwart: no Sent folder found, attempting to create', [
+            'message_id' => $this->messageId,
+            'available_folders' => array_keys($imap->listFolders()),
+        ]);
 
         if ($imap->createFolder('Sent')) {
             $imap->subscribeFolder('Sent');

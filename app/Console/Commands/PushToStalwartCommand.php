@@ -15,6 +15,7 @@ class PushToStalwartCommand extends Command
         {--mailbox= : Only push messages for this mailbox email}
         {--since= : Only push messages received/sent since this date (Y-m-d or relative like "-7 days")}
         {--direction=both : Which messages to push: inbound, outbound, or both}
+        {--max-attempts=3 : Skip messages that have already failed this many times}
         {--dry-run : Show what would be pushed without actually dispatching jobs}';
 
     protected $description = 'Backfill messages to Stalwart IMAP mailboxes (inbound to INBOX, outbound to Sent)';
@@ -31,6 +32,7 @@ class PushToStalwartCommand extends Command
         $since = $this->parseSinceDate($this->option('since'));
         $dryRun = (bool) $this->option('dry-run');
         $direction = $this->option('direction');
+        $maxAttempts = (int) $this->option('max-attempts');
 
         if (! in_array($direction, ['inbound', 'outbound', 'both'], true)) {
             $this->error('Invalid direction. Use: inbound, outbound, or both');
@@ -71,13 +73,13 @@ class PushToStalwartCommand extends Command
             $this->info("Processing mailbox: {$mailbox->email}");
 
             if ($direction === 'inbound' || $direction === 'both') {
-                [$dispatched, $skipped] = $this->processInbound($mailbox, $since, $dryRun);
+                [$dispatched, $skipped] = $this->processInbound($mailbox, $since, $dryRun, $maxAttempts);
                 $totalInboundDispatched += $dispatched;
                 $totalSkipped += $skipped;
             }
 
             if ($direction === 'outbound' || $direction === 'both') {
-                [$dispatched, $skipped] = $this->processOutbound($mailbox, $since, $dryRun);
+                [$dispatched, $skipped] = $this->processOutbound($mailbox, $since, $dryRun, $maxAttempts);
                 $totalOutboundDispatched += $dispatched;
                 $totalSkipped += $skipped;
             }
@@ -106,13 +108,14 @@ class PushToStalwartCommand extends Command
     /**
      * @return array{0: int, 1: int} [dispatched, skipped]
      */
-    protected function processInbound(Mailbox $mailbox, ?Carbon $since, bool $dryRun): array
+    protected function processInbound(Mailbox $mailbox, ?Carbon $since, bool $dryRun, int $maxAttempts): array
     {
         $query = Message::query()
             ->where('mailbox_id', $mailbox->id)
             ->where('direction', 'inbound')
             ->whereNull('stalwart_pushed_at')
-            ->where('provider', '!=', 'stalwart-imap');
+            ->where('provider', '!=', 'stalwart-imap')
+            ->where('stalwart_push_attempts', '<', $maxAttempts);
 
         if ($since !== null) {
             $query->where('received_at', '>=', $since);
@@ -159,13 +162,14 @@ class PushToStalwartCommand extends Command
     /**
      * @return array{0: int, 1: int} [dispatched, skipped]
      */
-    protected function processOutbound(Mailbox $mailbox, ?Carbon $since, bool $dryRun): array
+    protected function processOutbound(Mailbox $mailbox, ?Carbon $since, bool $dryRun, int $maxAttempts): array
     {
         $query = Message::query()
             ->where('mailbox_id', $mailbox->id)
             ->where('direction', 'outbound')
             ->whereNull('stalwart_pushed_at')
-            ->whereIn('status', ['sent', 'delivered']);
+            ->whereIn('status', ['sent', 'delivered'])
+            ->where('stalwart_push_attempts', '<', $maxAttempts);
 
         if ($since !== null) {
             $query->where(function ($q) use ($since) {
