@@ -438,15 +438,17 @@ class WebhookSecurityTest extends TestCase
 
         $this->actingAs($user)->withSession(['current_organization_id' => $org->id])->get('/domains')
             ->assertInertia(fn (Assert $page) => $page
-                ->where('onboarding.webhook', false)
-                ->where('onboarding.apiKey', false));
+                ->loadDeferredProps(fn (Assert $reload) => $reload
+                    ->where('onboarding.webhook', false)
+                    ->where('onboarding.apiKey', false)));
 
         $this->webhook($org);
         ApiKey::factory()->create(['organization_id' => $org->id, 'expires_at' => now()->addDay()]);
 
         $this->actingAs($user)->withSession(['current_organization_id' => $org->id])->get('/domains')
             ->assertInertia(fn (Assert $page) => $page
-                ->where('onboarding.webhook', true)
-                ->where('onboarding.apiKey', true));
+                ->loadDeferredProps(fn (Assert $reload) => $reload
+                    ->where('onboarding.webhook', true)
+                    ->where('onboarding.apiKey', true)));
     }
 }
