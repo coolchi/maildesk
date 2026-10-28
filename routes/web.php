@@ -254,6 +254,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/settings/smtp', [SettingsController::class, 'updateSmtp'])->name('settings.smtp.update');
     Route::post('/settings/mail-clients/{mailbox}/enable', [SettingsController::class, 'enableMailClient'])
         ->name('settings.mail-clients.enable');
+    Route::get('/settings/mail-clients/{mailbox}/rotate', [SettingsController::class, 'redirectMailClientRotate'])
+        ->name('settings.mail-clients.rotate.redirect');
     Route::post('/settings/mail-clients/{mailbox}/rotate', [SettingsController::class, 'rotateMailClientPassword'])
         ->name('settings.mail-clients.rotate');
     Route::post('/settings/mail-clients/{mailbox}/disable', [SettingsController::class, 'disableMailClient'])
