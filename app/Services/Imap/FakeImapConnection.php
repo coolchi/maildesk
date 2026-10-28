@@ -45,9 +45,37 @@ class FakeImapConnection extends ImapConnection
 
     public bool $shouldFailCreateFolder = false;
 
+    /** @var array<int, array{uid: int, raw: string, seen: bool, from: string, subject: string, message_id: string}> */
+    public array $inboxMessages = [];
+
+    /** @var list<int> */
+    public array $peekedUids = [];
+
+    public ?string $uidValidityValue = '1';
+
     public function __construct()
     {
         parent::__construct('fake.test', 993, 'ssl');
+    }
+
+    /**
+     * @param  array{from?: string, subject?: string, message_id?: string}  $overview
+     */
+    public function addInboxMessage(int $uid, string $raw, bool $seen = false, array $overview = []): void
+    {
+        $this->inboxMessages[$uid] = [
+            'uid' => $uid,
+            'raw' => $raw,
+            'seen' => $seen,
+            'from' => $overview['from'] ?? 'sender@example.com',
+            'subject' => $overview['subject'] ?? 'Test',
+            'message_id' => $overview['message_id'] ?? '<uid-'.$uid.'@example.com>',
+        ];
+    }
+
+    public function isSeen(int $uid): bool
+    {
+        return (bool) ($this->inboxMessages[$uid]['seen'] ?? false);
     }
 
     public function open(string $username, string $password, string $folder = 'INBOX'): void
@@ -70,6 +98,47 @@ class FakeImapConnection extends ImapConnection
     public function isOpen(): bool
     {
         return $this->openCalled && ! $this->closeCalled;
+    }
+
+    public function uidValidity(): ?string
+    {
+        return $this->uidValidityValue;
+    }
+
+    public function messageCount(): int
+    {
+        return count($this->inboxMessages);
+    }
+
+    public function messageUid(int $msgno): int
+    {
+        $uids = array_keys($this->inboxMessages);
+        sort($uids);
+
+        return $uids[$msgno - 1] ?? 0;
+    }
+
+    public function fetchRaw(int $uid): string
+    {
+        $this->peekedUids[] = $uid;
+
+        return $this->inboxMessages[$uid]['raw'] ?? '';
+    }
+
+    public function fetchOverview(int $uid)
+    {
+        $message = $this->inboxMessages[$uid] ?? null;
+        if ($message === null) {
+            return null;
+        }
+
+        return (object) [
+            'uid' => $uid,
+            'from' => $message['from'],
+            'subject' => $message['subject'],
+            'message_id' => $message['message_id'],
+            'seen' => $message['seen'] ? 1 : 0,
+        ];
     }
 
     public function append(string $folder, string $message, ?string $flags = null, ?string $internalDate = null): bool
@@ -233,5 +302,8 @@ class FakeImapConnection extends ImapConnection
         $this->createdFolders = [];
         $this->subscribedFolders = [];
         $this->shouldFailCreateFolder = false;
+        $this->inboxMessages = [];
+        $this->peekedUids = [];
+        $this->uidValidityValue = '1';
     }
 }
