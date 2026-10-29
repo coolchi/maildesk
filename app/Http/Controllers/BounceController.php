@@ -71,9 +71,11 @@ class BounceController extends Controller
             ->where('source', 'bounce')
             ->count();
 
+        $tz = $organization->getTimezone();
+
         return Inertia::render('Bounced/Index', [
             'bounces' => $messages
-                ->map(fn (Message $message) => self::present($message, $suppressions->all()))
+                ->map(fn (Message $message) => self::present($message, $suppressions->all(), $tz))
                 ->values()
                 ->all(),
             'pagination' => [
@@ -97,13 +99,12 @@ class BounceController extends Controller
      * @param  array<string, Suppression>  $suppressions
      * @return array<string, mixed>
      */
-    private static function present(Message $message, array $suppressions): array
+    private static function present(Message $message, array $suppressions, string $tz = 'Africa/Lagos'): array
     {
         $meta = (array) ($message->meta ?? []);
         $bounce = (array) ($meta['bounce'] ?? []);
         $rawType = strtolower((string) ($bounce['type'] ?? ''));
         $type = $message->status === 'bounced' || in_array($rawType, ['hard', 'permanent'], true) ? 'hard' : 'soft';
-        $tz = config('app.timezone');
 
         $at = isset($bounce['at']) ? Carbon::parse($bounce['at']) : $message->updated_at;
 

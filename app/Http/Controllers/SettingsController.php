@@ -108,6 +108,7 @@ class SettingsController extends Controller
             // Monipay plan upgrades + payment history (no secret material).
             'payments' => fn () => app(BillingService::class)->settingsProps($request->user(), $organization),
             'settings' => [
+                'timezone' => $settings['timezone'] ?? 'Africa/Lagos',
                 'unsubscribe' => $settings['unsubscribe'] ?? [
                     'brand' => $organization->name,
                     'headline' => "You've been unsubscribed",
@@ -184,6 +185,7 @@ class SettingsController extends Controller
         $organization = CurrentOrganization::from($request);
 
         $validated = $request->validate([
+            'timezone' => ['sometimes', 'string', 'max:64', 'timezone:all'],
             'unsubscribe' => ['sometimes', 'array'],
             'unsubscribe.brand' => ['nullable', 'string', 'max:120'],
             'unsubscribe.headline' => ['nullable', 'string', 'max:255'],
@@ -221,6 +223,10 @@ class SettingsController extends Controller
         }
 
         $settings = $organization->settings ?? [];
+
+        if (array_key_exists('timezone', $validated)) {
+            $settings['timezone'] = $validated['timezone'];
+        }
 
         if (array_key_exists('unsubscribe', $validated)) {
             $settings['unsubscribe'] = array_merge(

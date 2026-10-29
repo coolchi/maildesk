@@ -272,7 +272,7 @@ const signOut = () => {
                                 "
                             >
                                 <Plus :size="16" />
-                                Create account
+                                Create workspace
                             </button>
                             <button
                                 type="button"

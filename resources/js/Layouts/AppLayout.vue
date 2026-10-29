@@ -487,7 +487,7 @@ const createTeam = () => {
                                     "
                                 >
                                     <Plus :size="14" class="text-cyan-300" />
-                                    Create account
+                                    Create workspace
                                 </button>
                                 <button
                                     type="button"
@@ -844,7 +844,7 @@ const createTeam = () => {
 
         <Modal
             :show="showCreateTeam"
-            title="Create account"
+            title="Create workspace"
             description="Add another workspace for a product or brand."
             max-width="md"
             @close="showCreateTeam = false"
@@ -866,7 +866,7 @@ const createTeam = () => {
                     Cancel
                 </button>
                 <button type="button" class="md-btn-primary" @click="createTeam">
-                    Create account
+                    Create workspace
                 </button>
             </template>
         </Modal>

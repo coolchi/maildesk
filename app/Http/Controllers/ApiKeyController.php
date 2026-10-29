@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ApiKeyController extends Controller
 {
@@ -158,5 +159,88 @@ class ApiKeyController extends Controller
         return redirect()
             ->route('api-keys')
             ->with('success', "Deleted “{$name}”.");
+    }
+
+    /**
+     * Export API key metadata as CSV. Never exports secrets or hashes.
+     */
+    public function export(Request $request): StreamedResponse
+    {
+        $organization = CurrentOrganization::from($request);
+
+        $keys = $organization->apiKeys()
+            ->latest()
+            ->get();
+
+        $tz = $organization->getTimezone();
+        $filename = sprintf('api-keys-%s-%s.csv', $organization->slug ?? 'workspace', now()->format('Y-m-d'));
+
+        return response()->streamDownload(function () use ($keys, $tz) {
+            $out = fopen('php://output', 'w');
+
+            fputcsv($out, [
+                'Name',
+                'Prefix',
+                'Permission',
+                'Domain Scope',
+                'Created',
+                'Last Used',
+                'Expires',
+                'Status',
+            ]);
+
+            foreach ($keys as $key) {
+                $abilities = $key->abilities ?? ['*'];
+                $permission = in_array('emails:send', $abilities, true) && ! in_array('*', $abilities, true)
+                    ? 'Sending access'
+                    : 'Full access';
+
+                $domain = 'All domains';
+                foreach ($abilities as $ability) {
+                    if (is_string($ability) && str_starts_with($ability, 'domain:')) {
+                        $domain = substr($ability, 7);
+                        break;
+                    }
+                }
+
+                $status = $key->isRevoked()
+                    ? 'Revoked'
+                    : ($key->isExpired() ? 'Expired' : 'Active');
+
+                fputcsv($out, [
+                    $this->escapeCsvCell($key->name),
+                    $key->key_prefix,
+                    $permission,
+                    $this->escapeCsvCell($domain),
+                    $key->created_at?->timezone($tz)->toDateTimeString() ?? '',
+                    $key->last_used_at?->timezone($tz)->toDateTimeString() ?? 'Never',
+                    $key->expires_at?->timezone($tz)->toDateTimeString() ?? 'Never',
+                    $status,
+                ]);
+            }
+
+            fclose($out);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    /**
+     * Escape a cell value to prevent CSV formula injection.
+     * Prefix cells starting with =, +, -, or @ with a single quote.
+     */
+    protected function escapeCsvCell(?string $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        $first = $value[0];
+
+        if (in_array($first, ['=', '+', '-', '@'], true)) {
+            return "'".$value;
+        }
+
+        return $value;
     }
 }
