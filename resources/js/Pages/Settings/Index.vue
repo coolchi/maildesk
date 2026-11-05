@@ -1292,6 +1292,26 @@ const downloadInvoice = () => {
             class="mx-auto max-w-4xl space-y-6"
             data-testid="mail-clients-settings"
         >
+            <div
+                v-if="mailClients.blocked?.blocked"
+                class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-5 py-4"
+                data-testid="mail-clients-ip-blocked"
+            >
+                <p class="text-sm font-medium text-amber-50">This IP is blocked on the mail server</p>
+                <p class="mt-1 text-sm text-amber-100/80">
+                    <code class="font-mono text-amber-50">{{ mailClients.blocked.ip }}</code>
+                    has too many failed logins. Mail clients from this network cannot connect until the block is cleared.
+                </p>
+                <p v-if="mailClients.blocked.can_unblock" class="mt-3">
+                    <Link :href="route('admin.blocked-ips')" class="text-sm font-medium text-cyan-300 hover:text-cyan-200">
+                        Unblock this IP
+                    </Link>
+                </p>
+                <p v-else class="mt-3 text-sm text-amber-100/80">
+                    Contact support to unblock this address.
+                </p>
+            </div>
+
             <!-- Server Settings -->
             <section class="md-card overflow-hidden">
                 <div class="border-b border-zinc-800 px-5 py-4">

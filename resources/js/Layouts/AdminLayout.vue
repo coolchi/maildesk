@@ -5,6 +5,7 @@ import SidebarLink from '@/Components/SidebarLink.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
 import { useTheme } from '@/composables/useTheme';
 import {
+    Ban,
     Building2,
     CreditCard,
     DollarSign,
@@ -33,6 +34,7 @@ const nav = [
     { name: 'Revenue', route: 'admin.revenue', icon: DollarSign },
     { name: 'Providers', route: 'admin.providers', icon: Server },
     { name: 'Subdomains', route: 'admin.subdomains', icon: Globe2 },
+    { name: 'Blocked IPs', route: 'admin.blocked-ips', icon: Ban },
     { name: 'Settings', route: 'admin.settings', icon: Settings },
 ];
 

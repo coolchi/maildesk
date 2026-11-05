@@ -35,7 +35,13 @@ class StalwartMailClientsTest extends TestCase
 
     public function test_settings_mail_clients_tab_renders(): void
     {
+        $this->withoutVite();
         $this->enableStalwart();
+        Http::fake([
+            'stalwart.test/*' => Http::response([
+                'methodResponses' => [['error', ['type' => 'unknownMethod'], 'b0']],
+            ]),
+        ]);
         $user = User::factory()->create();
         $org = Organization::factory()->create();
         $org->users()->attach($user->id, ['role' => 'owner']);
