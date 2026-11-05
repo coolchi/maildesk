@@ -15,6 +15,7 @@ const styles = {
     received: 'bg-sky-500/15 text-sky-300 ring-sky-500/20',
     pending: 'bg-amber-500/15 text-amber-300 ring-amber-500/20',
     verified: 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/20',
+    partially_verified: 'bg-amber-500/15 text-amber-300 ring-amber-500/20',
     failing: 'bg-rose-500/15 text-rose-400 ring-rose-500/20',
     failed: 'bg-rose-500/15 text-rose-400 ring-rose-500/20',
     published: 'bg-cyan-400/15 text-cyan-300 ring-cyan-400/20',
@@ -65,6 +66,7 @@ const labels = {
     suspended: 'Suspended',
     pending_dns: 'Pending DNS',
     provisioning: 'Provisioning',
+    partially_verified: 'Partially verified',
 };
 </script>
 

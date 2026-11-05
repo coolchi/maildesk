@@ -63,6 +63,24 @@ const segmentPrompt = ref('');
 const generatingSegment = ref(false);
 const deleteTarget = ref(null);
 const deleteKind = ref('contact');
+const showEditContact = ref(false);
+const showEditSegment = ref(false);
+const editContactTarget = ref(null);
+const editSegmentTarget = ref(null);
+const editContactForm = ref({
+    first_name: '',
+    last_name: '',
+    company: '',
+    status: 'subscribed',
+});
+const editSegmentForm = ref({
+    name: '',
+    description: '',
+    statusRule: 'subscribed',
+    domain: '',
+});
+const savingEditContact = ref(false);
+const savingEditSegment = ref(false);
 
 const tabs = [
     { id: 'contacts', label: 'Contacts' },
@@ -339,9 +357,48 @@ const addSegment = () => {
     );
 };
 
+const openEditContact = (contact) => {
+    editContactTarget.value = contact;
+    editContactForm.value = {
+        first_name: contact.first_name || '',
+        last_name: contact.last_name || '',
+        company: contact.company || '',
+        status: contact.status || 'subscribed',
+    };
+    showEditContact.value = true;
+};
+
+const saveEditContact = () => {
+    if (!editContactTarget.value) return;
+    savingEditContact.value = true;
+    router.patch(
+        route('audience.update', editContactTarget.value.id),
+        {
+            first_name: editContactForm.value.first_name.trim() || null,
+            last_name: editContactForm.value.last_name.trim() || null,
+            company: editContactForm.value.company.trim() || null,
+            status: editContactForm.value.status,
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                showEditContact.value = false;
+                editContactTarget.value = null;
+                toast.success('Contact updated.');
+            },
+            onError: (errors) => {
+                toast.error(Object.values(errors)[0] || 'Could not update contact.');
+            },
+            onFinish: () => {
+                savingEditContact.value = false;
+            },
+        },
+    );
+};
+
 const onContactAction = (row, item) => {
     if (item.id === 'edit') {
-        toast.info('Edit contact coming soon.');
+        openEditContact(row);
     } else if (item.id === 'toggle') {
         const next =
             row.status === 'subscribed' ? 'unsubscribed' : 'subscribed';
@@ -369,9 +426,60 @@ const onContactAction = (row, item) => {
     }
 };
 
+const openEditSegment = (segment) => {
+    editSegmentTarget.value = segment;
+    const rules = segment.rules || [];
+    const statusRule = rules.find((r) => r.field === 'meta.status' || r.field === 'status');
+    const domainRule = rules.find((r) => r.field === 'email_domain');
+    editSegmentForm.value = {
+        name: segment.name || '',
+        description: segment.description || '',
+        statusRule: statusRule?.value || 'subscribed',
+        domain: domainRule?.value || '',
+    };
+    showEditSegment.value = true;
+};
+
+const saveEditSegment = () => {
+    if (!editSegmentTarget.value) return;
+    const rules = [
+        { field: 'meta.status', op: 'eq', value: editSegmentForm.value.statusRule },
+    ];
+    if (editSegmentForm.value.domain.trim()) {
+        rules.push({
+            field: 'email_domain',
+            op: 'contains',
+            value: editSegmentForm.value.domain.trim(),
+        });
+    }
+    savingEditSegment.value = true;
+    router.put(
+        route('audience.segments.update', editSegmentTarget.value.id),
+        {
+            name: editSegmentForm.value.name.trim(),
+            description: editSegmentForm.value.description.trim() || null,
+            rules,
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                showEditSegment.value = false;
+                editSegmentTarget.value = null;
+                toast.success('Segment updated.');
+            },
+            onError: (errors) => {
+                toast.error(Object.values(errors)[0] || 'Could not update segment.');
+            },
+            onFinish: () => {
+                savingEditSegment.value = false;
+            },
+        },
+    );
+};
+
 const onSegmentAction = (seg, item) => {
     if (item.id === 'edit') {
-        toast.info('Edit segment coming soon.');
+        openEditSegment(seg);
     } else if (item.id === 'delete') {
         deleteKind.value = 'segment';
         deleteTarget.value = seg;
@@ -962,6 +1070,147 @@ const deleteLabel = computed(() => {
                     @click="confirmDelete"
                 >
                     Delete
+                </button>
+            </template>
+        </Modal>
+
+        <Modal
+            :show="showEditContact"
+            title="Edit contact"
+            :description="editContactTarget?.email || ''"
+            max-width="md"
+            @close="showEditContact = false"
+        >
+            <div class="space-y-4">
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <div>
+                        <label class="mb-1.5 block text-xs text-zinc-500">First name</label>
+                        <input
+                            v-model="editContactForm.first_name"
+                            type="text"
+                            class="md-input"
+                            placeholder="Jane"
+                            data-testid="edit-contact-first-name"
+                        />
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-xs text-zinc-500">Last name</label>
+                        <input
+                            v-model="editContactForm.last_name"
+                            type="text"
+                            class="md-input"
+                            placeholder="Doe"
+                            data-testid="edit-contact-last-name"
+                        />
+                    </div>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500">Company</label>
+                    <input
+                        v-model="editContactForm.company"
+                        type="text"
+                        class="md-input"
+                        placeholder="Acme Inc"
+                        data-testid="edit-contact-company"
+                    />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500">Status</label>
+                    <select
+                        v-model="editContactForm.status"
+                        class="md-input"
+                        data-testid="edit-contact-status"
+                    >
+                        <option value="subscribed">Subscribed</option>
+                        <option value="unsubscribed">Unsubscribed</option>
+                    </select>
+                </div>
+            </div>
+            <template #footer>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    @click="showEditContact = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-primary"
+                    data-testid="edit-contact-save"
+                    :disabled="savingEditContact"
+                    @click="saveEditContact"
+                >
+                    {{ savingEditContact ? 'Saving…' : 'Save contact' }}
+                </button>
+            </template>
+        </Modal>
+
+        <Modal
+            :show="showEditSegment"
+            title="Edit segment"
+            max-width="md"
+            @close="showEditSegment = false"
+        >
+            <div class="space-y-3">
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500">Name</label>
+                    <input
+                        v-model="editSegmentForm.name"
+                        type="text"
+                        class="md-input"
+                        placeholder="Segment name"
+                        data-testid="edit-segment-name"
+                    />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500">Description</label>
+                    <input
+                        v-model="editSegmentForm.description"
+                        type="text"
+                        class="md-input"
+                        placeholder="Description (optional)"
+                        data-testid="edit-segment-description"
+                    />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500">Status rule</label>
+                    <select
+                        v-model="editSegmentForm.statusRule"
+                        class="md-input"
+                        data-testid="edit-segment-status-rule"
+                    >
+                        <option value="subscribed">Status is subscribed</option>
+                        <option value="unsubscribed">Status is unsubscribed</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500">Email domain contains (optional)</label>
+                    <input
+                        v-model="editSegmentForm.domain"
+                        type="text"
+                        class="md-input"
+                        placeholder="acme.com"
+                        data-testid="edit-segment-domain"
+                    />
+                </div>
+            </div>
+            <template #footer>
+                <button
+                    type="button"
+                    class="md-btn-ghost"
+                    @click="showEditSegment = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    class="md-btn-primary"
+                    data-testid="edit-segment-save"
+                    :disabled="savingEditSegment || !editSegmentForm.name.trim()"
+                    @click="saveEditSegment"
+                >
+                    {{ savingEditSegment ? 'Saving…' : 'Save segment' }}
                 </button>
             </template>
         </Modal>

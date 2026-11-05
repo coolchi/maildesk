@@ -549,6 +549,59 @@ class DomainVerificationTest extends TestCase
         $this->verify($user, $org, $foreign)->assertNotFound();
         $this->assertSame('pending', $foreign->refresh()->status);
     }
+
+    public function test_to_workspace_array_shows_partially_verified_when_provider_reports_it(): void
+    {
+        $org = Organization::factory()->create(['region' => 'us-east-1']);
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'partial.test',
+            'status' => 'verified',
+            'dns_records' => [
+                'checks' => ['spf' => true, 'dkim' => true, 'dmarc' => true],
+                'records' => [
+                    ['key' => 'spf', 'type' => 'TXT', 'name' => 'partial.test', 'label' => 'SPF'],
+                    ['key' => 'dkim', 'type' => 'TXT', 'name' => 'resend._domainkey.partial.test', 'label' => 'DKIM'],
+                ],
+                'provider' => [
+                    'status' => 'partially_verified',
+                    'records' => [
+                        ['record' => 'SPF', 'status' => 'verified'],
+                        ['record' => 'DKIM', 'status' => 'pending'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $array = $domain->toWorkspaceArray();
+
+        $this->assertSame('partially_verified', $array['status']);
+        $this->assertSame('partially_verified', $array['provider_status']);
+        $this->assertContains('DKIM', $array['pending_records']);
+    }
+
+    public function test_to_workspace_array_shows_verified_when_provider_is_fully_verified(): void
+    {
+        $org = Organization::factory()->create(['region' => 'us-east-1']);
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'full.test',
+            'status' => 'verified',
+            'dns_records' => [
+                'checks' => ['spf' => true, 'dkim' => true, 'dmarc' => true],
+                'records' => [],
+                'provider' => [
+                    'status' => 'verified',
+                ],
+            ],
+        ]);
+
+        $array = $domain->toWorkspaceArray();
+
+        $this->assertSame('verified', $array['status']);
+        $this->assertSame('verified', $array['provider_status']);
+        $this->assertEmpty($array['pending_records']);
+    }
 }
 
 class FakeDnsResolver extends DnsResolver

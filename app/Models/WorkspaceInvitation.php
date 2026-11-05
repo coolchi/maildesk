@@ -95,7 +95,7 @@ class WorkspaceInvitation extends Model
             'id' => $this->id,
             'email' => $this->email,
             'role' => $this->role,
-            'expires_at' => $this->expires_at?->timezone(config('app.timezone'))->format('M j, Y'),
+            'expires_at' => $this->expires_at?->timezone($this->organization?->getTimezone() ?? 'Africa/Lagos')->format('M j, Y'),
             'invited_by' => $this->inviter?->name,
             'status' => $this->isAccepted()
                 ? 'accepted'
