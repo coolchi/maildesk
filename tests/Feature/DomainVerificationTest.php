@@ -195,6 +195,16 @@ class DomainVerificationTest extends TestCase
 
         $domain->refresh();
         $this->assertSame('dom_123', $domain->provider_domain_id);
+        if ($domain->status !== 'pending') {
+            file_put_contents('/tmp/vdbg.json', json_encode([
+                'status'=>$domain->status,
+                'failing'=>array_keys(array_filter($domain->dns_records['checks']??[], fn($v)=>$v===false)),
+                'required'=>$domain->dns_records['required']??null,
+                'checks'=>$domain->dns_records['checks']??null,
+                'results'=>$domain->dns_records['results']??null,
+                'provider'=>$domain->dns_records['provider']??null,
+            ], JSON_PRETTY_PRINT));
+        }
         $this->assertSame('pending', $domain->status);
         $this->assertSame('pending', $domain->dns_records['provider']['status']);
         $this->assertSame(['spf', 'dkim', 'mx'], $domain->dns_records['required']);
@@ -548,6 +558,178 @@ class DomainVerificationTest extends TestCase
 
         $this->verify($user, $org, $foreign)->assertNotFound();
         $this->assertSame('pending', $foreign->refresh()->status);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function sendingRecordsWithReceiving(string $receivingStatus, string $dkimStatus = 'verified'): array
+    {
+        return [
+            ['record' => 'DKIM', 'name' => 'resend._domainkey', 'type' => 'TXT', 'value' => self::DKIM, 'status' => $dkimStatus],
+            ['record' => 'SPF', 'name' => 'send', 'type' => 'TXT', 'value' => 'v=spf1 include:amazonses.com ~all', 'status' => 'verified'],
+            ['record' => 'SPF', 'name' => 'send', 'type' => 'MX', 'value' => 'feedback-smtp.us-east-1.amazonses.com', 'priority' => 10, 'status' => 'verified'],
+            ['record' => 'SPF', 'name' => 'rsend', 'type' => 'CNAME', 'value' => 'send.forge.rmta.net', 'status' => 'verified'],
+            ['record' => 'Receiving', 'name' => '', 'type' => 'MX', 'value' => 'receive.forge.rmta.net', 'priority' => 9, 'status' => $receivingStatus],
+            ['record' => 'Tracking', 'name' => 'links', 'type' => 'CNAME', 'value' => 'links2.resend-dns.com', 'status' => 'verified'],
+        ];
+    }
+
+    private function publishSendingRecords(string $name): void
+    {
+        $this->dns->txt["resend._domainkey.{$name}"] = [self::DKIM];
+        $this->dns->txt["send.{$name}"] = ['v=spf1 include:amazonses.com ~all'];
+        $this->dns->mx["send.{$name}"] = [['host' => 'feedback-smtp.us-east-1.amazonses.com', 'priority' => 10]];
+        $this->dns->cname["rsend.{$name}"] = ['send.forge.rmta.net'];
+        $this->dns->cname["links.{$name}"] = ['links2.resend-dns.com'];
+        $this->dns->txt["_dmarc.{$name}"] = ['v=DMARC1; p=none;'];
+    }
+
+    public function test_receiving_only_partial_resend_domain_is_verified(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'sendonly.test',
+            'provider_domain_id' => 'dom_partial',
+        ]);
+
+        $records = $this->sendingRecordsWithReceiving('pending');
+
+        Http::fake([
+            'api.resend.com/domains/dom_partial/verify' => Http::response(['id' => 'dom_partial']),
+            'api.resend.com/domains/dom_partial' => Http::response([
+                'id' => 'dom_partial',
+                'status' => 'partially_verified',
+                'region' => 'us-east-1',
+                'records' => $records,
+            ]),
+        ]);
+
+        $this->publishSendingRecords('sendonly.test');
+
+        $this->verify($user, $org, $domain)->assertSessionHas('success');
+
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $this->assertNotNull($domain->verified_at);
+        $this->assertSame('dom_partial', $domain->provider_domain_id);
+        $this->assertSame('partially_verified', $domain->dns_records['provider']['status']);
+        $this->assertTrue($domain->dns_records['checks']['dkim']);
+        $this->assertTrue($domain->dns_records['checks']['spf']);
+        $this->assertTrue($domain->dns_records['checks']['return_path']);
+        $this->assertFalse($domain->dns_records['checks']['inbound_mx']);
+        $this->assertNotContains('inbound_mx', $domain->dns_records['required']);
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'DELETE');
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r->url() === 'https://api.resend.com/domains');
+    }
+
+    public function test_receiving_only_partial_still_pending_when_dkim_fails(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'nokey.test',
+            'provider_domain_id' => 'dom_nodkim',
+        ]);
+
+        Http::fake([
+            'api.resend.com/domains/dom_nodkim/verify' => Http::response(['id' => 'dom_nodkim']),
+            'api.resend.com/domains/dom_nodkim' => Http::response([
+                'id' => 'dom_nodkim',
+                'status' => 'partially_failed',
+                'region' => 'us-east-1',
+                'records' => $this->sendingRecordsWithReceiving('failed'),
+            ]),
+        ]);
+
+        $this->publishSendingRecords('nokey.test');
+        unset($this->dns->txt['resend._domainkey.nokey.test']);
+
+        $this->verify($user, $org, $domain)->assertSessionHas('error');
+
+        $domain->refresh();
+        $this->assertSame('failed', $domain->status);
+        $this->assertNull($domain->verified_at);
+        $this->assertFalse($domain->dns_records['checks']['dkim']);
+        $this->assertContains('dkim', $domain->dns_records['required']);
+        $this->assertSame('dom_nodkim', $domain->provider_domain_id);
+    }
+
+    public function test_partial_resend_stays_pending_when_dkim_is_not_verified(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'waitdkim.test',
+            'provider_domain_id' => 'dom_wait',
+        ]);
+
+        Http::fake([
+            'api.resend.com/domains/dom_wait/verify' => Http::response(['id' => 'dom_wait']),
+            'api.resend.com/domains/dom_wait' => Http::response([
+                'id' => 'dom_wait',
+                'status' => 'pending',
+                'region' => 'us-east-1',
+                'created_at' => now()->toIso8601String(),
+                'records' => $this->sendingRecordsWithReceiving('pending', 'pending'),
+            ]),
+        ]);
+
+        $this->publishSendingRecords('waitdkim.test');
+
+        $this->verify($user, $org, $domain)->assertSessionHas('error');
+
+        $domain->refresh();
+        $this->assertSame('pending', $domain->status);
+        $this->assertNull($domain->verified_at);
+        $this->assertTrue($domain->dns_records['checks']['dkim']);
+        $this->assertSame('dom_wait', $domain->provider_domain_id);
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'DELETE');
+    }
+
+    public function test_receiving_only_partial_does_not_replace_stuck_domain(): void
+    {
+        config(['maildesk.providers.resend.api_key' => 're_test_key']);
+        [$user, $org] = $this->member();
+        $domain = Domain::factory()->create([
+            'organization_id' => $org->id,
+            'name' => 'keep.test',
+            'provider_domain_id' => 'dom_keep',
+            'dns_records' => ['provider' => ['replacements' => 0]],
+        ]);
+
+        Http::fake(function (HttpRequest $r) {
+            return match (true) {
+                $r->method() === 'DELETE' => Http::response(['message' => 'must not replace'], 500),
+                $r->method() === 'POST' && $r->url() === 'https://api.resend.com/domains' => Http::response(['message' => 'must not register'], 500),
+                $r->method() === 'PATCH' => Http::response(['id' => 'dom_keep']),
+                str_ends_with($r->url(), '/verify') => Http::response(['id' => 'dom_keep']),
+                str_ends_with($r->url(), '/domains/dom_keep') => Http::response([
+                    'id' => 'dom_keep',
+                    'status' => 'partially_failed',
+                    'region' => 'us-east-1',
+                    'created_at' => now()->subHours(8)->toIso8601String(),
+                    'records' => $this->sendingRecordsWithReceiving('failed'),
+                ]),
+                default => Http::response(['message' => 'unexpected '.$r->method().' '.$r->url()], 500),
+            };
+        });
+
+        $this->publishSendingRecords('keep.test');
+
+        $this->verify($user, $org, $domain)->assertSessionHas('success');
+
+        $domain->refresh();
+        $this->assertSame('verified', $domain->status);
+        $this->assertSame('dom_keep', $domain->provider_domain_id);
+        $this->assertSame(0, $domain->dns_records['provider']['replacements']);
+        $this->assertFalse($domain->dns_records['provider']['replaced'] ?? false);
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'DELETE');
+        Http::assertNotSent(fn (HttpRequest $r) => $r->method() === 'POST' && $r->url() === 'https://api.resend.com/domains');
     }
 }
 

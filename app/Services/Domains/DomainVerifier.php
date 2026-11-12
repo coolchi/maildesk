@@ -56,7 +56,12 @@ class DomainVerifier
         $failing = array_values(array_filter($required, fn (string $key) => ! ($checks[$key] ?? false)));
         $providerStatus = $dns['provider']['status'] ?? null;
         // DNS can match our own placeholders while Resend still rejects the domain.
-        $waitingOnProvider = is_string($providerStatus) && $providerStatus !== 'verified';
+        // A Resend domain that is only short on Receiving / inbound MX can
+        // still send, so that alone must not block verification.
+        $waitingOnProvider = $this->waitingOnProvider(
+            $providerStatus,
+            $dns['provider']['record_statuses'] ?? [],
+        );
         $verified = $failing === [] && ! $waitingOnProvider;
         $warnings = $this->warnings($domain->name, $checks, $dns);
 
@@ -170,6 +175,97 @@ class DomainVerifier
     }
 
     /**
+     * Whether Resend is still blocking send verification.
+     *
+     * Fully verified domains pass. So do partially_verified / partially_failed
+     * domains whose only unfinished records are Receiving (inbound MX).
+     * Pending, failed, or a gap in DKIM / SPF / return-path still blocks.
+     *
+     * @param  list<array<string, mixed>>  $records
+     */
+    private function waitingOnProvider(mixed $status, array $records): bool
+    {
+        if (! is_string($status) || $status === '') {
+            return false;
+        }
+
+        if ($status === 'verified') {
+            return false;
+        }
+
+        return ! (
+            in_array($status, ['partially_verified', 'partially_failed'], true)
+            && $this->onlyUnverifiedProviderRecordsAreReceiving($records)
+        );
+    }
+
+    /**
+     * True when at least one record is unverified and every unverified record
+     * is a Receiving / inbound MX row.
+     *
+     * @param  list<array<string, mixed>>  $records
+     */
+    private function onlyUnverifiedProviderRecordsAreReceiving(array $records): bool
+    {
+        $records = array_values(array_filter($records, 'is_array'));
+
+        if ($records === []) {
+            return false;
+        }
+
+        $unverified = array_values(array_filter(
+            $records,
+            fn (array $record) => ($record['status'] ?? null) !== 'verified',
+        ));
+
+        if ($unverified === []) {
+            return false;
+        }
+
+        foreach ($unverified as $record) {
+            if (! $this->isReceivingProviderRecord($record)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function isReceivingProviderRecord(array $record): bool
+    {
+        return str_starts_with(strtoupper((string) ($record['record'] ?? '')), 'RECEIV');
+    }
+
+    /**
+     * Slim copy of Resend record statuses, without public key material.
+     *
+     * @param  list<array<string, mixed>>  $records
+     * @return list<array{record: ?string, type: ?string, name: ?string, status: ?string}>
+     */
+    private function providerRecordStatuses(array $records): array
+    {
+        $rows = [];
+
+        foreach ($records as $record) {
+            if (! is_array($record)) {
+                continue;
+            }
+
+            $rows[] = [
+                'record' => isset($record['record']) ? (string) $record['record'] : null,
+                'type' => isset($record['type']) ? (string) $record['type'] : null,
+                'name' => isset($record['name']) ? (string) $record['name'] : null,
+                'status' => isset($record['status']) ? (string) $record['status'] : null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Resend leaves some domains on "partially verified" even after every
      * record is publicly visible. A new domain verifies; retrying the old one
      * does not. Pending for more than 15 minutes with DNS already correct is
@@ -198,7 +294,9 @@ class DomainVerifier
             fn ($record) => is_array($record) && isset($record['status']) && $record['status'] !== 'verified',
         );
 
-        if ($unfinished === []) {
+        if ($unfinished === [] || $this->onlyUnverifiedProviderRecordsAreReceiving($records)) {
+            // All sending records are verified; a receiving-only gap must
+            // not rotate the domain and its DKIM key.
             return false;
         }
 
@@ -310,6 +408,7 @@ class DomainVerifier
             'region' => $remote['region'] ?? null,
             'replacements' => $replacements,
             'replaced' => $replaced,
+            'record_statuses' => $this->providerRecordStatuses((array) ($remote['records'] ?? [])),
         ];
 
         $rows = $this->rowsFromResend((array) ($remote['records'] ?? []), $domain->name);
