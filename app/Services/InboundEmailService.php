@@ -99,6 +99,7 @@ class InboundEmailService
             'id' => $message->uuid,
             'thread_id' => $message->thread_id,
             'mailbox' => $mailbox?->email,
+            'mailbox_id' => $mailbox?->id,
             'from' => $message->from_email,
             'to' => $message->to,
             'subject' => $message->subject,

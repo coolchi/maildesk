@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\V1\DomainController;
 use App\Http\Controllers\Api\V1\EmailController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\InboxController;
+use App\Http\Controllers\Api\V1\MailboxController;
+use App\Http\Controllers\Api\V1\MailboxMessageController;
 use App\Http\Controllers\Api\V1\SegmentController;
 use App\Http\Controllers\Api\V1\SuppressionController;
 use App\Http\Controllers\Api\V1\TemplateController;
@@ -28,6 +30,14 @@ Route::middleware([AuthenticateApiKey::class, EnsureApiAccountActive::class])->g
 
     Route::get('/inbox/threads', [InboxController::class, 'threads']);
     Route::get('/inbox/threads/{thread}', [InboxController::class, 'showThread']);
+
+    Route::get('/mailboxes', [MailboxController::class, 'index']);
+    Route::post('/mailboxes', [MailboxController::class, 'store']);
+    Route::get('/mailboxes/{mailbox}', [MailboxController::class, 'show'])->whereNumber('mailbox');
+    Route::delete('/mailboxes/{mailbox}', [MailboxController::class, 'destroy'])->whereNumber('mailbox');
+    Route::get('/mailboxes/{mailbox}/messages', [MailboxMessageController::class, 'index'])->whereNumber('mailbox');
+    Route::get('/mailboxes/{mailbox}/messages/{message}', [MailboxMessageController::class, 'show'])->whereNumber('mailbox');
+    Route::patch('/mailboxes/{mailbox}/messages/{message}/read', [MailboxMessageController::class, 'markRead'])->whereNumber('mailbox');
 
     Route::get('/domains', [DomainController::class, 'index']);
     Route::post('/domains', [DomainController::class, 'store']);

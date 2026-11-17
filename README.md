@@ -22,7 +22,7 @@ Legend: ✅ working · 🟡 partial · ⛔ not implemented
 | Suppression list | ✅ | Enforced on compose, API, and broadcast sends; bounces and complaints are added automatically |
 | Delivery events | 🟡 | `POST /api/v1/events/{driver}` (and delivery events posted to the inbound URL) handle delivered, bounced, complained, opened, and clicked. Bounces and complaints auto-suppress and fire `email.<type>` webhooks. Domain recheck turns on Resend open and click tracking and asks for a `links` CNAME. Opens and clicks stay empty until that CNAME verifies and the Resend webhook includes `email.opened` and `email.clicked`. Delivery-delayed events are not handled |
 | API keys | ✅ | `md_…` Bearer keys with enforced permissions (Sending access = `POST /emails` only, else 403), single-domain scope, verified-sender check, per-key rate limit (`MAILDESK_API_RATE_LIMIT`/min, 429 + `Retry-After`/`X-RateLimit-*`), optional expiry and one-click rotation; "Export" button not implemented |
-| Public REST API | ✅ | `/api/v1` — emails, inbox, domains, contacts, segments, suppressions, templates, automation events |
+| Public REST API | ✅ | `/api/v1` — emails, inbox, mailboxes, domains, contacts, segments, suppressions, templates, automation events |
 | Webhooks | ✅ | Queued per endpoint with retries (5 attempts, 30 s → 30 min backoff) and per-attempt delivery history; SSRF-protected (https only outside local, private/internal addresses blocked on save and at delivery after DNS resolution, no redirects, 5 s timeout); HMAC-SHA256 signed (`X-MailDesk-Signature`, plus timestamped `X-MailDesk-Signature-V2`); test event button and owner/admin secret rotation |
 | Mailbox users | ✅ | Create / update / delete mailboxes per workspace; optional per-mailbox signature override |
 | Signatures | ✅ | Workspace signature (Settings → Signature) applied to compose, replies, forwards, API sends and broadcasts, each toggleable; per-mailbox override (`SignatureService`) |
@@ -112,6 +112,13 @@ All endpoints live under `/api/v1` and require `Authorization: Bearer md_…` (c
 | GET | `/api/v1/inbox/threads/{thread}` | Get a thread with messages |
 | POST | `/api/v1/inbound/{driver}` | Provider webhook for received mail (`resend` or `generic`); no API key, signature-verified |
 | POST | `/api/v1/events/{driver}` | Provider webhook for delivery events (delivered, bounced, complained, opened, clicked); no API key, signature-verified. The same events are also accepted on `POST /api/v1/inbound/{driver}` |
+| GET | `/api/v1/mailboxes` | List mailboxes (email addresses) |
+| POST | `/api/v1/mailboxes` | Create a mailbox on a verified domain; returns its password once |
+| GET | `/api/v1/mailboxes/{mailbox}` | Get one mailbox |
+| DELETE | `/api/v1/mailboxes/{mailbox}` | Delete a mailbox (and its Stalwart account) |
+| GET | `/api/v1/mailboxes/{mailbox}/messages` | A mailbox's mail; filters `folder`, `direction`, `unread`; poll with `since_id` or `since` |
+| GET | `/api/v1/mailboxes/{mailbox}/messages/{message}` | One message (id or uuid) with text/html and attachments |
+| PATCH | `/api/v1/mailboxes/{mailbox}/messages/{message}/read` | Mark the message's thread read/unread |
 | GET | `/api/v1/domains` | List domains |
 | POST | `/api/v1/domains` | Add a domain |
 | GET | `/api/v1/contacts` | List contacts |

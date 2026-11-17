@@ -69,6 +69,18 @@ const navGroups = [
         ],
     },
     {
+        label: 'Mailboxes',
+        items: [
+            { id: 'mailboxes-list', label: 'List mailboxes' },
+            { id: 'mailboxes-create', label: 'Create mailbox' },
+            { id: 'mailboxes-retrieve', label: 'Retrieve mailbox' },
+            { id: 'mailboxes-delete', label: 'Delete mailbox' },
+            { id: 'mailbox-messages', label: 'List mailbox messages' },
+            { id: 'mailbox-message', label: 'Retrieve mailbox message' },
+            { id: 'mailbox-message-read', label: 'Mark read / unread' },
+        ],
+    },
+    {
         label: 'Domains',
         items: [
             { id: 'domains-list', label: 'List domains' },
@@ -117,6 +129,13 @@ const sectionMeta = {
     retrieve: { title: 'Retrieve email', method: 'GET', path: '/emails/{uuid}' },
     threads: { title: 'List threads', method: 'GET', path: '/inbox/threads' },
     thread: { title: 'Retrieve thread', method: 'GET', path: '/inbox/threads/{thread}' },
+    'mailboxes-list': { title: 'List mailboxes', method: 'GET', path: '/mailboxes' },
+    'mailboxes-create': { title: 'Create mailbox', method: 'POST', path: '/mailboxes' },
+    'mailboxes-retrieve': { title: 'Retrieve mailbox', method: 'GET', path: '/mailboxes/{mailbox}' },
+    'mailboxes-delete': { title: 'Delete mailbox', method: 'DELETE', path: '/mailboxes/{mailbox}' },
+    'mailbox-messages': { title: 'List mailbox messages', method: 'GET', path: '/mailboxes/{mailbox}/messages' },
+    'mailbox-message': { title: 'Retrieve mailbox message', method: 'GET', path: '/mailboxes/{mailbox}/messages/{message}' },
+    'mailbox-message-read': { title: 'Mark read / unread', method: 'PATCH', path: '/mailboxes/{mailbox}/messages/{message}/read' },
     'domains-list': { title: 'List domains', method: 'GET', path: '/domains' },
     'domains-create': { title: 'Add domain', method: 'POST', path: '/domains' },
     webhooks: { title: 'Webhooks' },
@@ -144,10 +163,10 @@ const sendParams = [
 ];
 
 const statusCodes = computed(() => [
-    { code: '200 / 201', desc: 'Success. POST /emails returns 201 when the provider accepted the message; POST /domains returns 201.' },
+    { code: '200 / 201', desc: 'Success. POST /emails returns 201 when the provider accepted the message; POST /domains and POST /mailboxes return 201.' },
     { code: '401', desc: 'Missing, invalid, expired or revoked API key.' },
     { code: '403', desc: 'The key is not allowed to call this endpoint (sending-only key) or to send from this domain (domain-scoped key).' },
-    { code: '404', desc: 'The email or thread does not exist in this workspace.' },
+    { code: '404', desc: 'The email, thread, mailbox or message does not exist in this workspace.' },
     { code: '422', desc: 'Validation failed (including an unverified sender domain), or the send was attempted but failed / was suppressed; see status in the body.' },
     { code: '429', desc: `More than ${props.rateLimit} requests in a minute with this key. Wait Retry-After seconds.` },
     { code: '500', desc: 'Unexpected server error. Retry with backoff.' },
@@ -276,6 +295,89 @@ X-RateLimit-Reset: 1790000000`,
   -H "Authorization: Bearer md_xxxxxxxx"
 
 // the thread object with "messages": every message, oldest first`,
+    mailboxesList: `curl "${baseUrl.value}/mailboxes?per_page=25" \\
+  -H "Authorization: Bearer md_xxxxxxxx"
+
+// each item in "data"
+{
+  "id": 12,
+  "email": "support@acme.com",
+  "name": "Support",
+  "role": "staff",
+  "status": "active",
+  "inbox": true,
+  "transactional": false,
+  "marketing": false,
+  "send_limit": 1000,
+  "has_login": true,
+  "imap_enabled": true,
+  "created_at": "2026-11-17T09:00:00+00:00",
+  "updated_at": "2026-11-17T09:00:00+00:00"
+}`,
+    mailboxesCreate: `curl -X POST ${baseUrl.value}/mailboxes \\
+  -H "Authorization: Bearer md_xxxxxxxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "email": "support@acme.com", "name": "Support" }'
+
+// 201: the mailbox object, plus credentials shown only once
+{
+  "id": 12,
+  "email": "support@acme.com",
+  ...
+  "password": "the-login-password",
+  "mail_client": {
+    "enabled": true,
+    "app_password": "md_xxxxxxxxxxxxxxxxxxxx",
+    "imap": { "host": "...", "port": 993, "encryption": "ssl" },
+    "smtp": { "host": "...", "port": 465, "encryption": "ssl" }
+  }
+}`,
+    mailboxesRetrieve: `curl ${baseUrl.value}/mailboxes/12 \\
+  -H "Authorization: Bearer md_xxxxxxxx"
+
+// the mailbox object`,
+    mailboxesDelete: `curl -X DELETE ${baseUrl.value}/mailboxes/12 \\
+  -H "Authorization: Bearer md_xxxxxxxx"
+
+{ "id": 12, "deleted": true }`,
+    mailboxMessages: `# newest unread inbox mail first
+curl "${baseUrl.value}/mailboxes/12/messages?folder=inbox&unread=1" \\
+  -H "Authorization: Bearer md_xxxxxxxx"
+
+# poll for new mail: oldest first, after the last id you saw
+curl "${baseUrl.value}/mailboxes/12/messages?since_id=5120" \\
+  -H "Authorization: Bearer md_xxxxxxxx"
+
+// each item in "data"
+{
+  "id": 5121,
+  "uuid": "9b1d6c0e-...",
+  "mailbox_id": 12,
+  "thread_id": 311,
+  "direction": "inbound",
+  "status": "received",
+  "from": { "email": "jane@customer.com", "name": "Jane" },
+  "to": ["support@acme.com"],
+  "cc": [],
+  "reply_to": [],
+  "subject": "Billing question",
+  "snippet": "Can you update our card…",
+  "read": false,
+  "folder": "inbox",
+  "received_at": "2026-11-17T09:12:00+00:00",
+  "created_at": "2026-11-17T09:12:01+00:00",
+  "attachments": [ { "id": 9, "filename": "invoice.pdf", "content_type": "application/pdf", "size": 48213 } ]
+}`,
+    mailboxMessage: `curl ${baseUrl.value}/mailboxes/12/messages/5121 \\
+  -H "Authorization: Bearer md_xxxxxxxx"
+
+// the list item plus "text", "html" and "references"`,
+    mailboxMessageRead: `curl -X PATCH ${baseUrl.value}/mailboxes/12/messages/5121/read \\
+  -H "Authorization: Bearer md_xxxxxxxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "read": true }'
+
+{ "id": 5121, "uuid": "9b1d6c0e-...", "thread_id": 311, "read": true }`,
     domainsList: `curl ${baseUrl.value}/domains -H "Authorization: Bearer md_xxxxxxxx"
 
 [
@@ -478,6 +580,13 @@ const blocksFor = computed(() => {
             retrieve: [{ label: 'Response 200', body: c.retrieve }],
             threads: [{ label: 'Example', body: c.threads }],
             thread: [{ label: 'Example', body: c.thread }],
+            'mailboxes-list': [{ label: 'Example', body: c.mailboxesList }],
+            'mailboxes-create': [{ label: 'Example', body: c.mailboxesCreate }],
+            'mailboxes-retrieve': [{ label: 'Example', body: c.mailboxesRetrieve }],
+            'mailboxes-delete': [{ label: 'Example', body: c.mailboxesDelete }],
+            'mailbox-messages': [{ label: 'Example', body: c.mailboxMessages }],
+            'mailbox-message': [{ label: 'Example', body: c.mailboxMessage }],
+            'mailbox-message-read': [{ label: 'Example', body: c.mailboxMessageRead }],
             'domains-list': [{ label: 'Example', body: c.domainsList }],
             'domains-create': [{ label: 'Example', body: c.domainsCreate }],
             webhooks: [
@@ -617,6 +726,13 @@ const blocksFor = computed(() => {
                                     <tr><td class="px-4 py-2 font-mono text-xs">GET /emails/{uuid}</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Retrieve one message</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">GET /inbox/threads</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List inbox threads (paginated)</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">GET /inbox/threads/{thread}</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Retrieve a thread with its messages</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">GET /mailboxes</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List mailboxes (paginated)</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">POST /mailboxes</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Create an email address</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">GET /mailboxes/{mailbox}</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Retrieve a mailbox</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">DELETE /mailboxes/{mailbox}</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Delete a mailbox</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">GET /mailboxes/{mailbox}/messages</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List or poll a mailbox's mail</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">GET /mailboxes/{mailbox}/messages/{message}</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Retrieve one message with body</td></tr>
+                                    <tr><td class="px-4 py-2 font-mono text-xs">PATCH /mailboxes/{mailbox}/messages/{message}/read</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Mark read or unread</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">GET /domains</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List domains</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">POST /domains</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">Add a sending domain</td></tr>
                                     <tr><td class="px-4 py-2 font-mono text-xs">GET /contacts</td><td class="px-4 py-2 text-xs">Full</td><td class="px-4 py-2 text-zinc-400">List contacts</td></tr>
@@ -778,7 +894,8 @@ const blocksFor = computed(() => {
                         <p>
                             Lists inbox conversations, most recent activity first,
                             as a paginated response. Each thread includes its latest
-                            message in <code>messages</code>. There are no filter parameters.
+                            message in <code>messages</code>. Pass <code>mailbox_id</code>
+                            to only list one mailbox's threads.
                         </p>
                     </template>
 
@@ -786,6 +903,81 @@ const blocksFor = computed(() => {
                         <p>
                             Fetch a thread by its numeric id with all of its messages,
                             oldest first. Replying is only available in the dashboard.
+                        </p>
+                    </template>
+
+                    <template v-else-if="active === 'mailboxes-list'">
+                        <p>
+                            Lists the workspace's email addresses, alphabetically, as a
+                            paginated response (<code>per_page</code> up to 100). Filter with
+                            <code>domain</code>. Passwords are never returned here.
+                        </p>
+                    </template>
+
+                    <template v-else-if="active === 'mailboxes-create'">
+                        <p>
+                            Creates an email address on a <strong>verified</strong> domain in
+                            this workspace, the same as adding a user on the Users page. Send
+                            <code>email</code> (<code>support@acme.com</code>), or
+                            <code>local</code> + <code>domain</code>. Optional:
+                            <code>name</code>, <code>role</code> (<code>admin</code>,
+                            <code>developer</code> or <code>staff</code>, default staff),
+                            <code>inbox</code> (default true), <code>transactional</code>,
+                            <code>marketing</code>, <code>send_limit</code> (default 1000) and
+                            <code>password</code>. Without a password one is generated.
+                        </p>
+                        <p>
+                            The response is the only time you see <code>password</code> (the
+                            dashboard and webmail login) and <code>mail_client.app_password</code>
+                            (IMAP/SMTP for mail apps, when mail client hosting is on). Store them
+                            straight away. An address that already exists returns <code>422</code>.
+                        </p>
+                    </template>
+
+                    <template v-else-if="active === 'mailboxes-retrieve'">
+                        <p>Fetch one mailbox by its numeric id.</p>
+                    </template>
+
+                    <template v-else-if="active === 'mailboxes-delete'">
+                        <p>
+                            Deletes the mailbox, its mail server account and its login (unless
+                            that login also belongs to another workspace). This cannot be undone.
+                        </p>
+                    </template>
+
+                    <template v-else-if="active === 'mailbox-messages'">
+                        <p>
+                            Lists one mailbox's mail, newest first, paginated. Filters:
+                            <code>folder</code> (<code>inbox</code> default, <code>archive</code>,
+                            <code>spam</code>, <code>trash</code>, <code>all</code>),
+                            <code>direction</code> (<code>inbound</code> default,
+                            <code>outbound</code>, <code>all</code>), <code>unread</code>
+                            (<code>1</code> or <code>0</code>), <code>per_page</code> (max 100).
+                        </p>
+                        <p>
+                            To poll for new mail, pass <code>since_id</code> (the highest
+                            <code>id</code> you have seen) or <code>since</code> (an ISO 8601
+                            time). Polling results come back oldest first, so keep the last
+                            <code>id</code> and follow <code>next_page_url</code> until it is
+                            null. To be pushed new mail instead, subscribe a webhook to
+                            <code>email.received</code>; its body includes <code>mailbox_id</code>.
+                        </p>
+                    </template>
+
+                    <template v-else-if="active === 'mailbox-message'">
+                        <p>
+                            Fetch one message in the mailbox by its numeric <code>id</code> or
+                            its <code>uuid</code>, with <code>text</code> and sanitized
+                            <code>html</code> bodies and attachment details. Reading a message
+                            does not mark it read.
+                        </p>
+                    </template>
+
+                    <template v-else-if="active === 'mailbox-message-read'">
+                        <p>
+                            Send <code>{"read": true}</code> or <code>{"read": false}</code>.
+                            Read state is kept per conversation, so this marks the message's
+                            whole thread.
                         </p>
                     </template>
 
