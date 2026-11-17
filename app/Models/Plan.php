@@ -23,6 +23,7 @@ class Plan extends Model
         'emails',
         'contacts',
         'seats',
+        'mailbox_limit',
         'featured',
         'features',
     ];
@@ -35,6 +36,7 @@ class Plan extends Model
             'emails' => 'integer',
             'contacts' => 'integer',
             'seats' => 'integer',
+            'mailbox_limit' => 'integer',
             'featured' => 'boolean',
             'features' => 'array',
         ];
@@ -60,6 +62,7 @@ class Plan extends Model
             'emails' => $this->emails,
             'contacts' => $this->contacts,
             'seats' => $this->seats,
+            'mailbox_limit' => $this->mailbox_limit,
             'featured' => $this->featured,
             'features' => $this->features ?? [],
             'price_kobo' => $this->price_kobo,

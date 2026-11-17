@@ -7,6 +7,7 @@ use App\Models\Mailbox;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\Imap\MailboxProvisioner;
+use App\Services\MailboxLimit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +25,10 @@ use Throwable;
  */
 class MailboxController extends Controller
 {
-    public function __construct(public MailboxProvisioner $provisioner) {}
+    public function __construct(
+        public MailboxProvisioner $provisioner,
+        public MailboxLimit $limits,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -36,8 +40,13 @@ class MailboxController extends Controller
             ->paginate(min(max((int) $request->integer('per_page', 25), 1), 100));
 
         $mailboxes->setCollection($mailboxes->getCollection()->map(fn (Mailbox $mailbox) => self::present($mailbox)));
+        $usage = $this->limits->usage($organization);
 
-        return response()->json($mailboxes);
+        return response()->json([
+            ...$mailboxes->toArray(),
+            'mailbox_limit' => $usage['limit'],
+            'mailboxes_used' => $usage['used'],
+        ]);
     }
 
     public function show(Request $request, int $mailbox): JsonResponse
@@ -61,6 +70,18 @@ class MailboxController extends Controller
             'send_limit' => ['nullable', 'integer', 'min:0'],
             'password' => ['nullable', 'string', Password::defaults()],
         ]);
+
+        if (! $this->limits->canCreate($organization)) {
+            $usage = $this->limits->usage($organization);
+            $message = $this->limits->message($organization);
+
+            return response()->json([
+                'message' => $message,
+                'errors' => ['mailbox_limit' => [$message]],
+                'mailbox_limit' => $usage['limit'],
+                'mailboxes_used' => $usage['used'],
+            ], 422);
+        }
 
         if (filled($validated['email'] ?? null)) {
             $address = strtolower(trim((string) $validated['email']));

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Mailbox;
 use App\Models\User;
 use App\Services\Imap\MailboxProvisioner;
+use App\Services\MailboxLimit;
 use App\Services\WorkspaceAccess;
 use App\Support\CurrentOrganization;
 use Illuminate\Http\RedirectResponse;
@@ -22,6 +23,7 @@ class MailboxController extends Controller
     public function __construct(
         public WorkspaceAccess $access,
         public MailboxProvisioner $provisioner,
+        public MailboxLimit $limits,
     ) {}
 
     public function index(Request $request): Response
@@ -50,6 +52,7 @@ class MailboxController extends Controller
             'users' => $users,
             'domainOptions' => $domainOptions,
             'canImpersonateTeam' => true,
+            'mailboxLimit' => $this->limits->usage($organization),
         ]);
     }
 
@@ -69,6 +72,10 @@ class MailboxController extends Controller
             'limit' => ['nullable', 'integer', 'min:0'],
             'password' => ['required', 'confirmed', Password::defaults()],
         ]);
+
+        if (! $this->limits->canCreate($organization)) {
+            return back()->withErrors(['local' => $this->limits->message($organization)]);
+        }
 
         $domain = $organization->domains()
             ->where('status', 'verified')

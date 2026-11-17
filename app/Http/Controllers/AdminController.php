@@ -282,6 +282,7 @@ class AdminController extends Controller
             'emails' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'contacts' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'seats' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'mailbox_limit' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'featured' => ['sometimes', 'boolean'],
             'features' => ['nullable', 'array'],
             'features.*.id' => ['nullable', 'string', 'max:64'],
@@ -307,7 +308,7 @@ class AdminController extends Controller
             'features' => $features,
             // Optional fields only change when sent.
             ...(array_key_exists('price_ngn', $validated) ? ['price_kobo' => PlanNairaPrice::toKobo($validated['price_ngn'])] : []),
-            ...collect(['interval', 'emails', 'contacts', 'seats'])
+            ...collect(['interval', 'emails', 'contacts', 'seats', 'mailbox_limit'])
                 ->filter(fn (string $field) => array_key_exists($field, $validated))
                 ->mapWithKeys(fn (string $field) => [$field => $validated[$field]])
                 ->all(),
@@ -343,6 +344,7 @@ class AdminController extends Controller
             'emails' => ['nullable', 'integer', 'min:0'],
             'contacts' => ['nullable', 'integer', 'min:0'],
             'seats' => ['nullable', 'integer', 'min:0'],
+            'mailbox_limit' => ['nullable', 'integer', 'min:0'],
             'featured' => ['sometimes', 'boolean'],
         ]);
 
@@ -358,6 +360,7 @@ class AdminController extends Controller
             'emails' => $validated['emails'] ?? null,
             'contacts' => $validated['contacts'] ?? null,
             'seats' => $validated['seats'] ?? null,
+            'mailbox_limit' => $validated['mailbox_limit'] ?? null,
             'featured' => (bool) ($validated['featured'] ?? false),
             'features' => [],
         ]);

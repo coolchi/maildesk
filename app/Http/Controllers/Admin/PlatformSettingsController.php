@@ -23,6 +23,7 @@ class PlatformSettingsController extends Controller
                 'support_email' => $settings->get('support_email', ''),
                 'default_workspace_provider_id' => $settings->defaultWorkspaceProviderId(),
                 'trial_days' => $settings->trialDays(),
+                'trial_mailbox_limit' => $settings->trialMailboxLimit(),
                 'ai' => $settings->aiSettings(),
             ],
             'aiProviders' => $ai->availableProviders(),
@@ -52,6 +53,7 @@ class PlatformSettingsController extends Controller
                 Rule::exists('mail_providers', 'id')->where(fn ($q) => $q->where('status', '!=', 'disabled')),
             ],
             'trial_days' => ['required', 'integer', 'min:1', 'max:365'],
+            'trial_mailbox_limit' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'ai_enabled' => ['required', 'boolean'],
             'ai_features' => ['required', 'array'],
             'ai_features.*' => ['required', 'boolean'],
@@ -97,6 +99,7 @@ class PlatformSettingsController extends Controller
             'support_email' => trim((string) ($validated['support_email'] ?? '')) ?: null,
             'default_workspace_provider_id' => $validated['default_workspace_provider_id'] ?? null,
             'trial_days' => (int) $validated['trial_days'],
+            ...(array_key_exists('trial_mailbox_limit', $validated) ? ['trial_mailbox_limit' => $validated['trial_mailbox_limit']] : []),
             ...$aiValues,
         ]);
 

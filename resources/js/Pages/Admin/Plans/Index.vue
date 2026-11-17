@@ -83,6 +83,7 @@ const savePlan = () => {
             emails: nullableInt(plan.emails),
             contacts: nullableInt(plan.contacts),
             seats: nullableInt(plan.seats),
+            mailbox_limit: nullableInt(plan.mailbox_limit),
             featured: Boolean(plan.featured),
             features: plan.features,
         },
@@ -108,6 +109,7 @@ const blankCreate = () => ({
     emails: '',
     contacts: '',
     seats: '',
+    mailbox_limit: '',
     featured: false,
 });
 const createForm = ref(blankCreate());
@@ -133,6 +135,7 @@ const createPlan = () => {
             emails: nullableInt(f.emails),
             contacts: nullableInt(f.contacts),
             seats: nullableInt(f.seats),
+            mailbox_limit: nullableInt(f.mailbox_limit),
             featured: Boolean(f.featured),
         },
         {
@@ -352,6 +355,10 @@ const confirmDelete = () => {
                             <label class="mb-1.5 block text-xs text-zinc-500">Seats</label>
                             <input v-model="selected.seats" type="number" min="0" class="md-input" placeholder="unlimited" />
                         </div>
+                        <div>
+                            <label class="mb-1.5 block text-xs text-zinc-500">Email addresses</label>
+                            <input v-model="selected.mailbox_limit" type="number" min="0" class="md-input" placeholder="unlimited" />
+                        </div>
                     </div>
 
                     <div>
@@ -435,6 +442,10 @@ const confirmDelete = () => {
                 <div>
                     <label class="mb-1.5 block text-xs text-zinc-500">Seats</label>
                     <input v-model="createForm.seats" type="number" min="0" class="md-input" placeholder="unlimited" />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-zinc-500">Email addresses</label>
+                    <input v-model="createForm.mailbox_limit" type="number" min="0" class="md-input" placeholder="unlimited" />
                 </div>
                 <label class="flex items-center justify-between rounded-lg border border-zinc-800 px-3 py-2.5 text-sm text-zinc-300">
                     Featured
