@@ -17,6 +17,7 @@ use Throwable;
  *  - support_email                overrides config('maildesk.support_email') (Help page)
  *  - default_workspace_provider_id  mail provider assigned to newly created workspaces
  *  - trial_days                   free-trial length for new workspaces (no free tier)
+ *  - trial_mailbox_limit          email addresses a trial workspace may create (blank = unlimited)
  *  - ai_enabled                   master switch for all AI features
  *  - ai_*                         per-feature toggles (see AI_FEATURES)
  *  - ai_provider / ai_model / ai_api_key  LLM provider configuration
@@ -80,6 +81,7 @@ class PlatformSettings
         'support_email',
         'default_workspace_provider_id',
         'trial_days',
+        'trial_mailbox_limit',
         'ai_enabled',
         'ai_smart_triage',
         'ai_reply_draft',
@@ -159,6 +161,14 @@ class PlatformSettings
         );
 
         $this->cache = null;
+    }
+
+    /** Email addresses a trial workspace (no paid plan yet) may create. Null = unlimited. */
+    public function trialMailboxLimit(): ?int
+    {
+        $value = $this->get('trial_mailbox_limit');
+
+        return is_numeric($value) ? max(0, (int) $value) : null;
     }
 
     public function signupOpen(): bool

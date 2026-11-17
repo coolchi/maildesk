@@ -30,6 +30,7 @@ const props = defineProps({
     users: { type: Array, default: () => [] },
     domainOptions: { type: Array, default: () => [] },
     canImpersonateTeam: { type: Boolean, default: false },
+    mailboxLimit: { type: Object, default: () => ({ limit: null, used: 0, remaining: null }) },
 });
 
 const page = usePage();
@@ -391,6 +392,9 @@ const roleHint = {
                 </div>
                 <div class="mt-1 text-2xl font-semibold text-white">
                     {{ stats.total }}
+                    <span v-if="mailboxLimit.limit !== null" class="text-sm font-normal text-zinc-500">
+                        / {{ mailboxLimit.limit }} on your plan
+                    </span>
                 </div>
             </div>
             <div class="md-card px-4 py-3">

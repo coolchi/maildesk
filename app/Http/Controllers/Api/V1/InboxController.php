@@ -16,6 +16,7 @@ class InboxController extends Controller
         $organization = $request->attributes->get('organization');
 
         $threads = $organization->threads()
+            ->when($request->filled('mailbox_id'), fn ($q) => $q->where('mailbox_id', $request->integer('mailbox_id')))
             ->with(['messages' => fn ($q) => $q->latest()->limit(1)])
             ->latest('last_message_at')
             ->paginate(min((int) $request->integer('per_page', 25), 100));

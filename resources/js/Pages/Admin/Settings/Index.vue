@@ -29,6 +29,7 @@ const form = useForm({
     support_email: props.settings.support_email || '',
     default_workspace_provider_id: props.settings.default_workspace_provider_id ?? null,
     trial_days: props.settings.trial_days ?? 14,
+    trial_mailbox_limit: props.settings.trial_mailbox_limit ?? '',
     ai_enabled: !!props.settings.ai?.enabled,
     ai_features: aiFeaturesForm(),
     ai_provider: props.settings.ai?.provider || 'openai',
@@ -106,6 +107,23 @@ const save = () => form.put(route('admin.settings.update'), { preserveScroll: tr
                         Changing this value does not rewrite existing trials.
                     </p>
                     <p v-if="form.errors.trial_days" class="mt-1 text-xs text-red-400">{{ form.errors.trial_days }}</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-white" for="trial_mailbox_limit">Email addresses during trial</label>
+                    <input
+                        id="trial_mailbox_limit"
+                        v-model="form.trial_mailbox_limit"
+                        type="number"
+                        min="0"
+                        placeholder="unlimited"
+                        class="md-input mt-1 w-full max-w-[12rem]"
+                    />
+                    <p class="mt-1 text-xs text-zinc-500">
+                        How many mailboxes a trial workspace can create. Leave blank for unlimited.
+                        Paid workspaces use their plan's limit.
+                    </p>
+                    <p v-if="form.errors.trial_mailbox_limit" class="mt-1 text-xs text-red-400">{{ form.errors.trial_mailbox_limit }}</p>
                 </div>
             </section>
 

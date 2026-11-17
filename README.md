@@ -22,7 +22,7 @@ Legend: ✅ working · 🟡 partial · ⛔ not implemented
 | Suppression list | ✅ | Enforced on compose, API, and broadcast sends; bounces and complaints are added automatically |
 | Delivery events | 🟡 | `POST /api/v1/events/{driver}` (and delivery events posted to the inbound URL) handle delivered, bounced, complained, opened, and clicked. Bounces and complaints auto-suppress and fire `email.<type>` webhooks. Domain recheck turns on Resend open and click tracking and asks for a `links` CNAME. Opens and clicks stay empty until that CNAME verifies and the Resend webhook includes `email.opened` and `email.clicked`. Delivery-delayed events are not handled |
 | API keys | ✅ | `md_…` Bearer keys with enforced permissions (Sending access = `POST /emails` only, else 403), single-domain scope, verified-sender check, per-key rate limit (`MAILDESK_API_RATE_LIMIT`/min, 429 + `Retry-After`/`X-RateLimit-*`), optional expiry and one-click rotation; "Export" button not implemented |
-| Public REST API | ✅ | `/api/v1` — emails, inbox, domains, contacts, segments, suppressions, templates, automation events |
+| Public REST API | ✅ | `/api/v1` — emails, inbox, mailboxes, domains, contacts, segments, suppressions, templates, automation events |
 | Webhooks | ✅ | Queued per endpoint with retries (5 attempts, 30 s → 30 min backoff) and per-attempt delivery history; SSRF-protected (https only outside local, private/internal addresses blocked on save and at delivery after DNS resolution, no redirects, 5 s timeout); HMAC-SHA256 signed (`X-MailDesk-Signature`, plus timestamped `X-MailDesk-Signature-V2`); test event button and owner/admin secret rotation |
 | Mailbox users | ✅ | Create / update / delete mailboxes per workspace; optional per-mailbox signature override |
 | Signatures | ✅ | Workspace signature (Settings → Signature) applied to compose, replies, forwards, API sends and broadcasts, each toggleable; per-mailbox override (`SignatureService`) |
@@ -112,6 +112,13 @@ All endpoints live under `/api/v1` and require `Authorization: Bearer md_…` (c
 | GET | `/api/v1/inbox/threads/{thread}` | Get a thread with messages |
 | POST | `/api/v1/inbound/{driver}` | Provider webhook for received mail (`resend` or `generic`); no API key, signature-verified |
 | POST | `/api/v1/events/{driver}` | Provider webhook for delivery events (delivered, bounced, complained, opened, clicked); no API key, signature-verified. The same events are also accepted on `POST /api/v1/inbound/{driver}` |
+| GET | `/api/v1/mailboxes` | List mailboxes (email addresses), plus `mailbox_limit` / `mailboxes_used` |
+| POST | `/api/v1/mailboxes` | Create a mailbox on a verified domain; returns its passwords once; `422` `errors.mailbox_limit` at the plan limit |
+| GET | `/api/v1/mailboxes/{mailbox}` | Get one mailbox |
+| DELETE | `/api/v1/mailboxes/{mailbox}` | Delete a mailbox (and its Stalwart account) |
+| GET | `/api/v1/mailboxes/{mailbox}/messages` | A mailbox's mail; filters `folder`, `direction`, `unread`; poll with `since_id` or `since` |
+| GET | `/api/v1/mailboxes/{mailbox}/messages/{message}` | One message (id or uuid) with text/html and attachments |
+| PATCH | `/api/v1/mailboxes/{mailbox}/messages/{message}/read` | Mark the message's thread read/unread |
 | GET | `/api/v1/domains` | List domains |
 | POST | `/api/v1/domains` | Add a domain |
 | GET | `/api/v1/contacts` | List contacts |
@@ -132,6 +139,65 @@ curl -X POST http://maildesk.test/api/v1/emails \
     "text": "It works"
   }'
 ```
+
+### Email addresses and inbox over the API
+
+Full-access keys only. Addresses can only be created on a verified domain of the key's workspace.
+
+```bash
+# Create an address (password optional; generated if omitted)
+curl -X POST https://<ws>.maildesk.ng/api/v1/mailboxes \
+  -H "Authorization: Bearer md_xxx" -H "Content-Type: application/json" \
+  -d '{ "email": "ict@acme.com", "name": "ICT Unit" }'
+# 201 → { "id": 13, "email": "ict@acme.com", ..., "password": "…", "mail_client": { "enabled": true, "app_password": "md_…", "imap": {…}, "smtp": {…} } }
+# 422 at the plan limit → { "message": "Your plan allows 5 email addresses and this workspace has 5. …",
+#                           "errors": { "mailbox_limit": [ … ] }, "mailbox_limit": 5, "mailboxes_used": 5 }
+
+# Inbox (newest first) and polling for new mail (oldest first after the last id you saw)
+curl "https://<ws>.maildesk.ng/api/v1/mailboxes/13/messages?folder=inbox&unread=1" -H "Authorization: Bearer md_xxx"
+curl "https://<ws>.maildesk.ng/api/v1/mailboxes/13/messages?since_id=5121"        -H "Authorization: Bearer md_xxx"
+curl "https://<ws>.maildesk.ng/api/v1/mailboxes/13/messages/5121"                 -H "Authorization: Bearer md_xxx"
+curl -X PATCH "https://<ws>.maildesk.ng/api/v1/mailboxes/13/messages/5121/read" \
+  -H "Authorization: Bearer md_xxx" -H "Content-Type: application/json" -d '{ "read": true }'
+```
+
+**Plan limits.** `plans.mailbox_limit` (admin Plans page, "Email addresses"; blank = unlimited) caps how many mailboxes a workspace on that plan can have. Trial workspaces without a plan use the platform setting **Email addresses during trial** (blank = unlimited). Both the Users page and `POST /api/v1/mailboxes` enforce it; workspaces already over the limit keep their mailboxes but cannot add more.
+
+**`email.received` webhook.** Fires when a message for one of the workspace's addresses is stored:
+
+```json
+{
+  "event": "email.received",
+  "data": {
+    "id": "9b1d6c0e-2f4a-4c55-8f7e-1b2a3c4d5e6f",
+    "thread_id": 311,
+    "mailbox": "ict@acme.com",
+    "mailbox_id": 13,
+    "from": "jane@customer.com",
+    "to": [{ "email": "ict@acme.com" }],
+    "subject": "Laptop request",
+    "status": "received"
+  },
+  "sent_at": "2026-11-17T09:12:02+00:00"
+}
+```
+
+Verify `X-MailDesk-Signature-V2` = hex HMAC-SHA256 of `"{X-MailDesk-Timestamp}.{raw body}"` keyed with the full `whsec_…` secret, compared in constant time, rejecting timestamps older than 5 minutes:
+
+```php
+$raw = file_get_contents('php://input');
+$ts  = $_SERVER['HTTP_X_MAILDESK_TIMESTAMP'] ?? '';
+$ok  = ctype_digit($ts) && abs(time() - (int) $ts) <= 300
+    && hash_equals(hash_hmac('sha256', $ts.'.'.$raw, $secret), $_SERVER['HTTP_X_MAILDESK_SIGNATURE_V2'] ?? '');
+```
+
+```js
+const expected = crypto.createHmac('sha256', secret).update(`${ts}.${rawBody}`).digest('hex');
+const ok = Math.abs(Date.now() / 1000 - Number(ts)) <= 300 && sig.length === expected.length
+  && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+```
+
+Then fetch the message with `GET /api/v1/mailboxes/{data.mailbox_id}/messages/{data.id}`. The full guide, with request and response examples, is on the in-app API docs page under **Email addresses & inbox**.
 
 ## Project structure
 

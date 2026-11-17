@@ -377,7 +377,9 @@ class InboundEmailTest extends TestCase
         $this->postGeneric()->assertCreated();
 
         Queue::assertPushed(DispatchWebhook::class, fn (DispatchWebhook $job) => $job->organizationId === $mailbox->organization_id
-            && $job->event === 'email.received');
+            && $job->event === 'email.received'
+            && $job->payload['mailbox_id'] === $mailbox->id
+            && $job->payload['mailbox'] === $mailbox->email);
     }
 
     public function test_generic_endpoint_rejects_wrong_secret(): void
